@@ -1,0 +1,2012 @@
+<script>
+// ===== PEACE Engineer Club — front-end (RBAC + multi-size + speed) =====
+
+// ── Boot error trap + watchdog (shows real errors on screen since the
+//    GAS sandbox console is not readable) ─────────────────────────────
+(function(){
+  function showBoot(label, detail){
+    var b=document.getElementById("app-container")||document.body;
+    if(!b)return;
+    var ph=document.getElementById("pre-header"); if(ph)ph.style.display="none";
+    var ps=document.getElementById("pre-skeleton"); if(ps)ps.style.display="none";
+    b.innerHTML='<pre style="white-space:pre-wrap;color:#fff;background:#7f1d1d;padding:12px;border-radius:8px;font-size:12px;margin:12px;border:1px solid rgba(255,255,255,.3)">'
+      +label+': '+String(detail||"unknown").replace(/[<>&]/g,function(c){return c==="<"?"&lt;":c===">"?"&gt;":"&amp;";})
+      +'<br><br><button onclick="try{renderLogin()}catch(e){location.reload()}" style="background:#fff;color:#7f1d1d;border:0;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer">ไปหน้าเข้าสู่ระบบ</button></pre>';
+  }
+  window.addEventListener("error",function(ev){
+    showBoot("BOOT ERROR",(ev.error&&ev.error.stack)||ev.message);
+  });
+  window.addEventListener("unhandledrejection",function(ev){
+    showBoot("PROMISE ERROR",(ev.reason&&(ev.reason.stack||ev.reason.message))||ev.reason);
+  });
+  // Watchdog: if nothing has rendered (still on pre-skeleton) after 8s, stop
+  // hanging silently and offer the login screen.
+  window.__bootWatchdog=setTimeout(function(){
+    var ps=document.getElementById("pre-skeleton");
+    var stillSkeleton=ps&&ps.style.display!=="none";
+    if(stillSkeleton){
+      try{ if(typeof renderLogin==="function"){renderLogin("โหลดนานผิดปกติ กรุณาเข้าสู่ระบบใหม่"); return;} }catch(e){}
+      showBoot("โหลดนานผิดปกติ","ระบบไม่ตอบสนอง (อาจเชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ)");
+    }
+  },8000);
+})();
+
+// ── State ────────────────────────────────────────────────────────────
+let appData = null;
+let appDataStale = true;
+let prefetchPromise = null;
+let me = null;
+let authToken = null;
+let guestMode = false;
+
+let regionChart = null;
+let sizeChart = null;
+let chartJsLoading = null;
+
+let listFilterTimer = null;
+let pendingImageBase64 = "";
+let pendingSlipBase64 = "";
+const imageProxyCache = {};
+let activeDropdown = null;
+const dropdownRegistry = {};
+
+const FILTER_DEBOUNCE_MS = 200;
+const TOKEN_KEY = "peace_token_v1";
+const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=PEACE+Engineer+Club";
+
+const NAV = [
+  { id:"stock", label:"สต็อก", icon:"fa-boxes" },
+  { id:"orders", label:"บันทึกขาย", icon:"fa-plus-circle" },
+  { id:"list", label:"รายการขาย", icon:"fa-list" },
+  { id:"dashboard", label:"แดชบอร์ด", icon:"fa-chart-pie" },
+  { id:"report", label:"รายงาน", icon:"fa-file-alt" },
+  { id:"admin", label:"แอดมิน", icon:"fa-cog", adminOnly:true }
+];
+
+// ── Server bridge ────────────────────────────────────────────────────
+function callServer(method) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[method].apply(null, args);
+  });
+}
+
+function callAuthed(method) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return callServer.apply(null, [method, authToken].concat(args));
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function invalidateClientCache() { appDataStale = true; }
+
+// ── Saving / loading indicators ──────────────────────────────────────
+// Floating glassmorphism "กำลังบันทึก…" toast (ref-counted so overlapping
+// async actions don't hide each other early) + per-button spinner + a
+// double-submit guard. Purely additive UI; never touches RBAC/me logic.
+let busyCount = 0;
+function showBusy(text){
+  busyCount++;
+  let el=document.getElementById("global-busy");
+  if(!el){
+    el=document.createElement("div");
+    el.id="global-busy";
+    el.className="glass-busy";
+    el.setAttribute("role","status");
+    el.setAttribute("aria-live","polite");
+    el.innerHTML='<span class="glass-busy-spinner" aria-hidden="true"></span><span class="glass-busy-text"></span>';
+    document.body.appendChild(el);
+  }
+  const t=el.querySelector(".glass-busy-text");
+  if(t)t.textContent=text||"กำลังบันทึก…";
+  // force reflow so the entrance transition runs even on rapid re-show
+  void el.offsetWidth;
+  el.classList.add("show");
+  return el;
+}
+function hideBusy(force){
+  busyCount=force?0:Math.max(0,busyCount-1);
+  if(busyCount>0)return;
+  const el=document.getElementById("global-busy");
+  if(el)el.classList.remove("show");
+}
+function setBtnLoading(btn,loading,text){
+  if(!btn||typeof btn!=="object")return;
+  if(loading){
+    if(btn.dataset.busy==="1")return;
+    btn.dataset.busy="1";
+    btn.dataset.origHtml=btn.innerHTML;
+    if(btn.disabled)btn.dataset.wasDisabled="1";
+    btn.disabled=true;
+    btn.classList.add("is-loading");
+    btn.setAttribute("aria-busy","true");
+    const label=(text===undefined||text===null)?"กำลังบันทึก…":text;
+    btn.innerHTML='<span class="btn-spinner" aria-hidden="true"></span>'+(label?('<span>'+escHtml(label)+'</span>'):'');
+  }else{
+    if(btn.dataset.busy!=="1")return;
+    btn.classList.remove("is-loading");
+    btn.removeAttribute("aria-busy");
+    if(btn.dataset.origHtml!==undefined)btn.innerHTML=btn.dataset.origHtml;
+    btn.disabled=btn.dataset.wasDisabled==="1";
+    delete btn.dataset.busy;
+    delete btn.dataset.origHtml;
+    delete btn.dataset.wasDisabled;
+  }
+}
+// Wrap an async backend action with: double-submit guard, button spinner,
+// and the floating busy toast. Returns the action's resolved value (or
+// undefined when a duplicate submit is blocked). Errors propagate so the
+// caller's existing catch/showMsg behaviour stays intact.
+async function runSaving(opts, fn){
+  opts=opts||{};
+  const btn=(opts.btn&&typeof opts.btn==="object")?opts.btn:null;
+  if(btn&&btn.dataset.busy==="1")return;
+  const busyText=opts.busyText||"กำลังบันทึก…";
+  const showToast=opts.toast!==false;
+  setBtnLoading(btn,true,(opts.btnText!==undefined)?opts.btnText:busyText);
+  if(showToast)showBusy(busyText);
+  try{
+    return await fn();
+  }finally{
+    if(showToast)hideBusy();
+    setBtnLoading(btn,false);
+  }
+}
+
+function ensureAppData(force) {
+  if (!force && appData && !appDataStale) return Promise.resolve(appData);
+  const loader = guestMode ? callServer("getGuestStockData") : callAuthed("getBootstrapData");
+  return loader.then(async data => {
+    if(!data){
+      appDataStale=true;
+      throw new Error("กรุณาเข้าสู่ระบบใหม่");
+    }
+    // Round-image resolution must NEVER be able to reject the whole bootstrap:
+    // a single bad image ref would otherwise blank every module (list/admin/…).
+    try{
+    if(data&&data.round){
+      const round=data.round;
+      const imageRef=String(round.imageUrl||"").trim();
+      round.imageRef=imageRef;
+      round.imageDataThumb=String(round.imageDataThumb||"");
+      let displayUrl="";
+      let sourceMode="";
+      let warning="";
+      if(round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl)){
+        displayUrl=String(round.imageDisplayUrl);
+        sourceMode=String(round.imageSourceMode||"proxy");
+      }else if(extractDriveFileId(imageRef)){
+        const resolved=await resolveRoundImageForDisplay(imageRef,!!force);
+        if(resolved.url&&!isPlaceholderImage(resolved.url)){
+          displayUrl=resolved.url;
+          sourceMode="proxy";
+        }
+        warning=resolved.warning||"";
+        if(!displayUrl&&round.imageDataThumb&&isDataUrl(round.imageDataThumb)){
+          displayUrl=round.imageDataThumb;
+          sourceMode="thumb";
+        }
+      }else if(isValidRoundUrl(imageRef)){
+        displayUrl=imageRef;
+        sourceMode="url";
+      }else if(round.imageDataThumb&&isDataUrl(round.imageDataThumb)){
+        displayUrl=round.imageDataThumb;
+        sourceMode="thumb";
+      }else{
+        displayUrl=SHIRT_PLACEHOLDER_URL;
+        sourceMode="placeholder";
+      }
+      round.imageDisplayUrl=displayUrl;
+      round.imageSourceMode=sourceMode;
+      round.imageWarning=warning;
+      round.imageDebug="mode="+sourceMode+(warning?(" | "+warning):"");
+      round.imageDisplaySrc=withCacheBust(displayUrl,data.generatedAt||Date.now());
+    }
+    }catch(imgErr){
+      // Fall back to a safe placeholder; never break data loading over an image.
+      if(data&&data.round){
+        data.round.imageDisplayUrl=SHIRT_PLACEHOLDER_URL;
+        data.round.imageSourceMode="placeholder";
+        data.round.imageDisplaySrc=SHIRT_PLACEHOLDER_URL;
+        data.round.imageWarning="โหลดรูปไม่สำเร็จ";
+      }
+    }
+    appData = data;
+    appDataStale = false;
+    // Update the signed-in identity, but NEVER downgrade/clear a known role:
+    // a malformed me (missing role) must not hide the admin tab or scope away data.
+    if(data && data.me){
+      if(data.me.role){ me = data.me; }
+      else if(me && me.role){ me = Object.assign({}, data.me, {role: me.role}); }
+      else { me = data.me; }
+    }
+    return appData;
+  });
+}
+
+function prefetchAppData() {
+  if (!prefetchPromise) prefetchPromise = ensureAppData(false);
+  return prefetchPromise;
+}
+
+function loadChartJs() {
+  if (window.Chart) return Promise.resolve();
+  if (chartJsLoading) return chartJsLoading;
+  chartJsLoading = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/chart.js";
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("โหลด Chart.js ไม่สำเร็จ"));
+    document.head.appendChild(s);
+  });
+  return chartJsLoading;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+function isPlaceholderImage(url){return !url || String(url).indexOf("placehold.co")>-1}
+function isDataUrl(url){return /^data:/i.test(String(url||"").trim())}
+function sizeClass(s){return "size-"+String(s).replace(/\s/g,"")}
+function statusClass(s){return s==="รับแล้ว"?"status-รับแล้ว":s==="รอโอน"?"status-รอโอน":"status-รอรับ"}
+function changeRequestStatusThai(s){
+  const v=String(s||"none").toLowerCase();
+  if(v==="pending")return "รออนุมัติ";
+  if(v==="approved")return "อนุมัติแล้ว";
+  if(v==="rejected")return "ไม่อนุมัติ";
+  return "ไม่มี";
+}
+function changeRequestBadgeClass(s){
+  const v=String(s||"none").toLowerCase();
+  if(v==="pending")return "status-รอโอน";
+  if(v==="approved")return "status-รับแล้ว";
+  if(v==="rejected")return "status-รอรับ";
+  return "status-รอรับ";
+}
+function regionShort(r){return String(r||"").trim()}
+function fmtMoney(n){return Number(n||0).toLocaleString()}
+function todayStr(){return new Date().toISOString().split("T")[0]}
+function nowTimeStr(){return new Date().toTimeString().split(" ")[0].substring(0,5)}
+
+// ── Thai date/time formatting (Buddhist year = CE+543) ────────────────
+// Backend sends payDate/payTime as raw String(cell): a date cell becomes a
+// JS Date.toString() like "Fri May 29 2026 00:00:00 GMT+0700 (Indochina Time)",
+// while a time-only cell serializes with the Sheets epoch "Sat Dec 30 1899 08:57:00".
+// We parse defensively, avoid timezone shifts by reading literal parts, and
+// treat the 1899 epoch (year < 1900) as "no real date".
+const TH_MONTHS_ABBR=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const EN_MONTHS_ABBR=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function pad2(n){return ("0"+n).slice(-2)}
+function formatThaiDate(v){
+  if(v instanceof Date){if(isNaN(v.getTime())||v.getFullYear()<1900)return "-";return v.getDate()+" "+TH_MONTHS_ABBR[v.getMonth()]+" "+(v.getFullYear()+543)}
+  const s=String(v==null?"":v).trim();
+  if(!s)return "-";
+  // ISO date (YYYY-MM-DD[...]) — read literally to avoid TZ off-by-one
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m){const y=+m[1];if(y<1900)return "-";return (+m[3])+" "+TH_MONTHS_ABBR[(+m[2])-1]+" "+(y+543)}
+  // JS Date.toString() form: "Fri May 29 2026 ..." — read literally
+  m=s.match(/^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})/);
+  if(m){const mo=EN_MONTHS_ABBR.indexOf(m[1]);if(mo<0)return "-";const y=+m[3];if(y<1900)return "-";return (+m[2])+" "+TH_MONTHS_ABBR[mo]+" "+(y+543)}
+  // Fallback: native parse
+  const d=new Date(s);
+  if(isNaN(d.getTime())||d.getFullYear()<1900)return "-";
+  return d.getDate()+" "+TH_MONTHS_ABBR[d.getMonth()]+" "+(d.getFullYear()+543);
+}
+function formatThaiTime(v){
+  if(v instanceof Date){if(isNaN(v.getTime()))return "";return pad2(v.getHours())+":"+pad2(v.getMinutes())+" น."}
+  const s=String(v==null?"":v).trim();
+  if(!s)return "";
+  // Grab HH:MM literally (handles "08:57", "08:57:00", and the 1899 epoch string)
+  const m=s.match(/(\d{1,2}):(\d{2})/);
+  if(m)return pad2(+m[1])+":"+m[2]+" น.";
+  return "";
+}
+// Combined two-line (date / time) cell for the order list
+function formatThaiDateTimeCell(dateVal,timeVal){
+  const d=formatThaiDate(dateVal);
+  const t=formatThaiTime(timeVal);
+  if(d==="-"&&!t)return '<span class="text-glass-dim">-</span>';
+  const dateLine=d==="-"?'<span class="text-glass-dim">-</span>':escHtml(d);
+  const timeLine=t?`<div class="text-xs text-glass-muted">${escHtml(t)}</div>`:"";
+  return `<div>${dateLine}</div>${timeLine}`;
+}
+function isAdmin(){return me&&me.role==="admin"}
+function isGuest(){return me&&me.role==="guest"}
+function escHtml(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function noteInputId(orderId){return "order-note-"+String(orderId||"").replace(/[^a-zA-Z0-9_-]/g,"_")}
+
+function extractDriveFileId(ref){
+  const s=String(ref||"").trim();
+  if(!s)return "";
+  const marker=s.match(/^drivefile:([a-zA-Z0-9_-]+)/i);
+  if(marker&&marker[1])return marker[1];
+  const q=s.match(/[?&]id=([^&]+)/i);
+  if(q&&q[1])return q[1];
+  const d=s.match(/\/d\/([^/?#]+)/i);
+  if(d&&d[1])return d[1];
+  return "";
+}
+
+function clearRoundImageProxyCache(imageRef){
+  const id=extractDriveFileId(imageRef);
+  if(id)delete imageProxyCache[id];
+}
+
+async function resolveRoundImageForDisplay(imageRef, bustCache){
+  const raw=String(imageRef||"").trim();
+  if(!raw)return {url:SHIRT_PLACEHOLDER_URL};
+  if(isDataUrl(raw))return {url:raw};
+  const fileId=extractDriveFileId(raw);
+  if(!fileId)return {url:raw};
+  if(!bustCache&&imageProxyCache[fileId])return {url:imageProxyCache[fileId],cached:true};
+  try{
+    const res=guestMode
+      ? await callServer("getImageProxy",fileId)
+      : await callAuthed("getImageProxy",fileId);
+    if(res&&res.ok&&res.dataUrl){
+      imageProxyCache[fileId]=res.dataUrl;
+      return {url:res.dataUrl,cached:!!res.cached};
+    }
+    const serverErr=res&&res.error?(" ("+res.error+")"):"";
+    return {url:SHIRT_PLACEHOLDER_URL,warning:((res&&res.warning)||"โหลดรูปไม่สำเร็จ")+serverErr};
+  }catch(e){
+    return {url:SHIRT_PLACEHOLDER_URL,warning:e&&e.message?e.message:"โหลดรูปไม่สำเร็จ"};
+  }
+}
+
+function withCacheBust(url, stamp){
+  const raw=String(url||"").trim();
+  if(!raw||isDataUrl(raw))return raw;
+  const t=encodeURIComponent(String(stamp||Date.now()));
+  return raw+(raw.indexOf("?")>-1?"&":"?")+"t="+t;
+}
+
+function isValidRoundUrl(url){
+  const s=String(url||"").trim();
+  if(!s)return false;
+  if(isPlaceholderImage(s))return false;
+  if(/^drivefile:/i.test(s))return false;
+  return /^https?:\/\//i.test(s)||isDataUrl(s);
+}
+
+function setImageDebug(message){
+  if(!isAdmin())return;
+  const text=String(message||"").trim();
+  if(appData&&appData.round)appData.round.imageDebug=text;
+  const el=document.getElementById("admin-image-debug");
+  if(el){
+    const mode=(appData&&appData.round&&appData.round.imageSourceMode)||"placeholder";
+    el.textContent="mode="+mode+(text?(" | "+text):"");
+  }
+}
+
+function updateRoundImageElements(displayUrl, sourceRef, bustStamp){
+  const src=withCacheBust(displayUrl, bustStamp||Date.now());
+  const ref=String(sourceRef||"");
+  const stockImg=document.getElementById("stock-shirt-image");
+  const adminImg=document.getElementById("admin-image-preview");
+  if(stockImg){
+    stockImg.setAttribute("data-image-ref",ref);
+    stockImg.src=src||SHIRT_PLACEHOLDER_URL;
+  }
+  if(adminImg){
+    adminImg.setAttribute("data-image-ref",ref);
+    adminImg.src=src||SHIRT_PLACEHOLDER_URL;
+  }
+  return src||SHIRT_PLACEHOLDER_URL;
+}
+
+function statusOptions(selected){
+  return (appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"]).map(s=>
+    `<option value="${s}" ${selected===s?"selected":""}>${s}</option>`).join("");
+}
+
+function ddSafeId(s){return String(s||"").replace(/[^a-zA-Z0-9_-]/g,"_")}
+
+// Custom glass dropdown: in-DOM host holds a hidden input + toggle button.
+// The options panel is created on open and appended to <body> as position:fixed,
+// so it is never clipped by glass-card overflow and never clashes with the submit bar.
+function buildGlassDropdown(config){
+  const ddId=config.ddId;
+  dropdownRegistry[ddId]={options:config.options||[],compact:!!config.compact,onSelect:config.onSelect||null};
+  const compactCls=config.compact?"glass-dd-compact":"";
+  const statusCls=config.statusCls||"";
+  return `<div class="glass-dd ${compactCls} ${statusCls}" id="${ddId}">
+    <input type="hidden" id="${config.valueInputId}" value="${escHtml(config.value)}">
+    <button type="button" class="glass-dd-toggle" aria-haspopup="listbox" aria-expanded="false" onclick="app.toggleDropdown('${ddId}',event)">
+      <span class="glass-dd-label" id="${ddId}-label">${escHtml(config.value)}</span>
+      <i class="fas fa-chevron-down glass-dd-caret" aria-hidden="true"></i>
+    </button>
+  </div>`;
+}
+
+function skeletonHtml(module){
+  const blocks = (module==="dashboard"||module==="report")
+    ? `<div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-chart"></div><div class="skeleton skeleton-chart"></div>`
+    : `<div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-table"></div>`;
+  return `<div class="skeleton-wrap space-y-4 fade-in">${blocks}</div>`;
+}
+
+function recalcStockFromOrders(){
+  if(!appData?.stock||!appData?.orders)return;
+  const sold={};
+  appData.stockSizes.forEach(s=>{sold[s]=0});
+  appData.orders.forEach(o=>{if(sold[o.size]!==undefined)sold[o.size]+=o.qty});
+  appData.stock.forEach(s=>{s.sold=sold[s.size]||0;s.remaining=Math.max(s.delivered-s.sold,0)});
+}
+
+function groupOrdersByOrderId(orders){
+  const map={};
+  const order=[];
+  (Array.isArray(orders)?orders:[]).forEach(o=>{
+    if(!o)return;
+    const oid=o.orderId||("ORD-"+o.no);
+    if(!map[oid]){
+      map[oid]={
+        orderId:oid,
+        region:o.region,
+        payDate:o.payDate,
+        payTime:o.payTime,
+        status:o.orderStatus||o.status,
+        note:o.note||"",
+        requestedChange:o.requestedChange||"",
+        changeRequestStatus:o.changeRequestStatus||"none",
+        changeRequestNote:o.changeRequestNote||"",
+        slipName:o.slipName,
+        slipUrl:o.slipUrl,
+        timestamp:o.timestamp,
+        items:[],
+        totalQty:0,
+        totalPrice:0,
+        firstNo:o.no
+      };
+      order.push(oid);
+    }
+    map[oid].items.push({size:o.size,qty:o.qty,no:o.no,price:o.price});
+    map[oid].totalQty+=o.qty;
+    map[oid].totalPrice+=o.price;
+    if(o.no<map[oid].firstNo)map[oid].firstNo=o.no;
+  });
+  return order.map(id=>map[id]);
+}
+
+// ── Dashboard / report compute ──────────────────────────────────────
+function computeDashboard(regionFilter){
+  const all=appData?.orders||[];
+  const orders=(regionFilter&&regionFilter!=="all")?all.filter(o=>o.region===regionFilter):all;
+  const regions=appData?.regions||[];
+  const byRegion={};
+  regions.forEach(r=>{byRegion[r]={qty:0,amount:0}});
+  const bySize={};
+  (appData?.stockSizes||[]).forEach(s=>{bySize[s]=0});
+  let totalShirts=0,totalMoney=0,pendingPayment=0,pendingPickup=0,pickedUp=0;
+  const orderIdSet={};
+  for(let i=0;i<orders.length;i++){
+    const o=orders[i];
+    totalShirts+=o.qty;
+    totalMoney+=o.price;
+    if(o.status==="รอโอน")pendingPayment+=o.qty;
+    else if(o.status==="รอรับ")pendingPickup+=o.qty;
+    else if(o.status==="รับแล้ว")pickedUp+=o.qty;
+    if(!byRegion[o.region])byRegion[o.region]={qty:0,amount:0};
+    byRegion[o.region].qty+=o.qty;
+    byRegion[o.region].amount+=o.price;
+    if(bySize[o.size]!==undefined)bySize[o.size]+=o.qty;
+    orderIdSet[o.orderId||o.no]=1;
+  }
+  return {totalShirts,totalMoney,pendingPayment,pendingPickup,pickedUp,
+    orderCount:Object.keys(orderIdSet).length,
+    regionLabels:regions,
+    regionQtys:regions.map(r=>byRegion[r].qty),
+    regionAmounts:regions.map(r=>byRegion[r].amount),
+    sizeLabels:appData?.stockSizes||[],
+    sizeQtys:(appData?.stockSizes||[]).map(s=>bySize[s]||0),
+    stock:appData?.stock||[],
+    unitPrice:appData?.unitPrice||0};
+}
+
+function computeSalesReport(){
+  const orders=appData?.orders||[];
+  const regions=appData?.regions||[];
+  const sizes=appData?.stockSizes||[];
+  const regionAcc={};
+  regions.forEach(r=>{
+    const bs={};sizes.forEach(s=>{bs[s]=0});
+    regionAcc[r]={totalQty:0,totalAmount:0,orderIds:{},bySize:bs};
+  });
+  let totalQty=0,totalAmount=0,pendingCount=0,pendingQty=0;
+  const allOrderIds={};
+  for(let i=0;i<orders.length;i++){
+    const o=orders[i];
+    totalQty+=o.qty;
+    totalAmount+=o.price;
+    const oid=o.orderId||o.no;
+    allOrderIds[oid]=1;
+    if(o.status==="รอโอน"){pendingCount++;pendingQty+=o.qty}
+    const acc=regionAcc[o.region];
+    if(acc){
+      acc.totalQty+=o.qty;
+      acc.totalAmount+=o.price;
+      acc.orderIds[oid]=1;
+      if(acc.bySize[o.size]!==undefined)acc.bySize[o.size]+=o.qty;
+    }
+  }
+  const byRegion=regions.map(r=>({
+    region:r,shortName:r,
+    totalQty:regionAcc[r].totalQty,
+    totalAmount:regionAcc[r].totalAmount,
+    orderCount:Object.keys(regionAcc[r].orderIds).length,
+    bySize:regionAcc[r].bySize
+  }));
+  const stock=appData?.stock||[];
+  return {byRegion,stock,
+    stockTotalRemaining:stock.reduce((s,x)=>s+x.remaining,0),
+    pendingPayment:{count:pendingCount,totalQty:pendingQty},
+    totals:{totalQty,totalAmount,orderCount:Object.keys(allOrderIds).length,regionCount:regions.length},
+    unitPrice:appData?.unitPrice||0};
+}
+
+// ── Login screen ─────────────────────────────────────────────────────
+function renderLogin(errMsg){
+  document.getElementById("pre-header").style.display="none";
+  document.getElementById("pre-skeleton").style.display="none";
+  document.getElementById("app-header").classList.add("hidden");
+  const c=document.getElementById("app-container");
+  c.innerHTML=`
+    <div class="login-overlay">
+      <div class="login-card">
+        <div class="login-title"><i class="fas fa-tshirt mr-2" style="color:#F59E0B"></i>PEACE Engineer Club</div>
+        <div class="login-sub">ระบบจัดการขายเสื้อชมรม กฟภ.</div>
+        <div class="space-y-3">
+          <div>
+            <label class="glass-label">ชื่อผู้ใช้</label>
+            <input id="login-username" class="glass-input" autocomplete="username" placeholder="เช่น admin1 หรือ user_n1">
+          </div>
+          <div>
+            <label class="glass-label">รหัสผ่าน</label>
+            <input id="login-password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
+          </div>
+          <button id="login-btn" onclick="doLogin()" class="glass-btn-primary w-full" style="padding:.75rem">
+            <i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ
+          </button>
+          <button onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
+            <i class="fas fa-user-clock mr-1"></i> Log in as Guest
+          </button>
+          <div id="login-msg" class="text-xs text-center">${errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:''}</div>
+        </div>
+      </div>
+    </div>`;
+  setTimeout(()=>{
+    const u=document.getElementById("login-username");
+    if(u)u.focus();
+    const p=document.getElementById("login-password");
+    if(p){
+      p.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
+    }
+  },50);
+}
+
+async function doLogin(){
+  const u=document.getElementById("login-username")?.value||"";
+  const p=document.getElementById("login-password")?.value||"";
+  const btn=document.getElementById("login-btn");
+  const msg=document.getElementById("login-msg");
+  if(!u||!p){if(msg)msg.innerHTML='<span style="color:#FCA5A5">กรอกชื่อผู้ใช้และรหัสผ่าน</span>';return}
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="fas fa-spinner fa-spin mr-1"></i> กำลังเข้าสู่ระบบ...'}
+  try{
+    const res=await callServer("login",u,p);
+    guestMode=false;
+    authToken=res.token;
+    me={username:res.username,role:res.role,region:res.region,displayName:res.displayName};
+    try{localStorage.setItem(TOKEN_KEY,authToken)}catch(_){}
+    bootApp();
+  }catch(e){
+    if(msg)msg.innerHTML=`<span style="color:#FCA5A5">${escHtml(e.message||"เข้าสู่ระบบไม่สำเร็จ")}</span>`;
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ'}
+  }
+}
+
+function doGuestLogin(){
+  guestMode=true;
+  authToken=null;
+  me={username:"guest",role:"guest",region:"",displayName:"Guest"};
+  try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+  bootApp();
+}
+
+async function doLogout(){
+  if(!confirm("ออกจากระบบ?"))return;
+  const t=authToken;
+  guestMode=false;
+  authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
+  try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+  try{await callServer("logout",t)}catch(_){}
+  renderLogin();
+}
+
+function bootApp(){
+  document.getElementById("pre-header").style.display="none";
+  document.getElementById("pre-skeleton").style.display="none";
+  document.getElementById("app-header").classList.remove("hidden");
+  renderUserChip();
+  app.renderNav();
+  app.container.innerHTML=skeletonHtml("stock");
+  appDataStale=true;prefetchPromise=null;
+  prefetchAppData().then(()=>app.navigate("stock"))
+    .catch(e=>{
+      if(/เข้าสู่ระบบใหม่/.test(e&&e.message||"")){
+        authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
+        try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+        renderLogin("กรุณาเข้าสู่ระบบใหม่");
+        return;
+      }
+      app.container.innerHTML=`<div class="glass-msg-error text-center font-semibold">${escHtml(e&&e.message||"โหลดข้อมูลไม่สำเร็จ")}</div>`;
+    });
+}
+
+function renderUserChip(){
+  const chip=document.getElementById("user-info-chip");
+  if(!chip||!me)return;
+  const roleCls=me.role==="admin"?"role-badge-admin":(isGuest()?"role-badge-guest":"role-badge-user");
+  const roleLabel=me.role==="admin"?"แอดมิน":(isGuest()?"Guest":"ผู้ใช้");
+  const regionLabel=me.role==="admin"?"ทุกเขต":(isGuest()?"ดูสต็อกเท่านั้น":me.region);
+  chip.className="user-chip";
+  chip.innerHTML=`<span class="${roleCls}">${roleLabel}</span><span class="chip-name" style="font-weight:700">${escHtml(me.displayName||me.username)}</span><span class="chip-region">${escHtml(regionLabel)}</span><button onclick="doLogout()" title="ออกจากระบบ" class="chip-logout"><i class="fas fa-sign-out-alt"></i></button>`;
+  const adminBtn=document.getElementById("header-admin-btn");
+  const hdrBtns=document.getElementById("header-buttons");
+  if(hdrBtns)hdrBtns.style.display=isGuest()?"none":"flex";
+  if(adminBtn){
+    if(me.role==="admin")adminBtn.classList.remove("hidden");
+    else adminBtn.classList.add("hidden");
+  }
+}
+
+// ── App controller ───────────────────────────────────────────────────
+const app = {
+  container: null,
+  currentModule: "stock",
+
+  renderNav(){
+    const nav=document.getElementById("nav-tabs");
+    if(!nav)return;
+    nav.innerHTML=NAV.filter(n=>{
+      if(isGuest())return n.id==="stock";
+      return !n.adminOnly||isAdmin();
+    }).map(n=>
+      `<button class="nav-tab ${this.currentModule===n.id?"active":""}" onclick="app.navigate('${n.id}')"><i class="fas ${n.icon} mr-1"></i>${n.label}</button>`).join("");
+  },
+
+  async navigate(module, forceRefresh){
+    if(isGuest()&&module!=="stock")module="stock";
+    if(module==="admin"&&!isAdmin())module="stock";
+    this.currentModule=module;
+    this.renderNav();
+    const fresh=appData&&!appDataStale&&!forceRefresh;
+    if(!fresh)this.container.innerHTML=skeletonHtml(module);
+    try{
+      await ensureAppData(forceRefresh);
+    }catch(e){
+      if(/เข้าสู่ระบบใหม่/.test(e.message||"")){
+        authToken=null;me=null;
+        try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+        renderLogin("กรุณาเข้าสู่ระบบใหม่");
+        return;
+      }
+      this.container.innerHTML=`<div class="glass-msg-error text-center font-semibold">${escHtml(e.message||"โหลดข้อมูลไม่สำเร็จ")}</div>`;
+      return;
+    }
+    // Paint + per-module init are isolated so a single module's failure can
+    // never blank the nav (admin/settings tabs) or the whole app shell.
+    try{ this.paintModule(module); }
+    catch(e){ this.container.innerHTML=`<div class="glass-msg-error text-center font-semibold">${escHtml(e.message||"แสดงผลไม่สำเร็จ")}</div>`; }
+    try{
+      if(module==="orders")this.initOrderForm();
+      else if(module==="list")this.fillOrderListBody();
+      else if(module==="dashboard")await this.initDashboard();
+      else if(module==="report")this.initReport();
+      else if(module==="admin")this.initAdmin();
+    }catch(e){
+      this.showMsg&&this.showMsg(e.message||"เกิดข้อผิดพลาดในการแสดงผล","error");
+    }
+  },
+
+  paintModule(module){
+    this.closeDropdownPanel();
+    const content=document.createElement("div");
+    content.className="fade-in space-y-4";
+    switch(module){
+      case "stock":content.innerHTML=this.renderStock();break;
+      case "orders":content.innerHTML=this.renderOrderForm();break;
+      case "list":content.innerHTML=this.renderOrderList();break;
+      case "dashboard":content.innerHTML=this.renderDashboard();break;
+      case "report":content.innerHTML=this.renderReport();break;
+      case "admin":content.innerHTML=this.renderAdmin();break;
+      default:content.innerHTML=this.renderStock();
+    }
+    this.container.innerHTML="";
+    this.container.appendChild(content);
+  },
+
+  // ── Stock view ─────────────────────────────────────────────────────
+  renderStock(){
+    const round=appData.round, stock=appData.stock, sizeChartRows=appData.sizeChart;
+    const displayImage=(round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl))
+      ? withCacheBust(round.imageDisplayUrl,appData.generatedAt||Date.now())
+      : (isValidRoundUrl(round.imageUrl)
+          ? withCacheBust(round.imageUrl,appData.generatedAt||Date.now())
+          : ((round.imageDataThumb&&isDataUrl(round.imageDataThumb))
+              ? round.imageDataThumb
+              : SHIRT_PLACEHOLDER_URL));
+    const stockHeader=stock.map(s=>`<th class="stock-cell"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span></th>`).join("");
+    const deliveredRow=stock.map(s=>`<td class="stock-cell font-semibold">${s.delivered}</td>`).join("");
+    const soldRow=stock.map(s=>`<td class="stock-cell text-orange-glass">${s.sold}</td>`).join("");
+    const remainRow=stock.map(s=>{
+      const cls=s.remaining<=5?"text-red-glass font-bold":"text-green-glass font-bold";
+      return `<td class="stock-cell ${cls}">${s.remaining}</td>`;
+    }).join("");
+    const chartRows=sizeChartRows.map(r=>`<tr><td class="py-2 px-3"><span class="size-badge ${sizeClass(r.size)}">${r.size}</span></td><td class="py-2 px-3 text-center">${r.chest}</td><td class="py-2 px-3 text-center">${r.length}</td></tr>`).join("");
+    const stockMobileCards=stock.map(s=>{
+      const low=s.remaining<=5;
+      const remainCls=low?"text-red-glass":"text-green-glass";
+      return `<div class="stock-mobile-card ${low?'low':''}">
+        <div class="flex justify-between items-center" style="margin-bottom:.35rem"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><span class="font-bold ${remainCls}" style="font-size:1.1rem">${s.remaining}<span class="text-xs opacity-70">/${s.delivered}</span></span></div>
+        <div class="row"><span class="lbl">มาส่ง</span><span class="val">${s.delivered}</span></div>
+        <div class="row"><span class="lbl">ขายแล้ว</span><span class="val text-orange-glass">${s.sold}</span></div>
+        <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${s.remaining}</span></div>
+      </div>`;
+    }).join("");
+    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="absolute top-2 right-2 glass-btn-primary text-xs cursor-pointer" style="padding:.35rem .75rem;border-radius:9999px"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/*" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
+    const guestNote=isGuest()?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-info-circle mr-1"></i> โหมด Guest: ดูจำนวนเสื้อคงเหลือได้เท่านั้น</div></div>`:"";
+    const guestActions=isGuest()?"":`<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> บันทึกการขาย</button>
+        <button onclick="app.navigate('list')" class="glass-btn-secondary py-3"><i class="fas fa-list mr-1"></i> ดูรายการ (${appData.orders.length})</button>
+      </div>`;
+    const guestSizeChart=isGuest()?"":`<div class="glass-card p-4">
+        <h2 class="font-bold glass-section-title mb-3"><i class="fas fa-ruler mr-1"></i> ตารางไซส์ (Warrix)</h2>
+        <div class="overflow-x-auto glass-table-wrap">
+          <table class="glass-table w-full text-sm">
+            <thead><tr><th class="py-2 px-3 text-left">ขนาด</th><th class="py-2 px-3 text-center">รอบอก</th><th class="py-2 px-3 text-center">ยาว</th></tr></thead>
+            <tbody>${chartRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    return `
+      ${guestNote}
+      <div class="glass-card">
+        <div class="glass-card-header px-5 py-3 flex justify-between items-center">
+          <div><div class="text-xs opacity-80">รอบปี ${round.year}</div><h1 class="text-lg font-bold">${escHtml(round.name)}</h1></div>
+          <div class="text-right"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(round.unitPrice)} ฿</div></div>
+        </div>
+        <div class="p-4">
+          <div class="relative mb-4">
+            ${isPlaceholderImage(displayImage)
+              ? `<div class="glass-image-wrap flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
+              : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-80 object-contain rounded-lg glass-image-wrap">`}
+            ${adminUpload}
+          </div>
+        </div>
+      </div>
+      <div class="glass-card p-4">
+        <h2 class="font-bold glass-section-title mb-3"><i class="fas fa-boxes mr-1"></i> สรุปสต็อก รอบปี ${round.year}</h2>
+        <div class="stock-desktop-view overflow-x-auto glass-table-wrap">
+          <table class="stock-table w-full text-sm">
+            <thead><tr><th class="text-left px-2">รายการ</th>${stockHeader}</tr></thead>
+            <tbody>
+              <tr><td class="px-2 font-semibold text-glass-muted whitespace-nowrap">จำนวนที่มาส่ง</td>${deliveredRow}</tr>
+              <tr><td class="px-2 font-semibold text-glass-muted whitespace-nowrap">ขายแล้ว</td>${soldRow}</tr>
+              <tr class="glass-row-remain"><td class="px-2 font-bold text-green-glass whitespace-nowrap">คงเหลือ</td>${remainRow}</tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="stock-mobile-grid">${stockMobileCards}</div>
+      </div>
+      ${guestSizeChart}
+      ${guestActions}
+      <div id="msg-box"></div>`;
+  },
+
+  // ── Order form (multi-size) ────────────────────────────────────────
+  renderOrderForm(){
+    const isAdm=isAdmin();
+    let regionField;
+    if(isAdm){
+      let opts='<option value="">-- เลือกเขตที่สั่ง --</option>';
+      appData.regions.forEach(r=>{opts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
+      regionField=`<select id="order-region" class="glass-select">${opts}</select>`;
+    }else{
+      regionField=`<input id="order-region" class="glass-input glass-input-readonly" value="${escHtml(me.region)}" readonly><input id="order-region-hidden" type="hidden" value="${escHtml(me.region)}">`;
+    }
+    const sizeRows=appData.stock.map(s=>{
+      const out=s.remaining<=0;
+      return `<tr>
+        <td><span class="size-badge ${sizeClass(s.size)}">${s.size}</span></td>
+        <td>${out?'<span class="text-red-glass">หมด</span>':s.remaining}</td>
+        <td>
+          <button class="qty-btn" onclick="app.changeMultiQty('${s.size}',-1)" ${out?'disabled':''}>−</button>
+          <span class="qty-value" id="mq-${s.size}">0</span>
+          <button class="qty-btn" onclick="app.changeMultiQty('${s.size}',1)" ${out?'disabled':''}>+</button>
+        </td>
+        <td><span id="mp-${s.size}">0</span></td>
+      </tr>`;
+    }).join("");
+    return `
+      <div class="glass-card p-5">
+        <h2 class="text-lg font-bold glass-section-title mb-4 border-b glass-divider pb-2"><i class="fas fa-plus-circle mr-1"></i>บันทึกการขาย (สั่งหลายไซส์)</h2>
+        <div class="space-y-3">
+          <div>
+            <label class="glass-label">เขตที่สั่ง *</label>
+            ${regionField}
+          </div>
+          <div>
+            <label class="glass-label">เลือกไซส์และจำนวน *</label>
+            <div class="glass-table-wrap">
+              <table class="order-size-table">
+                <thead><tr><th>ไซส์</th><th>คงเหลือ</th><th>จำนวน</th><th>ราคา (฿)</th></tr></thead>
+                <tbody>${sizeRows}</tbody>
+                <tfoot>
+                  <tr style="background:rgba(127,29,29,.3);font-weight:700">
+                    <td colspan="2" style="text-align:right;padding-right:.75rem">รวมทั้งหมด:</td>
+                    <td><span id="multi-total-qty">0</span> ตัว</td>
+                    <td><span id="multi-total-price">0</span> ฿</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label class="glass-label">วันที่โอน</label><input id="order-date" type="date" value="${todayStr()}" class="glass-input"></div>
+            <div><label class="glass-label">เวลาโอน</label><input id="order-time" type="time" value="${nowTimeStr()}" class="glass-input"></div>
+          </div>
+          <div>
+            <label class="glass-label">สถานะ</label>
+            ${isAdm
+              ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"])})
+              : `<input id="order-status-fixed" class="glass-input glass-input-readonly" value="สั่งออเดอร์แล้ว" readonly>`}
+          </div>
+          <div>
+            <label class="glass-label">แนบสลิป (ไม่บังคับ)</label>
+            <input id="order-slip-file" type="file" accept="image/*" class="glass-input p-2 text-xs" onchange="app.previewSlipImage(this)">
+            <p id="order-slip-filename" class="text-xs text-glass opacity-70 mt-1"></p>
+            <div class="mt-2 hidden" id="order-slip-preview-wrap">
+              <img id="order-slip-preview" class="max-h-40 rounded-lg glass-image-wrap" alt="ตัวอย่างสลิป">
+            </div>
+          </div>
+          <div class="submit-bar">
+            <button onclick="app.submitMultiSizeOrder(this)" class="w-full glass-btn-primary py-3">
+              <i class="fas fa-save mr-1"></i> ยืนยันสั่งซื้อ
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="msg-box"></div>`;
+  },
+
+  initOrderForm(){
+    pendingSlipBase64="";
+    this.multiQtys={};
+    appData.stockSizes.forEach(s=>{this.multiQtys[s]=0});
+    this.updateMultiTotals();
+  },
+
+  changeMultiQty(size,delta){
+    if(!this.multiQtys)this.multiQtys={};
+    const s=appData.stock.find(x=>x.size===size);
+    if(!s)return;
+    const cur=this.multiQtys[size]||0;
+    const next=Math.max(0,Math.min(s.remaining,cur+delta));
+    this.multiQtys[size]=next;
+    const qEl=document.getElementById("mq-"+size);
+    if(qEl)qEl.textContent=next;
+    const pEl=document.getElementById("mp-"+size);
+    if(pEl)pEl.textContent=fmtMoney(next*(appData.unitPrice||0));
+    this.updateMultiTotals();
+  },
+
+  updateMultiTotals(){
+    let q=0,p=0;
+    const u=appData?.unitPrice||0;
+    Object.keys(this.multiQtys||{}).forEach(s=>{q+=this.multiQtys[s];p+=this.multiQtys[s]*u});
+    const qEl=document.getElementById("multi-total-qty");
+    const pEl=document.getElementById("multi-total-price");
+    if(qEl)qEl.textContent=q;
+    if(pEl)pEl.textContent=fmtMoney(p);
+  },
+
+  async previewSlipImage(input){
+    if(!(input.files&&input.files[0])){
+      pendingSlipBase64="";
+      document.getElementById("order-slip-filename").textContent="";
+      document.getElementById("order-slip-preview-wrap").classList.add("hidden");
+      return;
+    }
+    const file=input.files[0];
+    pendingSlipBase64=await fileToBase64(file);
+    document.getElementById("order-slip-filename").textContent=file.name+" ("+Math.round(file.size/1024)+" KB)";
+    const wrap=document.getElementById("order-slip-preview-wrap");
+    const img=document.getElementById("order-slip-preview");
+    if(img&&wrap){img.src=pendingSlipBase64;wrap.classList.remove("hidden")}
+  },
+
+  async submitMultiSizeOrder(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const items=Object.keys(this.multiQtys||{}).filter(s=>this.multiQtys[s]>0).map(s=>({size:s,qty:this.multiQtys[s]}));
+      if(items.length===0)return this.showMsg("กรุณาเลือกอย่างน้อย 1 ไซส์","error");
+      const region=isAdmin()
+        ? document.getElementById("order-region").value
+        : (document.getElementById("order-region-hidden")?.value||me.region);
+      if(!region)return this.showMsg("กรุณาเลือกเขต","error");
+      const payload={
+        region:region,
+        items:items,
+        payDate:document.getElementById("order-date").value,
+        payTime:document.getElementById("order-time").value
+      };
+      if(isAdmin()){
+        payload.status=document.getElementById("order-status").value;
+      }
+      if(pendingSlipBase64){payload.slipBase64=pendingSlipBase64}
+      else{
+        const slipInput=document.getElementById("order-slip-file");
+        if(slipInput&&slipInput.files&&slipInput.files[0]){
+          payload.slipBase64=await fileToBase64(slipInput.files[0]);
+        }
+      }
+      const total=items.reduce((s,x)=>s+x.qty,0);
+      const result=await runSaving({btn:btn,busyText:"กำลังบันทึกออเดอร์…"},async()=>{
+        const r=await callAuthed("addMultiSizeOrder",payload);
+        pendingSlipBase64="";
+        invalidateClientCache();
+        await ensureAppData(true);
+        return r;
+      });
+      this.showMsg(`บันทึกออเดอร์ ${total} ตัว (${items.length} ไซส์) เรียบร้อย`,"success");
+      if(result&&result.warning){
+        setTimeout(()=>this.showMsg(result.warning,"warning"),900);
+      }
+      setTimeout(()=>app.navigate("list"),1000);
+    }catch(e){
+      this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
+    }
+  },
+
+  // ── Order list (grouped by orderId) ─────────────────────────────────
+  renderOrderList(){
+    const grouped=groupOrdersByOrderId((appData&&Array.isArray(appData.orders))?appData.orders:[]).reverse();
+    let filterOpts='<option value="all">ทุกเขต</option>';
+    appData.regions.forEach(r=>{filterOpts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
+    const showFilter=isAdmin();
+    const body=grouped.length===0
+      ? '<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการขาย</td></tr>'
+      : "";
+    const pendingBlock=isAdmin()?this.renderPendingChangeRequestsSection():"";
+    return `
+      <div class="glass-card p-4">
+        <div class="flex justify-between items-center mb-4 border-b glass-divider pb-2">
+          <h2 class="text-lg font-bold glass-section-title"><i class="fas fa-list mr-1"></i>รายการขาย (${grouped.length} ออเดอร์)</h2>
+          <button onclick="app.navigate('orders')" class="text-xs glass-btn-primary"><i class="fas fa-plus"></i> เพิ่ม</button>
+        </div>
+        ${showFilter?`<div class="mb-3"><select id="list-filter" onchange="app.filterList()" class="glass-select p-2 text-sm w-full">${filterOpts}</select></div>`:""}
+        <div class="order-list-table-wrap overflow-x-auto glass-table-wrap">
+          <table class="glass-table w-full text-xs" id="order-table">
+            <thead><tr>
+              <th class="py-2 px-2">ออเดอร์</th>
+              <th class="py-2 px-2">เขต</th>
+              <th class="py-2 px-2">รายการ</th>
+              <th class="py-2 px-2">รวม</th>
+              <th class="py-2 px-2">วันที่/เวลา</th>
+              <th class="py-2 px-2">สถานะ</th>
+              <th class="py-2 px-2">คำขอแก้ไข</th>
+              <th class="py-2 px-2">สลิป</th>
+              <th class="py-2 px-1"></th>
+            </tr></thead>
+            <tbody id="order-tbody">${body}</tbody>
+          </table>
+        </div>
+      </div>
+      ${pendingBlock}
+      <div id="msg-box"></div>`;
+  },
+
+  renderPendingChangeRequestsSection(){
+    return `
+      <div class="glass-card p-4">
+        <div class="flex justify-between items-center mb-3 border-b glass-divider pb-2">
+          <h3 class="text-base font-bold glass-section-title"><i class="fas fa-clipboard-check mr-1"></i>คำขอแก้ไขจำนวนรออนุมัติ</h3>
+          <button class="glass-btn-secondary text-xs" onclick="app.loadPendingChangeRequests()"><i class="fas fa-sync-alt"></i> รีเฟรช</button>
+        </div>
+        <div id="pending-change-list" class="space-y-2 text-sm text-glass-dim">กำลังโหลด...</div>
+      </div>`;
+  },
+
+  fillOrderListBody(){
+    const tbody=document.getElementById("order-tbody");
+    if(!tbody)return;
+    const orders=(appData&&Array.isArray(appData.orders))?appData.orders:[];
+    const grouped=groupOrdersByOrderId(orders).reverse();
+    if(grouped.length===0)return;
+    // Render each order group independently so one malformed order can never
+    // blank the entire list (a single thrown row would otherwise empty it).
+    tbody.innerHTML=grouped.map(g=>{
+      try{return this.orderGroupRowHtml(g);}
+      catch(e){
+        const oid=escHtml((g&&g.orderId)||"?");
+        return `<tr data-region="${escHtml((g&&g.region)||"")}"><td colspan="9" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
+      }
+    }).join("");
+    if(isAdmin()){
+      try{this.loadPendingChangeRequests();}catch(_){}
+    }
+  },
+
+  orderGroupRowHtml(g){
+    const statusCls=statusClass(g.status);
+    const noteId=noteInputId(g.orderId);
+    const canEditStatus=isAdmin();
+    const changeText=changeRequestStatusThai(g.changeRequestStatus);
+    const changeCls=changeRequestBadgeClass(g.changeRequestStatus);
+    const itemsLabel=`<div class="order-items">${g.items.map(it=>`<span class="order-item"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span><span class="order-item-qty">×${it.qty}</span></span>`).join("")}</div>`;
+    const canManageImage=!isGuest()&&(isAdmin()||(me&&String(me.region)===String(g.region)));
+    const slipSafeId=ddSafeId(g.orderId);
+    let slipCell;
+    if(g.slipUrl){
+      slipCell=`<div class="order-slip-actions">
+        <button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="app.viewOrderImage('${escHtml(g.orderId)}',this)"><i class="fas fa-eye"></i> ดูรูป</button>
+        ${canManageImage?`<button class="glass-btn-danger text-xs" style="padding:.3rem .55rem" onclick="app.deleteOrderImage('${escHtml(g.orderId)}',this)"><i class="fas fa-trash"></i> ลบรูป</button>`:""}
+      </div>`;
+    }else if(canManageImage){
+      slipCell=`<div class="order-slip-actions">
+        <input id="order-img-file-${slipSafeId}" type="file" accept="image/*" class="hidden" onchange="app.uploadOrderImage('${escHtml(g.orderId)}',this)">
+        <button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="document.getElementById('order-img-file-${slipSafeId}').click()"><i class="fas fa-upload"></i> แนบรูป</button>
+      </div>`;
+    }else{
+      slipCell='<span class="text-glass-dim text-xs">-</span>';
+    }
+    const shortId=String(g.orderId).replace(/^ORD-?/,"").substring(0,8);
+    return `
+      <tr data-region="${escHtml(g.region)}">
+        <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold">#${shortId}</td>
+        <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
+        <td data-label="รายการ" class="py-2 px-2">${itemsLabel}</td>
+        <td data-label="รวม" class="py-2 px-2 text-center"><div class="font-bold">${g.totalQty} ตัว</div><div class="text-xs opacity-80">${fmtMoney(g.totalPrice)} ฿</div></td>
+        <td data-label="วันที่/เวลา" class="py-2 px-2 text-center text-xs">${formatThaiDateTimeCell(g.payDate,g.payTime)}</td>
+        <td data-label="สถานะ" class="py-2 px-2 text-center">
+          ${canEditStatus
+            ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:g.status||"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"]),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
+            : `<span class="inline-block px-2 py-1 rounded-lg text-xs ${statusCls}" style="border:1px solid rgba(255,255,255,.25)">${escHtml(g.status||"สั่งออเดอร์แล้ว")}</span>`}
+          <div class="mt-1 flex items-center gap-1">
+            <input id="${noteId}" class="glass-input text-xs py-1 px-2" placeholder="หมายเหตุ" value="${escHtml(g.note||"")}" maxlength="120">
+            <button class="glass-btn-secondary text-xs" style="padding:.3rem .5rem" onclick="app.saveGroupNote('${escHtml(g.orderId)}',this)">บันทึก</button>
+          </div>
+        </td>
+        <td data-label="คำขอแก้ไข" class="py-2 px-2 text-center">
+          <div><span class="inline-block px-2 py-1 rounded-lg text-xs ${changeCls}" style="border:1px solid rgba(255,255,255,.25)">คำขอแก้ไข: ${changeText}</span></div>
+          ${isAdmin()?"":`<button class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .5rem" onclick="app.openOrderChangeModal('${escHtml(g.orderId)}')">ขอแก้ไขจำนวน</button>`}
+        </td>
+        <td data-label="สลิป" class="py-2 px-2 text-center">${slipCell}</td>
+        <td data-label="ลบ" class="py-2 px-1 text-center">
+          <button onclick="app.removeOrderGroup('${escHtml(g.orderId)}',this)" class="glass-btn-danger" title="ลบออเดอร์" style="padding:.35rem .55rem"><i class="fas fa-trash"></i></button>
+        </td>
+      </tr>`;
+  },
+
+  filterList(){
+    clearTimeout(listFilterTimer);
+    listFilterTimer=setTimeout(()=>this.applyListFilter(),FILTER_DEBOUNCE_MS);
+  },
+
+  applyListFilter(){
+    const region=document.getElementById("list-filter")?.value;
+    if(region===undefined)return;
+    const rows=document.querySelectorAll("#order-table tbody tr[data-region]");
+    rows.forEach(tr=>{
+      tr.style.display=(region==="all"||tr.getAttribute("data-region")===region)?"":"none";
+    });
+  },
+
+  async changeGroupStatus(orderId,status){
+    if(!isAdmin()){
+      this.showMsg("เฉพาะแอดมินเท่านั้นที่เปลี่ยนสถานะได้","error");
+      return;
+    }
+    const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
+    const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):status;
+    ordersInGroup.forEach(o=>{o.status=status;o.orderStatus=status});
+    try{
+      await runSaving({busyText:"กำลังอัปเดตสถานะ…"},()=>callAuthed("updateOrderStatusByOrderId",orderId,status));
+      this.showMsg("อัปเดตสถานะออเดอร์แล้ว","success");
+    }catch(e){
+      ordersInGroup.forEach(o=>{o.status=prev;o.orderStatus=prev});
+      this.fillOrderListBody();
+      this.showMsg(e.message,"error");
+    }
+  },
+
+  async saveGroupNote(orderId,btnEl){
+    const input=document.getElementById(noteInputId(orderId));
+    if(!input)return;
+    const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
+    const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
+    const next=String(input.value||"").trim();
+    ordersInGroup.forEach(o=>{o.note=next});
+    try{
+      await runSaving({btn:btnEl,btnText:"บันทึก…",busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,next));
+      this.showMsg("บันทึกหมายเหตุแล้ว","success");
+    }catch(e){
+      ordersInGroup.forEach(o=>{o.note=prev});
+      input.value=prev;
+      this.showMsg(e.message||"บันทึกหมายเหตุไม่สำเร็จ","error");
+    }
+  },
+
+  async removeOrderGroup(orderId,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    if(!confirm("ลบออเดอร์นี้ทั้งหมด?"))return;
+    try{
+      await runSaving({btn:btn,btnText:"",busyText:"กำลังลบออเดอร์…"},()=>callAuthed("deleteOrderByOrderId",orderId));
+      if(appData?.orders){appData.orders=appData.orders.filter(o=>o.orderId!==orderId)}
+      recalcStockFromOrders();
+      this.showMsg("ลบออเดอร์แล้ว","success");
+      app.navigate("list");
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  // ── Per-order attached image (slip) ────────────────────────────────
+  async uploadOrderImage(orderId,input){
+    if(!(input&&input.files&&input.files[0]))return;
+    const file=input.files[0];
+    try{
+      const base64=await fileToBase64(file);
+      await runSaving({busyText:"กำลังอัปโหลดรูป…"},async()=>{
+        await callAuthed("uploadOrderImage",orderId,base64,file.name);
+        invalidateClientCache();
+        await ensureAppData(true);
+      });
+      this.showMsg("อัปโหลดรูปแนบออเดอร์เรียบร้อย","success");
+      this.fillOrderListBody();
+    }catch(e){
+      this.showMsg(e.message||"อัปโหลดรูปไม่สำเร็จ","error");
+    }finally{try{input.value=""}catch(_){}}
+  },
+
+  async deleteOrderImage(orderId,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    if(!confirm("ลบรูปแนบของออเดอร์นี้? (ต้องลบก่อนจึงจะแนบรูปใหม่ได้)"))return;
+    try{
+      await runSaving({btn:btn,btnText:"",busyText:"กำลังลบรูป…"},async()=>{
+        await callAuthed("deleteOrderImage",orderId);
+        invalidateClientCache();
+        await ensureAppData(true);
+      });
+      this.showMsg("ลบรูปแนบแล้ว","success");
+      this.fillOrderListBody();
+    }catch(e){
+      this.showMsg(e.message||"ลบรูปไม่สำเร็จ","error");
+    }
+  },
+
+  async viewOrderImage(orderId,btn){
+    try{
+      const res=await runSaving({btn:btn,btnText:"",busyText:"กำลังโหลดรูป…"},()=>callAuthed("getOrderImage",orderId));
+      if(res&&res.ok&&res.dataUrl){
+        this.openImageLightbox(res.dataUrl);
+        return;
+      }
+      if(res&&res.slipUrl){
+        window.open(res.slipUrl,"_blank","noopener");
+        return;
+      }
+      this.showMsg((res&&res.warning)||"โหลดรูปไม่สำเร็จ","warning");
+    }catch(e){
+      this.showMsg(e.message||"โหลดรูปไม่สำเร็จ","error");
+    }
+  },
+
+  openImageLightbox(src){
+    this.closeImageLightbox();
+    const wrap=document.createElement("div");
+    wrap.id="image-lightbox";
+    wrap.className="image-lightbox-overlay fade-in";
+    wrap.innerHTML=`<div class="image-lightbox-card">
+      <button class="image-lightbox-close" onclick="app.closeImageLightbox()" aria-label="ปิด"><i class="fas fa-times"></i></button>
+      <img src="${src}" alt="รูปแนบออเดอร์" class="image-lightbox-img">
+      <a href="${src}" target="_blank" rel="noopener" class="image-lightbox-open"><i class="fas fa-external-link-alt mr-1"></i> เปิดในแท็บใหม่</a>
+    </div>`;
+    wrap.addEventListener("click",e=>{if(e.target===wrap)app.closeImageLightbox()});
+    document.body.appendChild(wrap);
+    if(!this._lightboxKeyHandler){
+      this._lightboxKeyHandler=e=>{if(e.key==="Escape")app.closeImageLightbox()};
+    }
+    document.addEventListener("keydown",this._lightboxKeyHandler,true);
+  },
+
+  closeImageLightbox(){
+    const m=document.getElementById("image-lightbox");
+    if(m)m.remove();
+    if(this._lightboxKeyHandler)document.removeEventListener("keydown",this._lightboxKeyHandler,true);
+  },
+
+  openOrderChangeModal(orderId){
+    const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
+    if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
+    if(String(orderGroup.changeRequestStatus||"").toLowerCase()==="pending"){
+      this.showMsg("มีคำขอแก้ไขรออนุมัติอยู่แล้ว","warning");
+      return;
+    }
+    const itemRows=orderGroup.items.map(it=>`
+      <tr>
+        <td><span class="size-badge ${sizeClass(it.size)}">${it.size}</span></td>
+        <td>${it.qty}</td>
+        <td><input id="cr-${escHtml(it.size)}" type="number" min="0" class="glass-input p-1 text-xs" value="${it.qty}"></td>
+      </tr>`).join("");
+    const html=`
+      <div class="login-overlay" id="order-change-modal">
+        <div class="login-card" style="max-width:560px">
+          <div class="login-title">ขอแก้ไขจำนวน #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
+          <div class="space-y-2">
+            <div class="glass-table-wrap">
+              <table class="order-size-table text-xs">
+                <thead><tr><th>ไซส์</th><th>เดิม</th><th>จำนวนใหม่</th></tr></thead>
+                <tbody>${itemRows}</tbody>
+              </table>
+            </div>
+            <div>
+              <label class="glass-label">เหตุผลการขอแก้ไข</label>
+              <textarea id="change-reason" class="glass-input p-2 text-sm" rows="3" placeholder="ระบุเหตุผล"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <button onclick="app.closeOrderChangeModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
+              <button onclick="app.submitOrderChangeRequest('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">ส่งคำขอ</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const wrap=document.createElement("div");
+    wrap.innerHTML=html;
+    document.body.appendChild(wrap.firstElementChild);
+  },
+
+  closeOrderChangeModal(){
+    const m=document.getElementById("order-change-modal");
+    if(m)m.remove();
+  },
+
+  async submitOrderChangeRequest(orderId,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
+      if(!orderGroup)throw new Error("ไม่พบออเดอร์");
+      const items=orderGroup.items.map(it=>{
+        const val=Number(document.getElementById("cr-"+it.size)?.value||0);
+        return {size:it.size,qty:Math.max(0,Math.floor(val))};
+      });
+      const hasChanged=items.some(it=>{
+        const oldItem=orderGroup.items.find(x=>x.size===it.size);
+        return Number(oldItem?.qty||0)!==Number(it.qty||0);
+      });
+      if(!hasChanged)throw new Error("ยังไม่มีการเปลี่ยนจำนวน");
+      const reason=String(document.getElementById("change-reason")?.value||"").trim();
+      if(!reason)throw new Error("กรุณากรอกเหตุผลการขอแก้ไข");
+      await runSaving({btn:btn,busyText:"กำลังส่งคำขอ…"},async()=>{
+        await callAuthed("requestOrderChange",orderId,items,reason);
+        invalidateClientCache();
+        await ensureAppData(true);
+      });
+      this.closeOrderChangeModal();
+      this.showMsg("ส่งคำขอแก้ไขจำนวนเรียบร้อย (รออนุมัติ)","success");
+      this.fillOrderListBody();
+    }catch(e){
+      this.showMsg(e.message||"ส่งคำขอไม่สำเร็จ","error");
+    }
+  },
+
+  async loadPendingChangeRequests(){
+    if(!isAdmin())return;
+    const box=document.getElementById("pending-change-list");
+    if(!box)return;
+    try{
+      const pending=await callAuthed("listPendingChangeRequests");
+      if(!pending||pending.length===0){
+        box.innerHTML='<div class="text-xs text-glass-dim text-center">ไม่มีคำขอรออนุมัติ</div>';
+        return;
+      }
+      box.innerHTML=pending.map(req=>{
+        const reqItems=(req.requestedChange&&Array.isArray(req.requestedChange.items)?req.requestedChange.items:[])
+          .map(it=>`<span class="inline-block mr-1"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span> ${it.qty}</span>`).join("");
+        const current=(req.currentItems||[])
+          .map(it=>`<span class="inline-block mr-1"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span> ${it.qty}</span>`).join("");
+        const reason=escHtml((req.requestedChange&&req.requestedChange.reason)||"-");
+        return `<div class="glass-card-inner p-3">
+          <div class="text-sm font-bold mb-1">#${escHtml(String(req.orderId).replace(/^ORD-?/,"").substring(0,8))} · ${escHtml(req.region||"-")}</div>
+          <div class="text-xs mb-1">จำนวนเดิม: ${current||"-"}</div>
+          <div class="text-xs mb-1">จำนวนที่ขอแก้ไข: ${reqItems||"-"}</div>
+          <div class="text-xs mb-2">เหตุผลการขอแก้ไข: ${reason}</div>
+          <div class="flex gap-2">
+            <button class="glass-btn-primary text-xs" style="padding:.35rem .6rem" onclick="app.reviewChangeRequest('${escHtml(req.orderId)}','approved',this)">อนุมัติ</button>
+            <button class="glass-btn-danger text-xs" style="padding:.35rem .6rem" onclick="app.reviewChangeRequest('${escHtml(req.orderId)}','rejected',this)">ไม่อนุมัติ</button>
+          </div>
+        </div>`;
+      }).join("");
+    }catch(e){
+      box.innerHTML=`<div class="text-xs text-red-glass">${escHtml(e.message||"โหลดคำขอไม่สำเร็จ")}</div>`;
+    }
+  },
+
+  async reviewChangeRequest(orderId,action,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const note=prompt(action==="approved"?"หมายเหตุการอนุมัติ (ถ้ามี):":"หมายเหตุการไม่อนุมัติ (ถ้ามี):","")||"";
+    try{
+      await runSaving({btn:btn,btnText:"",busyText:action==="approved"?"กำลังอนุมัติ…":"กำลังบันทึก…"},async()=>{
+        await callAuthed("reviewOrderChangeRequest",orderId,action,note);
+        invalidateClientCache();
+        await ensureAppData(true);
+      });
+      this.showMsg(action==="approved"?"อนุมัติคำขอแก้ไขแล้ว":"ไม่อนุมัติคำขอแล้ว","success");
+      this.fillOrderListBody();
+      this.loadPendingChangeRequests();
+    }catch(e){
+      this.showMsg(e.message||"อัปเดตคำขอไม่สำเร็จ","error");
+    }
+  },
+
+  // ── Dashboard view ─────────────────────────────────────────────────
+  renderDashboard(){
+    let opts='<option value="all">ทุกเขต</option>';
+    (appData?.regions||[]).forEach(r=>{opts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
+    return `
+      <div class="glass-card p-4">
+        <h2 class="text-lg font-bold glass-section-title mb-4 border-b glass-divider pb-2"><i class="fas fa-chart-pie mr-1"></i>แดชบอร์ด</h2>
+        ${isAdmin()?`<select id="dash-region" onchange="app.initDashboard()" class="glass-select p-2 mb-4 text-sm w-full">${opts}</select>`:""}
+        <div class="mb-4" id="dash-cards"></div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div class="glass-chart-box"><canvas id="regionChart"></canvas></div>
+          <div class="glass-chart-box"><canvas id="sizeChart"></canvas></div>
+        </div>
+        <div id="dash-stock"></div>
+      </div>`;
+  },
+
+  async initDashboard(){
+    const region=document.getElementById("dash-region")?.value||"all";
+    const dash=computeDashboard(region);
+    const cardsEl=document.getElementById("dash-cards");
+    if(cardsEl){
+      cardsEl.innerHTML=`
+        <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ขายแล้ว</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
+        <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดเงิน</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
+        <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
+        <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอรับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
+        <div class="glass-stat glass-stat-green col-span-2"><div class="glass-stat-label">รับแล้ว</div><div class="glass-stat-value text-2xl">${dash.pickedUp}</div></div>`;
+    }
+    const stockHtml=dash.stock.map(s=>
+      `<div class="glass-stock-cell ${s.remaining<=5?'low':''}"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><div class="text-xs mt-1 text-glass-muted">เหลือ <b class="${s.remaining<=5?'text-red-glass':'text-green-glass'}">${s.remaining}</b>/${s.delivered}</div></div>`
+    ).join("");
+    const stockEl=document.getElementById("dash-stock");
+    if(stockEl){
+      stockEl.innerHTML=`<h3 class="text-sm font-bold glass-section-title mb-2">สต็อกคงเหลือ</h3><div class="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2">${stockHtml}</div>`;
+    }
+    await loadChartJs();
+    this.upsertRegionChart(dash);
+    this.upsertSizeChart(dash);
+  },
+
+  upsertRegionChart(dash){
+    const canvas=document.getElementById("regionChart");
+    if(!canvas)return;
+    if(regionChart&&regionChart.canvas===canvas&&document.body.contains(canvas)){
+      regionChart.data.labels=dash.regionLabels;
+      regionChart.data.datasets[0].data=dash.regionQtys;
+      regionChart.update();return;
+    }
+    if(regionChart)try{regionChart.destroy()}catch(_){}
+    regionChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:dash.regionLabels,datasets:[{label:"ตัว",data:dash.regionQtys,backgroundColor:"#7F1D1D",borderRadius:6,maxBarThickness:48}]},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:false},title:{display:true,text:"ยอดขายตามเขต",color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{ticks:{color:"rgba(255,255,255,.85)",font:{size:11,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
+  },
+
+  upsertSizeChart(dash){
+    const canvas=document.getElementById("sizeChart");
+    if(!canvas)return;
+    if(sizeChart&&sizeChart.canvas===canvas&&document.body.contains(canvas)){
+      sizeChart.data.labels=dash.sizeLabels;
+      sizeChart.data.datasets[0].data=dash.sizeQtys;
+      sizeChart.update();return;
+    }
+    if(sizeChart)try{sizeChart.destroy()}catch(_){}
+    sizeChart=new Chart(canvas.getContext("2d"),{type:"doughnut",data:{labels:dash.sizeLabels,datasets:[{data:dash.sizeQtys,backgroundColor:["#E0F2FE","#CCFBF1","#DBEAFE","#FEE2E2","#FFEDD5","#FEF3C7","#D1FAE5","#EDE9FE","#FCE7F3"],borderColor:"rgba(255,255,255,.25)",borderWidth:1}]},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{position:"bottom",labels:{usePointStyle:true,pointStyle:"circle",padding:14,boxWidth:10,boxHeight:10,color:"#fff",font:{size:13,family:"'Sarabun',sans-serif"}}},title:{display:true,text:"ยอดขายตามไซส์",color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}}}});
+  },
+
+  // ── Report view ────────────────────────────────────────────────────
+  renderReport(){
+    return `
+      <div class="glass-card p-4 space-y-4">
+        <h2 class="text-lg font-bold glass-section-title border-b glass-divider pb-2"><i class="fas fa-file-alt mr-1"></i>รายงาน</h2>
+        <div id="report-cards"></div>
+        <div>
+          <h3 class="text-sm font-bold glass-section-title mb-2"><i class="fas fa-map-marker-alt mr-1"></i> ยอดสั่งตามเขต</h3>
+          <div class="overflow-x-auto glass-table-wrap">
+            <table class="glass-table report-table w-full text-xs" id="report-region-table">
+              <thead><tr>
+                <th class="py-2 px-2 text-left">เขต</th>
+                <th class="py-2 px-2 text-center">จำนวน</th>
+                <th class="py-2 px-2 text-right">ยอดเงิน</th>
+                <th class="py-2 px-2 text-center">ออเดอร์</th>
+                <th class="py-2 px-2 text-left">แยกไซส์</th>
+              </tr></thead>
+              <tbody id="report-region-body"></tbody>
+              <tfoot id="report-region-foot"></tfoot>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold glass-section-title mb-2"><i class="fas fa-boxes mr-1"></i> สต็อกคงเหลือ</h3>
+          <div id="report-stock"></div>
+        </div>
+      </div>`;
+  },
+
+  initReport(){
+    const r=computeSalesReport();
+    const t=r.totals, p=r.pendingPayment;
+    document.getElementById("report-cards").innerHTML=`
+      <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดขายรวม</div><div class="glass-stat-value">${t.totalQty}</div><div class="glass-stat-sub">ตัว</div></div>
+      <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดเงินรวม</div><div class="glass-stat-value text-xl">${fmtMoney(t.totalAmount)}</div><div class="glass-stat-sub">บาท</div></div>
+      <div class="glass-stat glass-stat-green"><div class="glass-stat-label">สต็อกคงเหลือ</div><div class="glass-stat-value">${r.stockTotalRemaining}</div><div class="glass-stat-sub">ตัว</div></div>
+      <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-xl">${p.count} รายการ</div><div class="glass-stat-sub">${p.totalQty} ตัว</div></div>`;
+    const sizes=appData?.stockSizes||[];
+    const rows=r.byRegion.map(x=>{
+      const parts=sizes.filter(s=>x.bySize[s]>0).length
+        ? `<div class="order-items">${sizes.filter(s=>x.bySize[s]>0).map(s=>`<span class="order-item"><span class="size-badge ${sizeClass(s)}">${s}</span><span class="order-item-qty">${x.bySize[s]}</span></span>`).join("")}</div>`
+        : '<span class="text-glass-dim">-</span>';
+      const cls=x.totalQty>0?"":"text-glass-dim";
+      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="จำนวน" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดเงิน" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td><td data-label="ออเดอร์" class="py-2 px-2 text-center">${x.orderCount}</td><td data-label="แยกไซส์" class="py-2 px-2">${parts}</td></tr>`;
+    }).join("");
+    document.getElementById("report-region-body").innerHTML=rows;
+    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2">รวมทั้งหมด</td><td data-label="จำนวน" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดเงิน" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td><td data-label="ออเดอร์" class="py-2 px-2 text-center">${t.orderCount}</td><td data-label="แยกไซส์" class="py-2 px-2"></td></tr>`;
+    const cells=r.stock.map(s=>{
+      const cls=s.remaining<=5?"low":"";
+      const nc=s.remaining<=5?"text-red-glass":"text-green-glass";
+      return `<div class="glass-stock-cell ${cls}"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><div class="text-lg font-bold ${nc} mt-1">${s.remaining}</div><div class="text-xs text-glass-muted">/${s.delivered}</div></div>`;
+    }).join("");
+    document.getElementById("report-stock").innerHTML=`<div class="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2 mb-2">${cells}</div><div class="glass-total-bar">รวมคงเหลือทั้งหมด: <span class="text-lg">${r.stockTotalRemaining}</span> ตัว</div>`;
+  },
+
+  // ── Admin view ─────────────────────────────────────────────────────
+  renderAdmin(){
+    if(!isAdmin())return '<div class="glass-msg-error text-center font-semibold">เฉพาะแอดมินเท่านั้น</div>';
+    const stockInputs=appData.stock.map((s,i)=>`<label class="text-xs font-semibold block text-glass">${s.size} (ขายแล้ว ${s.sold})<input id="stock-del-${i}" type="number" min="0" class="glass-input p-2 mt-1" value="${s.delivered}"></label>`).join("");
+    return `
+      <div class="glass-card p-4 space-y-4">
+        <h2 class="text-lg font-bold glass-section-title border-b glass-divider pb-2"><i class="fas fa-cog text-red-glass mr-1"></i>ตั้งค่าระบบ</h2>
+        <div class="glass-card-inner p-4">
+          <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-image mr-1"></i> รูปเสื้อ</h3>
+          <div class="mb-3 rounded-lg overflow-hidden glass-image-wrap">
+            <img id="admin-image-preview" data-image-ref="${escHtml(appData.round.imageRef||appData.round.imageUrl||"")}" src="${appData.round.imageDisplaySrc||withCacheBust(appData.round.imageDisplayUrl||appData.round.imageUrl,appData.generatedAt||Date.now())}" alt="รูปเสื้อ" onload="app.onShirtImageLoaded(this,true)" onerror="app.onShirtImageError(this,true)" class="w-full max-h-40 object-contain" style="background:rgba(0,0,0,.1)">
+          </div>
+          <div class="space-y-2">
+            <input id="admin-image-file" type="file" accept="image/*" class="glass-input p-2 text-xs" onchange="app.previewShirtImage(this)">
+            <p id="admin-image-filename" class="text-xs text-glass opacity-70"></p>
+            <p id="admin-image-debug" class="text-[11px] text-amber-300 break-all">${escHtml("mode="+(appData.round.imageSourceMode||"placeholder")+(appData.round.imageDebug?(" | "+appData.round.imageDebug):""))}</p>
+            <button onclick="app.uploadShirtImage(this)" class="w-full glass-btn-primary py-2 text-sm"><i class="fas fa-upload mr-1"></i> บันทึกรูป</button>
+            <input id="admin-image" class="glass-input p-2 text-sm" placeholder="หรือวาง URL รูป" value="${(!appData.round.imageRef||isPlaceholderImage(appData.round.imageRef)||/^drivefile:/i.test(appData.round.imageRef))?"":escHtml(appData.round.imageRef)}">
+          </div>
+        </div>
+        <div class="glass-card-inner p-4">
+          <h3 class="font-bold text-sm mb-3 text-glass">รอบ / ราคา</h3>
+          <div class="space-y-2">
+            <input id="admin-year" class="glass-input p-2 text-sm" placeholder="รอบปี" value="${escHtml(appData.round.year)}">
+            <input id="admin-name" class="glass-input p-2 text-sm" placeholder="ชื่อสินค้า" value="${escHtml(appData.round.name)}">
+            <input id="admin-price" type="number" class="glass-input p-2 text-sm" placeholder="ราคาต่อตัว" value="${appData.round.unitPrice}">
+            <button onclick="app.saveRound(this)" class="w-full glass-btn-pea py-2 text-sm">บันทึกรอบ/ราคา</button>
+          </div>
+        </div>
+        <div class="glass-card-inner p-4">
+          <h3 class="font-bold text-sm mb-3 text-glass">จำนวนที่มาส่ง</h3>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">${stockInputs}</div>
+          <button onclick="app.saveStock(this)" class="w-full glass-btn-primary py-2 text-sm">บันทึกสต็อก</button>
+        </div>
+        <div class="glass-card-inner p-4">
+          <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-users mr-1"></i> จัดการผู้ใช้</h3>
+          <div id="admin-users-list" class="space-y-2 mb-3"><div class="text-xs text-glass-muted text-center">กำลังโหลด...</div></div>
+          <button onclick="app.showCreateUser()" class="w-full glass-btn-blue py-2 text-sm"><i class="fas fa-user-plus mr-1"></i> เพิ่มผู้ใช้</button>
+        </div>
+        <div class="glass-danger-zone">
+          <h3 class="font-bold text-sm mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> ล้างข้อมูลทั้งหมด</h3>
+          <p class="text-xs mb-3 opacity-80">ลบรายการขายทั้งหมด รีเซ็ตสต็อก (ไม่ลบ Users)</p>
+          <button onclick="app.resetData(this)" class="w-full glass-btn-danger py-2 text-sm font-bold">ล้างข้อมูล เริ่มจาก 0</button>
+        </div>
+        <button onclick="app.exportCSV(this)" class="w-full glass-btn-blue py-2 text-sm"><i class="fas fa-file-csv mr-1"></i> Export CSV</button>
+      </div>
+      <div id="msg-box"></div>`;
+  },
+
+  async initAdmin(){
+    pendingImageBase64="";
+    if(isAdmin())await this.loadUserList();
+  },
+
+  async loadUserList(){
+    const el=document.getElementById("admin-users-list");
+    if(!el)return;
+    try{
+      const users=await callAuthed("listUsers");
+      if(!users||users.length===0){el.innerHTML='<div class="text-xs text-glass-muted text-center">ไม่มีผู้ใช้</div>';return}
+      el.innerHTML=users.map(u=>{
+        const roleCls=u.role==="admin"?"role-badge-admin":"role-badge-user";
+        const roleLabel=u.role==="admin"?"แอดมิน":"ผู้ใช้";
+        return `<div class="glass-card-inner p-2 flex justify-between items-center gap-2 flex-wrap">
+          <div style="min-width:0;flex:1 1 60%">
+            <div class="text-sm font-bold text-glass" style="word-break:break-word">${escHtml(u.username)} <span class="${roleCls}">${roleLabel}</span></div>
+            <div class="text-xs text-glass-muted">${escHtml(u.displayName||"")} · ${escHtml(u.region||"-")}</div>
+          </div>
+          <div class="flex gap-1" style="flex-shrink:0">
+            <button onclick="app.resetUserPwd('${escHtml(u.username)}',this)" class="glass-btn" title="รีเซ็ตรหัสผ่าน" style="padding:.35rem .5rem;min-width:38px;min-height:38px"><i class="fas fa-key"></i></button>
+            ${u.username===me.username?"":`<button onclick="app.deleteUserPrompt('${escHtml(u.username)}',this)" class="glass-btn-danger" title="ลบ" style="padding:.35rem .5rem;min-width:38px;min-height:38px"><i class="fas fa-trash"></i></button>`}
+          </div>
+        </div>`;
+      }).join("");
+    }catch(e){el.innerHTML=`<div class="text-xs text-red-glass">${escHtml(e.message)}</div>`}
+  },
+
+  showCreateUser(){
+    let regionOpts='<option value="*">* (ทุกเขต — แอดมิน)</option>';
+    appData.regions.forEach(r=>{regionOpts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
+    const html=`
+      <div class="login-overlay" id="create-user-modal">
+        <div class="login-card">
+          <div class="login-title">เพิ่มผู้ใช้</div>
+          <div class="space-y-2">
+            <input id="nu-username" class="glass-input" placeholder="ชื่อผู้ใช้">
+            <input id="nu-display" class="glass-input" placeholder="ชื่อแสดง">
+            <input id="nu-password" type="password" class="glass-input" placeholder="รหัสผ่าน (อย่างน้อย 4 ตัว)">
+            <select id="nu-role" class="glass-select" onchange="app.toggleNewUserRegion(this.value)">
+              <option value="user">ผู้ใช้</option>
+              <option value="admin">แอดมิน</option>
+            </select>
+            <select id="nu-region" class="glass-select">${regionOpts}</select>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <button onclick="app.closeCreateUser()" class="glass-btn-secondary py-2">ยกเลิก</button>
+              <button onclick="app.submitNewUser(this)" class="glass-btn-primary py-2">บันทึก</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const wrap=document.createElement("div");
+    wrap.innerHTML=html;
+    document.body.appendChild(wrap.firstElementChild);
+  },
+
+  toggleNewUserRegion(role){
+    const sel=document.getElementById("nu-region");
+    if(!sel)return;
+    if(role==="admin")sel.value="*";
+  },
+
+  closeCreateUser(){
+    const m=document.getElementById("create-user-modal");
+    if(m)m.remove();
+  },
+
+  async submitNewUser(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const payload={
+        username:document.getElementById("nu-username").value.trim(),
+        displayName:document.getElementById("nu-display").value.trim(),
+        password:document.getElementById("nu-password").value,
+        role:document.getElementById("nu-role").value,
+        region:document.getElementById("nu-region").value
+      };
+      if(payload.password.length<4){alert("รหัสผ่านต้องอย่างน้อย 4 ตัว");return}
+      await runSaving({btn:btn,busyText:"กำลังบันทึกผู้ใช้…"},()=>callAuthed("createUser",payload));
+      this.closeCreateUser();
+      this.showMsg("เพิ่มผู้ใช้แล้ว","success");
+      await this.loadUserList();
+    }catch(e){alert(e.message||"เพิ่มไม่สำเร็จ")}
+  },
+
+  async resetUserPwd(username,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const np=prompt("รหัสผ่านใหม่สำหรับ "+username+" (อย่างน้อย 4 ตัว):");
+    if(!np)return;
+    if(np.length<4){this.showMsg("รหัสผ่านต้องอย่างน้อย 4 ตัว","error");return}
+    try{
+      await runSaving({btn:btn,btnText:"",busyText:"กำลังรีเซ็ตรหัสผ่าน…"},()=>callAuthed("resetPassword",username,np));
+      this.showMsg("รีเซ็ตรหัสผ่านแล้ว","success");
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  async deleteUserPrompt(username,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    if(!confirm("ลบผู้ใช้ "+username+"?"))return;
+    try{
+      await runSaving({btn:btn,btnText:"",busyText:"กำลังลบผู้ใช้…"},()=>callAuthed("deleteUser",username));
+      this.showMsg("ลบผู้ใช้แล้ว","success");
+      await this.loadUserList();
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  async applyUploadedImageRef(imageRef, sourceLabel, displayUrlFromServer, sourceModeFromServer, thumbFromServer){
+    const ref=String(imageRef||"").trim();
+    if(!ref)return {url:SHIRT_PLACEHOLDER_URL,warning:"ไม่มี image reference"};
+    const thumb=String(thumbFromServer||"");
+    let displayUrl=String(displayUrlFromServer||"").trim();
+    let sourceMode=String(sourceModeFromServer||"").trim();
+    let resolvedWarning="";
+    if(!displayUrl){
+      clearRoundImageProxyCache(ref);
+      const resolved=await resolveRoundImageForDisplay(ref,true);
+      displayUrl=resolved.url||"";
+      resolvedWarning=resolved.warning||"";
+      sourceMode=displayUrl&&!isPlaceholderImage(displayUrl)?"proxy":"placeholder";
+    }
+    if(!displayUrl&&isValidRoundUrl(ref)){
+      displayUrl=ref;
+      sourceMode="url";
+    }
+    if(!displayUrl&&thumb&&isDataUrl(thumb)){
+      displayUrl=thumb;
+      sourceMode="thumb";
+    }
+    if(!displayUrl){
+      displayUrl=SHIRT_PLACEHOLDER_URL;
+      sourceMode="placeholder";
+    }
+    const bustStamp=Date.now();
+    const finalSrc=updateRoundImageElements(displayUrl,ref,bustStamp);
+    if(appData&&appData.round){
+      appData.round.imageUrl=ref;
+      appData.round.imageRef=ref;
+      appData.round.imageDataThumb=thumb;
+      appData.round.imageDisplayUrl=displayUrl;
+      appData.round.imageSourceMode=sourceMode||"placeholder";
+      appData.round.imageDisplaySrc=finalSrc;
+      appData.round.imageWarning=resolvedWarning;
+      appData.round.imageDebug=resolvedWarning
+        ? ("upload-"+sourceLabel+": "+resolvedWarning)
+        : ("upload-"+sourceLabel+": ok");
+    }
+    setImageDebug((appData&&appData.round&&appData.round.imageDebug)||"");
+    return {url:displayUrl,warning:resolvedWarning,mode:sourceMode||"placeholder"};
+  },
+
+  async previewShirtImage(input){
+    if(!(input.files&&input.files[0]))return;
+    pendingImageBase64=await fileToBase64(input.files[0]);
+    document.getElementById("admin-image-preview").src=pendingImageBase64;
+    setImageDebug("preview: local image selected");
+    document.getElementById("admin-image-filename").textContent=input.files[0].name;
+  },
+
+  async uploadShirtImage(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      let base64=pendingImageBase64||"";
+      if(!base64){
+        const fi=document.getElementById("admin-image-file");
+        if(fi.files&&fi.files[0])base64=await fileToBase64(fi.files[0]);
+      }
+      if(!base64)return this.showMsg("กรุณาเลือกรูปก่อน","error");
+      const r=await runSaving({btn:btn,busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",base64));
+      if(!r||r.ok===false){
+        this.showMsg((r&&r.warning)||"อัปโหลดรูปไม่สำเร็จ","warning");
+        setImageDebug("upload-failed: "+((r&&r.warning)||"unknown"));
+        return;
+      }
+      pendingImageBase64="";
+      const immediate=await this.applyUploadedImageRef(r.imageUrl,"admin",r.imageDisplayUrl,r.imageSourceMode,r.imageDataThumb);
+      this.showMsg("อัปโหลดรูปเรียบร้อย","success");
+      if(r.imageUrl){
+        document.getElementById("admin-image").value=/^drivefile:/i.test(r.imageUrl)?"":r.imageUrl;
+      }
+      invalidateClientCache();
+      await ensureAppData(true);
+      if(appData&&appData.round){
+        updateRoundImageElements(appData.round.imageDisplayUrl||immediate.url,r.imageUrl,Date.now());
+        setImageDebug(appData.round.imageDebug||"");
+      }
+      if(r.warning){
+        setTimeout(()=>this.showMsg(r.warning,"warning"),900);
+      }
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  async uploadShirtImageInline(input){
+    if(!(input.files&&input.files[0]))return;
+    try{
+      this.showMsg("กำลังอัปโหลด...","success");
+      const b=await fileToBase64(input.files[0]);
+      const img=document.getElementById("stock-shirt-image");
+      const prevSrc=img?img.src:"";
+      if(img)img.src=b;
+      const r=await runSaving({busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",b));
+      if(!r||r.ok===false){
+        if(img&&prevSrc)img.src=prevSrc;
+        this.showMsg((r&&r.warning)||"อัปโหลดรูปไม่สำเร็จ","warning");
+        setImageDebug("upload-inline-failed: "+((r&&r.warning)||"unknown"));
+        return;
+      }
+      await this.applyUploadedImageRef(r.imageUrl,"inline",r.imageDisplayUrl,r.imageSourceMode,r.imageDataThumb);
+      this.showMsg("อัปโหลดเรียบร้อย","success");
+      invalidateClientCache();
+      await ensureAppData(true);
+      if(appData&&appData.round&&appData.round.imageDisplayUrl){
+        updateRoundImageElements(appData.round.imageDisplayUrl,r.imageUrl,Date.now());
+      }
+      if(r.warning){
+        setTimeout(()=>this.showMsg(r.warning,"warning"),900);
+      }
+    }catch(e){this.showMsg(e.message||"อัปโหลดไม่สำเร็จ","error")}
+    finally{try{input.value=""}catch(_){}}
+  },
+
+  onShirtImageError(imgEl,isAdminPreview){
+    if(!imgEl)return;
+    const alreadyFallback=imgEl.getAttribute("data-fallback")==="1";
+    if(alreadyFallback)return;
+    const reason="onerror src="+String(imgEl.currentSrc||imgEl.src||"");
+    console.warn("[shirt-image] load failed",reason);
+    if(isAdminPreview){
+      setImageDebug("image-load-failed: "+reason);
+    }
+    imgEl.setAttribute("data-fallback","1");
+    imgEl.src=SHIRT_PLACEHOLDER_URL;
+    if(!isAdminPreview){
+      this.showMsg("รูปเสื้อโหลดไม่สำเร็จ ระบบใช้รูปสำรองแทนชั่วคราว","warning");
+    }
+  },
+
+  onShirtImageLoaded(imgEl,isAdminPreview){
+    if(!imgEl)return;
+    imgEl.removeAttribute("data-fallback");
+    if(isAdminPreview){
+      const src=String(imgEl.currentSrc||imgEl.src||"");
+      setImageDebug("image-loaded: "+src.slice(0,120));
+    }
+  },
+
+  async saveRound(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const payload={
+        year:document.getElementById("admin-year").value,
+        name:document.getElementById("admin-name").value,
+        unitPrice:Number(document.getElementById("admin-price").value),
+        imageUrl:document.getElementById("admin-image").value
+      };
+      if(pendingImageBase64)payload.imageBase64=pendingImageBase64;
+      const r=await runSaving({btn:btn,busyText:"กำลังบันทึกรอบ/ราคา…"},()=>callAuthed("saveRoundConfig",payload));
+      pendingImageBase64="";
+      this.showMsg("บันทึกรอบ/ราคาเรียบร้อย","success");
+      if(r&&r.warning){
+        setTimeout(()=>this.showMsg(r.warning,"warning"),900);
+      }
+      if(r&&r.imageUrl){
+        await this.applyUploadedImageRef(r.imageUrl,"save-round",r.imageDisplayUrl,r.imageSourceMode,r.imageDataThumb);
+      }
+      invalidateClientCache();
+      await ensureAppData(true);
+      if(appData&&appData.round){
+        updateRoundImageElements(appData.round.imageDisplayUrl,appData.round.imageRef||r.imageUrl,Date.now());
+        setImageDebug(appData.round.imageDebug||"");
+      }
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  async saveStock(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const updates=appData.stock.map((s,i)=>({size:s.size,delivered:Number(document.getElementById("stock-del-"+i).value||0)}));
+      await runSaving({btn:btn,busyText:"กำลังบันทึกสต็อก…"},async()=>{
+        await callAuthed("saveStockDelivered",updates);
+        invalidateClientCache();
+        await ensureAppData(true);
+      });
+      this.showMsg("บันทึกสต็อกเรียบร้อย","success");
+      app.navigate("admin");
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  async resetData(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    if(!confirm("ยืนยันล้างข้อมูลทั้งหมด?"))return;
+    try{
+      const r=await runSaving({btn:btn,busyText:"กำลังล้างข้อมูล…"},async()=>{
+        const res=await callAuthed("resetAllData");
+        invalidateClientCache();
+        await ensureAppData(true);
+        return res;
+      });
+      this.showMsg(r.message,"success");
+      setTimeout(()=>app.navigate("stock"),1500);
+    }catch(e){this.showMsg(e.message,"error")}
+  },
+
+  async exportCSV(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const rows=await runSaving({btn:btn,busyText:"กำลังสร้างไฟล์ CSV…"},()=>callAuthed("exportOrdersCsv","all"));
+      const csv="data:text/csv;charset=utf-8,\uFEFF"+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+      const link=document.createElement("a");
+      link.href=encodeURI(csv);
+      link.download="orders_peace_"+appData.round.year+".csv";
+      link.click();
+    }catch(e){this.showMsg(e.message||"สร้างไฟล์ไม่สำเร็จ","error")}
+  },
+
+  // ── Custom dropdown controller ─────────────────────────────────────
+  toggleDropdown(ddId,ev){
+    if(ev){ev.preventDefault();ev.stopPropagation();}
+    if(activeDropdown&&activeDropdown.ddId===ddId){this.closeDropdownPanel();return;}
+    this.closeDropdownPanel();
+    this.openDropdownPanel(ddId);
+  },
+
+  openDropdownPanel(ddId){
+    const cfg=dropdownRegistry[ddId];
+    const host=document.getElementById(ddId);
+    if(!cfg||!host)return;
+    const toggle=host.querySelector(".glass-dd-toggle");
+    const input=host.querySelector('input[type="hidden"]');
+    const curVal=input?input.value:"";
+    const panel=document.createElement("div");
+    panel.className="glass-dd-floating fade-in";
+    panel.setAttribute("role","listbox");
+    panel.innerHTML=(cfg.options||[]).map(opt=>{
+      const active=opt===curVal;
+      return `<button type="button" role="option" aria-selected="${active?'true':'false'}" tabindex="-1" class="glass-dd-option ${active?'is-active':''}" data-val="${escHtml(opt)}"><span>${escHtml(opt)}</span>${active?'<i class="fas fa-check"></i>':''}</button>`;
+    }).join("");
+    panel.addEventListener("click",e=>{
+      const btn=e.target.closest(".glass-dd-option");
+      if(!btn)return;
+      e.preventDefault();e.stopPropagation();
+      app.selectDropdownOption(ddId,btn.getAttribute("data-val"));
+    });
+    document.body.appendChild(panel);
+    const rect=toggle.getBoundingClientRect();
+    const width=Math.max(rect.width,160);
+    panel.style.width=width+"px";
+    const panelH=panel.offsetHeight;
+    const spaceBelow=window.innerHeight-rect.bottom;
+    let top=(spaceBelow<panelH+10&&rect.top>panelH+10)?(rect.top-panelH-6):(rect.bottom+6);
+    let left=rect.left;
+    if(left+width>window.innerWidth-8)left=window.innerWidth-8-width;
+    if(left<8)left=8;
+    panel.style.top=Math.max(8,top)+"px";
+    panel.style.left=left+"px";
+    host.classList.add("is-open");
+    if(toggle)toggle.setAttribute("aria-expanded","true");
+    activeDropdown={ddId:ddId,panelEl:panel};
+    const first=panel.querySelector(".glass-dd-option.is-active")||panel.querySelector(".glass-dd-option");
+    if(first){first.setAttribute("tabindex","0");setTimeout(()=>{try{first.focus({preventScroll:true})}catch(_){}},0);}
+    setTimeout(()=>{
+      document.addEventListener("click",app._ddAway,true);
+      document.addEventListener("keydown",app._ddKey,true);
+      window.addEventListener("scroll",app._ddScrollClose,true);
+      window.addEventListener("resize",app._ddScrollClose,true);
+    },0);
+  },
+
+  closeDropdownPanel(){
+    document.removeEventListener("click",app._ddAway,true);
+    document.removeEventListener("keydown",app._ddKey,true);
+    window.removeEventListener("scroll",app._ddScrollClose,true);
+    window.removeEventListener("resize",app._ddScrollClose,true);
+    if(!activeDropdown)return;
+    const host=document.getElementById(activeDropdown.ddId);
+    if(host){host.classList.remove("is-open");const t=host.querySelector(".glass-dd-toggle");if(t)t.setAttribute("aria-expanded","false");}
+    const p=activeDropdown.panelEl;
+    if(p&&p.parentNode)p.parentNode.removeChild(p);
+    activeDropdown=null;
+  },
+
+  selectDropdownOption(ddId,val){
+    const cfg=dropdownRegistry[ddId];
+    const host=document.getElementById(ddId);
+    if(host){
+      const input=host.querySelector('input[type="hidden"]');
+      if(input)input.value=val;
+      const label=document.getElementById(ddId+"-label");
+      if(label)label.textContent=val;
+      if(cfg&&cfg.compact){
+        host.classList.remove("status-รับแล้ว","status-รอโอน","status-รอรับ");
+        host.classList.add(statusClass(val));
+      }
+    }
+    this.closeDropdownPanel();
+    if(cfg&&typeof cfg.onSelect==="function"){
+      try{cfg.onSelect(val)}catch(e){this.showMsg(e.message||"เกิดข้อผิดพลาด","error")}
+    }
+  },
+
+  _ddAway(e){
+    if(!activeDropdown)return;
+    if(activeDropdown.panelEl&&activeDropdown.panelEl.contains(e.target))return;
+    const host=document.getElementById(activeDropdown.ddId);
+    if(host&&host.contains(e.target))return;
+    app.closeDropdownPanel();
+  },
+
+  _ddKey(e){
+    if(!activeDropdown)return;
+    if(e.key==="Escape"){
+      e.preventDefault();
+      const id=activeDropdown.ddId;
+      app.closeDropdownPanel();
+      const host=document.getElementById(id);
+      const t=host&&host.querySelector(".glass-dd-toggle");
+      if(t)try{t.focus()}catch(_){}
+      return;
+    }
+    const opts=Array.prototype.slice.call(activeDropdown.panelEl.querySelectorAll(".glass-dd-option"));
+    if(!opts.length)return;
+    let idx=opts.indexOf(document.activeElement);
+    if(e.key==="ArrowDown"){e.preventDefault();idx=idx<0?0:(idx+1)%opts.length;opts[idx].focus({preventScroll:true});}
+    else if(e.key==="ArrowUp"){e.preventDefault();idx=idx<=0?opts.length-1:idx-1;opts[idx].focus({preventScroll:true});}
+    else if(e.key==="Enter"||e.key===" "){
+      const act=document.activeElement;
+      if(act&&act.classList&&act.classList.contains("glass-dd-option")){
+        e.preventDefault();
+        app.selectDropdownOption(activeDropdown.ddId,act.getAttribute("data-val"));
+      }
+    }
+  },
+
+  _ddScrollClose(e){
+    if(activeDropdown&&activeDropdown.panelEl&&e&&e.target&&activeDropdown.panelEl.contains(e.target))return;
+    app.closeDropdownPanel();
+  },
+
+  showMsg(msg,type){
+    const box=document.getElementById("msg-box");
+    if(!box)return;
+    const isWarn=type==="warning";
+    const color=type==="success"||isWarn?"glass-msg-success":"glass-msg-error";
+    const text=isWarn?`⚠️ ${msg}`:msg;
+    box.innerHTML=`<div class="text-sm text-center font-semibold fade-in ${color}">${escHtml(text)}</div>`;
+    setTimeout(()=>{box.innerHTML=""},3500);
+  }
+};
+
+// ── Boot ─────────────────────────────────────────────────────────────
+function bootEntry(){
+  try{
+    app.container=document.getElementById("app-container");
+    try{authToken=localStorage.getItem(TOKEN_KEY)||null}catch(_){authToken=null}
+    if(!authToken){renderLogin();return}
+    // Guard verifySession so a hung/failed call still lands on the login screen.
+    let settled=false;
+    const fallback=setTimeout(()=>{if(settled)return;settled=true;try{renderLogin("เชื่อมต่อเซิร์ฟเวอร์ช้า กรุณาเข้าสู่ระบบ")}catch(_){}} ,9000);
+    callServer("verifySession",authToken).then(r=>{
+      if(settled)return; settled=true; clearTimeout(fallback);
+      if(r&&r.ok){
+        me={username:r.username,role:r.role,region:r.region,displayName:r.displayName};
+        bootApp();
+      }else{
+        authToken=null;try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+        renderLogin();
+      }
+    }).catch(()=>{
+      if(settled)return; settled=true; clearTimeout(fallback);
+      authToken=null;
+      try{renderLogin()}catch(_){}
+    });
+  }catch(err){
+    // Last-resort: never leave the user stranded on the static pre-header.
+    try{
+      const ph=document.getElementById("pre-header"); if(ph)ph.style.display="none";
+      renderLogin("เกิดข้อผิดพลาดในการเริ่มระบบ");
+    }catch(e2){
+      const b=document.getElementById("app-container")||document.body;
+      if(b)b.innerHTML='<pre style="white-space:pre-wrap;color:#fff;background:#7f1d1d;padding:12px;border-radius:8px;font-size:12px;margin:12px">BOOT ERROR: '+String((err&&err.stack)||err)+'</pre>';
+    }
+  }
+}
+window.onload=bootEntry;
+// In case the load event already fired (script injected late), boot anyway.
+if(document.readyState==="complete"){setTimeout(bootEntry,0);}
+</script>
