@@ -761,7 +761,7 @@ const app = {
         <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${s.remaining}</span></div>
       </div>`;
     }).join("");
-    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="absolute top-2 right-2 glass-btn-primary text-xs cursor-pointer" style="padding:.35rem .75rem;border-radius:9999px"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/*" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
+    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="absolute top-2 right-2 glass-btn-primary text-xs cursor-pointer" style="padding:.35rem .75rem;border-radius:9999px"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
     const guestNote=isGuest()?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-info-circle mr-1"></i> โหมด Guest: ดูจำนวนเสื้อคงเหลือได้เท่านั้น</div></div>`:"";
     const guestActions=isGuest()?"":`<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> บันทึกการขาย</button>
@@ -871,7 +871,7 @@ const app = {
           </div>
           <div>
             <label class="glass-label">แนบสลิป (ไม่บังคับ)</label>
-            <input id="order-slip-file" type="file" accept="image/*" class="glass-input p-2 text-xs" onchange="app.previewSlipImage(this)">
+            <input id="order-slip-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs" onchange="app.previewSlipImage(this)">
             <p id="order-slip-filename" class="text-xs text-glass opacity-70 mt-1"></p>
             <div class="mt-2 hidden" id="order-slip-preview-wrap">
               <img id="order-slip-preview" class="max-h-40 rounded-lg glass-image-wrap" alt="ตัวอย่างสลิป">
@@ -1062,7 +1062,7 @@ const app = {
       </div>`;
     }else if(canManageImage){
       slipCell=`<div class="order-slip-actions">
-        <input id="order-img-file-${slipSafeId}" type="file" accept="image/*" class="hidden" onchange="app.uploadOrderImage('${escHtml(g.orderId)}',this)">
+        <input id="order-img-file-${slipSafeId}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadOrderImage('${escHtml(g.orderId)}',this)">
         <button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="document.getElementById('order-img-file-${slipSafeId}').click()"><i class="fas fa-upload"></i> แนบรูป</button>
       </div>`;
     }else{
@@ -1488,7 +1488,7 @@ const app = {
             <img id="admin-image-preview" data-image-ref="${escHtml(appData.round.imageRef||appData.round.imageUrl||"")}" src="${appData.round.imageDisplaySrc||withCacheBust(appData.round.imageDisplayUrl||appData.round.imageUrl,appData.generatedAt||Date.now())}" alt="รูปเสื้อ" onload="app.onShirtImageLoaded(this,true)" onerror="app.onShirtImageError(this,true)" class="w-full max-h-40 object-contain" style="background:rgba(0,0,0,.1)">
           </div>
           <div class="space-y-2">
-            <input id="admin-image-file" type="file" accept="image/*" class="glass-input p-2 text-xs" onchange="app.previewShirtImage(this)">
+            <input id="admin-image-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs" onchange="app.previewShirtImage(this)">
             <p id="admin-image-filename" class="text-xs text-glass opacity-70"></p>
             <p id="admin-image-debug" class="text-[11px] text-amber-300 break-all">${escHtml("mode="+(appData.round.imageSourceMode||"placeholder")+(appData.round.imageDebug?(" | "+appData.round.imageDebug):""))}</p>
             <button onclick="app.uploadShirtImage(this)" class="w-full glass-btn-primary py-2 text-sm"><i class="fas fa-upload mr-1"></i> บันทึกรูป</button>
