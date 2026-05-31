@@ -737,6 +737,13 @@ function getBootstrapData(token) {
       ? data.orders.filter(o => o.region === session.region)
       : [];
   }
+  // Hide free-giveaway orders from non-admin users so giveaway data never
+  // reaches the client (only main admin1/admin2 can see those rows).
+  if (session.role !== "admin") {
+    out.orders = out.orders.filter(function (o) {
+      return !isFreeGiveawayPayment_(o.paymentStatus);
+    });
+  }
   out.orders = (out.orders || []).map(function (o) {
     return sanitizeOrderForViewer_(o, session);
   });
@@ -1783,6 +1790,12 @@ function exportAllDataCsv(token, region) {
       return String(o.region) === String(region);
     });
   }
+  // Hide free-giveaway orders from non-admin CSV export
+  if (session.role !== "admin") {
+    allOrders = allOrders.filter(function (o) {
+      return !isFreeGiveawayPayment_(o.paymentStatus);
+    });
+  }
 
   csvPushSection_(out, "รายการสั่งซื้อ (Orders)", ORDERS_HEADERS,
     allOrders.map(function (o) { return orderToCsvRow_(o, session); }));
@@ -1818,9 +1831,17 @@ function exportAllDataCsv(token, region) {
   });
   const regionRows = Object.keys(regionMap).sort().map(function (reg) {
     const x = regionMap[reg];
+    // Non-admin CSV never includes free giveaway data, so only output sale columns
+    if (session.role !== "admin") {
+      return [reg, x.saleQty, x.saleAmount];
+    }
     return [reg, x.saleQty, x.saleAmount, x.freeQty, x.freeLoss];
   });
-  csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "ขาย (ตัว)", "ยอดขาย (฿)", "แจกฟรี (ตัว)", "ขาดทุนแจก (฿)"], regionRows);
+  if (session.role !== "admin") {
+    csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "ขาย (ตัว)", "ยอดขาย (฿)"], regionRows);
+  } else {
+    csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "ขาย (ตัว)", "ยอดขาย (฿)", "แจกฟรี (ตัว)", "ขาดทุนแจก (฿)"], regionRows);
+  }
 
   if (session.role === "admin") {
     ensureUsersSheetMigrated_(ss);

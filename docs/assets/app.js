@@ -1940,7 +1940,7 @@ const app = {
         <div class="mb-4" id="dash-cards"></div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div class="glass-chart-box"><canvas id="regionChart"></canvas></div>
-          <div class="glass-chart-box"><canvas id="giveawayChart"></canvas></div>
+      ${isAdmin()?`<div class="glass-chart-box"><canvas id="giveawayChart"></canvas></div>`:""}
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div class="glass-chart-box"><canvas id="sizeChart"></canvas></div>
@@ -1954,11 +1954,13 @@ const app = {
     const dash=computeDashboard(region);
     const cardsEl=document.getElementById("dash-cards");
     if(cardsEl){
+      const giveawayCards=isAdmin()?`
+        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${dash.freeGiveawayQty||0}</div></div>
+        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.freeGiveawayLoss||0)}</div></div>`:"";
       cardsEl.innerHTML=`
         <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ขายแล้ว (ตัว)</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
         <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดขาย (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
-        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${dash.freeGiveawayQty||0}</div></div>
-        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.freeGiveawayLoss||0)}</div></div>
+        ${giveawayCards}
         <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
         <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอรับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
         <div class="glass-stat glass-stat-green"><div class="glass-stat-label">รับแล้ว</div><div class="glass-stat-value text-2xl">${dash.pickedUp}</div></div>`;
@@ -1981,15 +1983,18 @@ const app = {
     if(!canvas)return;
     const datasets=[
       {label:"ขาย (ตัว)",data:dash.regionQtys,backgroundColor:"#7F1D1D",borderRadius:4,maxBarThickness:40},
-      {label:"แจกฟรี (ตัว)",data:dash.regionFreeQtys,backgroundColor:"#6D28D9",borderRadius:4,maxBarThickness:40}
     ];
+    if(isAdmin()){
+      datasets.push({label:"แจกฟรี (ตัว)",data:dash.regionFreeQtys,backgroundColor:"#6D28D9",borderRadius:4,maxBarThickness:40});
+    }
+    const chartTitle=isAdmin()?"จำนวนเสื้อตามเขต (ขาย vs แจกฟรี)":"จำนวนเสื้อตามเขต";
     if(regionChart&&regionChart.canvas===canvas&&document.body.contains(canvas)){
       regionChart.data.labels=dash.regionLabels;
       regionChart.data.datasets=datasets;
       regionChart.update();return;
     }
     if(regionChart)try{regionChart.destroy()}catch(_){}
-    regionChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:dash.regionLabels,datasets:datasets},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:true,labels:{color:"#fff",font:{family:"'Sarabun',sans-serif"}}},title:{display:true,text:"จำนวนเสื้อตามเขต (ขาย vs แจกฟรี)",color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{stacked:true,ticks:{color:"rgba(255,255,255,.85)",font:{size:10,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{stacked:true,beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
+    regionChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:dash.regionLabels,datasets:datasets},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:true,labels:{color:"#fff",font:{family:"'Sarabun',sans-serif"}}},title:{display:true,text:chartTitle,color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{stacked:true,ticks:{color:"rgba(255,255,255,.85)",font:{size:10,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{stacked:true,beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
   },
 
   upsertGiveawayChart(dash){
@@ -2010,15 +2015,18 @@ const app = {
     if(!canvas)return;
     const sizeDatasets=[
       sizeChartDataset_("ขาย",dash.sizeQtys,"sale"),
-      sizeChartDataset_("แจกฟรี",dash.sizeFreeQtys,"free")
     ];
+    if(isAdmin()){
+      sizeDatasets.push(sizeChartDataset_("แจกฟรี",dash.sizeFreeQtys,"free"));
+    }
+    const chartTitle=isAdmin()?"จำนวนตามไซส์ (ขาย vs แจกฟรี)":"จำนวนตามไซส์";
     if(sizeChart&&sizeChart.canvas===canvas&&document.body.contains(canvas)){
       sizeChart.data.labels=dash.sizeLabels;
       sizeChart.data.datasets=sizeDatasets;
       sizeChart.update();return;
     }
     if(sizeChart)try{sizeChart.destroy()}catch(_){}
-    sizeChart=new Chart(canvas.getContext("2d"),{type:"doughnut",data:{labels:dash.sizeLabels,datasets:sizeDatasets},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{position:"bottom",labels:{usePointStyle:true,pointStyle:"circle",padding:14,boxWidth:10,boxHeight:10,color:"#fff",font:{size:12,family:"'Sarabun',sans-serif"}}},title:{display:true,text:"จำนวนตามไซส์ (ขาย vs แจกฟรี)",color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}}}});
+    sizeChart=new Chart(canvas.getContext("2d"),{type:"doughnut",data:{labels:dash.sizeLabels,datasets:sizeDatasets},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{position:"bottom",labels:{usePointStyle:true,pointStyle:"circle",padding:14,boxWidth:10,boxHeight:10,color:"#fff",font:{size:12,family:"'Sarabun',sans-serif"}}},title:{display:true,text:chartTitle,color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}}}});
   },
 
   // ── Report view ────────────────────────────────────────────────────
@@ -2035,8 +2043,8 @@ const app = {
                 <th class="py-2 px-2 text-left">เขต</th>
                 <th class="py-2 px-2 text-center">ขาย (ตัว)</th>
                 <th class="py-2 px-2 text-right">ยอดขาย (฿)</th>
-                <th class="py-2 px-2 text-center">แจกฟรี</th>
-                <th class="py-2 px-2 text-right">ขาดทุนแจก</th>
+                ${isAdmin()?`<th class="py-2 px-2 text-center">แจกฟรี</th>
+                <th class="py-2 px-2 text-right">ขาดทุนแจก</th>`:""}
                 <th class="py-2 px-2 text-left">ไซส์ (ขาย)</th>
               </tr></thead>
               <tbody id="report-region-body"></tbody>
@@ -2058,8 +2066,9 @@ const app = {
     document.getElementById("report-cards").innerHTML=`
       <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดขาย (ตัว)</div><div class="glass-stat-value">${t.totalQty}</div></div>
       <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดขาย (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.totalAmount)}</div></div>
+      ${isAdmin()?`
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${t.freeQty||0}</div></div>
-      <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.freeLoss||0)}</div></div>
+      <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.freeLoss||0)}</div></div>`:""}
       <div class="glass-stat glass-stat-green"><div class="glass-stat-label">สต็อกคงเหลือ</div><div class="glass-stat-value">${r.stockTotalRemaining}</div><div class="glass-stat-sub">ตัว</div></div>
       <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-xl">${p.count} รายการ</div><div class="glass-stat-sub">${p.totalQty} ตัว</div></div>`;
     const sizes=appData?.stockSizes||[];
@@ -2068,10 +2077,12 @@ const app = {
         ? `<div class="order-items">${sizes.filter(s=>x.bySize[s]>0).map(s=>`<span class="order-item"><span class="size-badge ${sizeClass(s)}">${s}</span><span class="order-item-qty">${x.bySize[s]}</span></span>`).join("")}</div>`
         : '<span class="text-glass-dim">-</span>';
       const cls=x.totalQty>0?"":"text-glass-dim";
-      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="ขาย" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดขาย" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td><td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td><td data-label="ไซส์" class="py-2 px-2">${parts}</td></tr>`;
+      const giveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td>`:"";
+      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="ขาย" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดขาย" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td></tr>`;
     }).join("");
     document.getElementById("report-region-body").innerHTML=rows;
-    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="ขาย" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดขาย" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td><td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td><td data-label="ไซส์" class="py-2 px-2"></td></tr>`;
+    const footGiveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td>`:"";
+    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="ขาย" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดขาย" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td></tr>`;
     const cells=r.stock.map(s=>{
       const cls=s.remaining<=5?"low":"";
       const nc=s.remaining<=5?"text-red-glass":"text-green-glass";
