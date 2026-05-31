@@ -72,12 +72,15 @@ function readBuildFromCodeJs() {
   return m ? m[1] : "0";
 }
 
-function buildIndexHtml(bodyInner, headExtras) {
+function buildIndexHtml(bodyInner, headExtras, build) {
+  const v = build || readBuildFromCodeJs();
   return `<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="peace-build" content="${v}">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>ระบบจัดการขายเสื้อชมรมวิศวกร กฟภ.</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
@@ -86,13 +89,13 @@ function buildIndexHtml(bodyInner, headExtras) {
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="assets/app.css?v=${v}">
   ${headExtras}
 </head>
 <body>
 ${bodyInner}
-  <script src="config.js"></script>
-  <script src="assets/app.js"></script>
+  <script src="config.js?v=${v}"></script>
+  <script src="assets/app.js?v=${v}"></script>
 </body>
 </html>
 `;
@@ -112,7 +115,8 @@ function main() {
   let indexSrc = read("Index.html");
   let body = patchIndexPatches(extractIndexBody(indexSrc));
   const headExtras = extractIndexHeadExtras(indexSrc);
-  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras), "utf8");
+  const build = readBuildFromCodeJs();
+  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build), "utf8");
 
   const nojekyll = path.join(DOCS, ".nojekyll");
   if (!fs.existsSync(nojekyll)) fs.writeFileSync(nojekyll, "", "utf8");
