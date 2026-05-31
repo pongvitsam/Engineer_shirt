@@ -115,7 +115,7 @@ function callServerRpcJsonp_(apiUrl, envelope) {
     script.async = true;
     script.onerror = function () {
       cleanup();
-      reject(new Error("Failed to fetch"));
+      reject(new Error("เชื่อมต่อ API ไม่สำเร็จ — ให้ Deploy GAS เวอร์ชันล่าสุด (build " + (window.PEACE_CONFIG && window.PEACE_CONFIG.build || "?") + ") แล้วรีเฟรชหน้านี้"));
     };
     document.head.appendChild(script);
   });

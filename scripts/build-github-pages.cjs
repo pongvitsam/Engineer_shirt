@@ -9,6 +9,7 @@ const ROOT = path.join(__dirname, "..");
 const DOCS = path.join(ROOT, "docs");
 const ASSETS = path.join(DOCS, "assets");
 
+/** Must match clasp deployment used by GitHub Pages (re-deploy after clasp push). */
 const GAS_WEB_APP_URL =
   process.env.PEACE_GAS_API_URL ||
   "https://script.google.com/macros/s/AKfycbxNr1MJ0ym_X0lIjvk_UvgoBbgVaXxd_1zG0Eq-I-SBCMyB8dR6jdYAlDvwnd57Ywze0g/exec";
