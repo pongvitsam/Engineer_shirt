@@ -1,0 +1,14 @@
+{
+  "devDependencies": {
+    "clean-css": "^5.3.3",
+    "playwright": "^1.60.0",
+    "terser": "^5.48.0"
+  },
+  "scripts": {
+    "build:pages": "node scripts/build-github-pages.cjs",
+    "test:stock": "node __test_stock_consistency.cjs",
+    "test:audit": "node __test_system_audit.cjs",
+    "test:pages": "node __test_github_pages.cjs",
+    "test": "npm run test:stock && npm run test:audit && npm run build:pages && npm run test:pages"
+  }
+}

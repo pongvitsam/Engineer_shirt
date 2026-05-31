@@ -1,19 +1,168 @@
-// =====================================================================
+﻿// =====================================================================
 // PEACE Engineer Club — Shirt Sales System (Apps Script back-end)
 // RBAC + Multi-size orders + Speed optimizations
 // =====================================================================
 
 // === Web app entry =====================================================
-function doGet() {
-  return HtmlService.createTemplateFromFile("Index")
-    .evaluate()
-    .setTitle("ระบบจัดการขายเสื้อชมรมวิศวกร กฟภ.")
+/** Public GitHub Pages frontend (repo: Engineer_shirt) */
+const GITHUB_PAGES_URL = "https://pongvitsam.github.io/Engineer_shirt/";
+
+const RPC_PUBLIC_METHODS_ = {
+  login: true,
+  logout: true,
+  verifySession: true,
+  getGuestStockData: true,
+  getImageProxy: true
+};
+
+function doGet(e) {
+  e = e || {};
+  const params = e.parameter || {};
+  const asset = String(params.asset || "").toLowerCase();
+
+  if (asset === "js") {
+    return ContentService
+      .createTextOutput(getClientJs_())
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  // Default GAS URL → GitHub Pages (primary app)
+  if (String(params.gas || "") !== "1") {
+    return redirectToGithubPages_();
+  }
+
+  // ?gas=1 → legacy GAS-hosted UI (admin login only)
+  const tpl = HtmlService.createTemplateFromFile("Index");
+  tpl.assetBaseUrl = ScriptApp.getService().getUrl();
+  tpl.assetVersion = APP_BUILD;
+  tpl.gasAdminOnly = true;
+
+  return tpl.evaluate()
+    .setTitle("ระบบจัดการขายเสื้อชมรมวิศวกร กฟภ. (แอดมิน GAS)")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
 }
 
+function doPost(e) {
+  return handleRpcPost_(e);
+}
+
+function redirectToGithubPages_() {
+  const url = getGithubPagesUrl_();
+  const html = "<!DOCTYPE html><html lang=\"th\"><head><meta charset=\"utf-8\">" +
+    "<meta http-equiv=\"refresh\" content=\"0;url=" + url + "\">" +
+    "<script>location.replace(" + JSON.stringify(url) + ");</script></head>" +
+    "<body style=\"font-family:sans-serif;text-align:center;padding:2rem\">" +
+    "<p>กำลังไปยังแอปหลัก… <a href=\"" + url + "\">คลิกที่นี่</a></p>" +
+    "<p style=\"font-size:.85rem;opacity:.7\">แอดมิน GAS: เพิ่ม <code>?gas=1</code> ที่ท้าย URL</p>" +
+    "</body></html>";
+  return HtmlService.createHtmlOutput(html)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function getGithubPagesUrl_() {
+  return GITHUB_PAGES_URL;
+}
+
+function getGasWebAppUrl_() {
+  try {
+    return ScriptApp.getService().getUrl();
+  } catch (err) {
+    return "";
+  }
+}
+
+function jsonRpcOutput_(payload) {
+  return ContentService.createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleRpcPost_(e) {
+  try {
+    const raw = e && e.postData && e.postData.contents ? e.postData.contents : "{}";
+    const body = JSON.parse(raw);
+    const method = String(body.method || "").trim();
+    const args = Array.isArray(body.args) ? body.args : [];
+    const gasAdminOnly = body.gasAdminOnly === true;
+    if (!method) throw new Error("ไม่ระบุ method");
+    const result = invokeRpc_(method, args, { gasAdminOnly: gasAdminOnly });
+    return jsonRpcOutput_({ ok: true, result: result });
+  } catch (err) {
+    return jsonRpcOutput_({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
+}
+
+function invokeRpc_(method, args, options) {
+  options = options || {};
+  if (!RPC_PUBLIC_METHODS_[method]) {
+    const token = args[0];
+    if (!readSession_(token)) {
+      throw new Error("กรุณาเข้าสู่ระบบใหม่");
+    }
+  }
+  const fn = {
+    login: login,
+    logout: logout,
+    verifySession: verifySession,
+    getGuestStockData: getGuestStockData,
+    getBootstrapData: getBootstrapData,
+    addMultiSizeOrder: addMultiSizeOrder,
+    updateOrderStatusByOrderId: updateOrderStatusByOrderId,
+    updateOrderNoteByOrderId: updateOrderNoteByOrderId,
+    uploadOrderImage: uploadOrderImage,
+    deleteOrderImage: deleteOrderImage,
+    getOrderImage: getOrderImage,
+    deleteOrderByOrderId: deleteOrderByOrderId,
+    updateCartOrderByOrderId: updateCartOrderByOrderId,
+    submitCartOrderToAdmin: submitCartOrderToAdmin,
+    acceptOrderPayment: acceptOrderPayment,
+    markOrderFreeGiveaway: markOrderFreeGiveaway,
+    getImageProxy: getImageProxy,
+    listUsers: listUsers,
+    createUser: createUser,
+    getUserPassword: getUserPassword,
+    resetPassword: resetPassword,
+    deleteUser: deleteUser,
+    uploadShirtImage: uploadShirtImage,
+    saveRoundConfig: saveRoundConfig,
+    saveStockDelivered: saveStockDelivered,
+    resetAllData: resetAllData,
+    exportAllDataCsv: exportAllDataCsv,
+    exportOrdersCsv: exportOrdersCsv
+  }[method];
+  if (!fn) throw new Error("ไม่รองรับ method: " + method);
+  const result = fn.apply(null, args);
+  if (method === "login" && options.gasAdminOnly) {
+    assertGasAdminLogin_(result);
+  }
+  return result;
+}
+
+function assertGasAdminLogin_(loginResult) {
+  const role = loginResult && loginResult.role ? String(loginResult.role).trim() : "";
+  if (role !== "admin") {
+    if (loginResult && loginResult.token) {
+      try {
+        PropertiesService.getScriptProperties().deleteProperty(sessionKey_(loginResult.token));
+      } catch (_) {}
+    }
+    throw new Error("โหมด GAS ใช้ได้เฉพาะแอดมิน — ผู้ใช้ทั่วไปให้ใช้งานผ่าน " + getGithubPagesUrl_());
+  }
+}
+
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+function getClientJs_() {
+  const raw = HtmlService.createHtmlOutputFromFile("JavaScript").getContent();
+  return stripSingleTag_(raw, "script");
+}
+
+function stripSingleTag_(html, tagName) {
+  const re = new RegExp("<" + tagName + "[^>]*>([\\s\\S]*)<\\/" + tagName + ">", "i");
+  const m = String(html || "").match(re);
+  return m ? m[1] : String(html || "");
 }
 
 // === Configuration =====================================================
@@ -35,8 +184,11 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v2";
-const SHEETS_READY_KEY = "SHEETS_READY_V4";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v3";
+const APP_BUILD = "104";
+const ROLE_ENGINEER = "engineer";
+const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
+const SHEETS_READY_KEY = "SHEETS_READY_V5";
 
 const SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 const SESSION_PREFIX = "sess_";
@@ -50,6 +202,13 @@ const PEA_REGIONS = [
   "สำนักงานใหญ่"
 ];
 
+/** Order notes from this region are hidden from admin viewers. */
+const ADMIN_NOTE_HIDDEN_REGION = "สำนักงานใหญ่";
+
+function isAdminHiddenNoteRegion_(region) {
+  return String(region || "").trim() === ADMIN_NOTE_HIDDEN_REGION;
+}
+
 const STOCK_SIZES = ["XS", "S", "M", "L", "XL", "2L", "3L", "5L", "7L"];
 
 const DEFAULT_DELIVERED = {
@@ -61,14 +220,25 @@ const DEFAULT_SIZE_CHART = [
   ["XL", 44, 29], ["2L", 46, 30], ["3L", 48, 31], ["5L", 52, 32], ["7L", 56, 33]
 ];
 
-const PICKUP_STATUS = ["รอโอน", "รอรับ", "รับแล้ว"];
+const PICKUP_STATUS = ["รอโอน", "รอส่ง", "จัดส่งแล้ว", "รอรับ", "รับแล้ว"];
+const ORDER_STATUS_CART = "อยู่ในตะกร้า";
 const ORDER_STATUS_ORDERED = "สั่งออเดอร์แล้ว";
+const USER_EDITABLE_STATUSES = [ORDER_STATUS_ORDERED, "รอโอน"];
+const USER_LOCKED_STATUSES = ["รอส่ง", "จัดส่งแล้ว", "รอรับ", "รับแล้ว"];
 const ADMIN_ORDER_STATUS = [ORDER_STATUS_ORDERED].concat(PICKUP_STATUS);
+const SUBMITTED_ORDER_STATUSES = ADMIN_ORDER_STATUS.slice();
 const CHANGE_REQUEST_STATUS = {
   NONE: "none",
   PENDING: "pending",
   APPROVED: "approved",
   REJECTED: "rejected"
+};
+
+const PAYMENT_STATUS = {
+  NONE: "",
+  PENDING_REVIEW: "รอตรวจสลิป",
+  VERIFIED: "ชำระเงินแล้ว",
+  FREE_GIVEAWAY: "เสื้อแจกฟรี"
 };
 
 const DEFAULT_USERS = [
@@ -86,7 +256,8 @@ const DEFAULT_USERS = [
   ["user_e1", "Peace@2569", "user",  "กฟก.1",        "ผู้ใช้งานเขต กฟก.1"],
   ["user_e2", "Peace@2569", "user",  "กฟก.2",        "ผู้ใช้งานเขต กฟก.2"],
   ["user_e3", "Peace@2569", "user",  "กฟก.3",        "ผู้ใช้งานเขต กฟก.3"],
-  ["user_hq", "Peace@2569", "user",  "สำนักงานใหญ่", "ผู้ใช้งานสำนักงานใหญ่"]
+  ["user_hq", "Peace@2569", "user",  "สำนักงานใหญ่", "ผู้ใช้งานสำนักงานใหญ่"],
+  ["team_eng", "Peace@2569", "engineer", "สำนักงานใหญ่", "ทีมงาน ชวศ"]
 ];
 
 // === Auth: hashing / sessions =========================================
@@ -131,9 +302,69 @@ function readSession_(token) {
   }
 }
 
+const DEFAULT_ADMIN_USERNAMES = DEFAULT_USERS
+  .filter(function (u) { return String(u[2]).toLowerCase() === "admin"; })
+  .map(function (u) { return String(u[0]).trim().toLowerCase(); });
+
+function normalizeRoleRegion_(username, roleValue, regionValue) {
+  const uname = String(username || "").trim().toLowerCase();
+  const roleRaw = String(roleValue || "").trim();
+  const regionRaw = String(regionValue || "").trim();
+  let role = String(roleRaw || "user").trim().toLowerCase();
+  let region = String(regionRaw || "").trim();
+  const regionNorm = region.toLowerCase();
+  const isDefaultAdmin = DEFAULT_ADMIN_USERNAMES.indexOf(uname) > -1;
+  const looksLegacySwappedAdmin =
+    (role === "*" && regionNorm === "admin") ||
+    (isDefaultAdmin && role === "user" && regionNorm === "admin");
+  if (looksLegacySwappedAdmin) {
+    role = "admin";
+    region = "*";
+  }
+  const roleLooksRegion = PEA_REGIONS.indexOf(roleRaw) > -1;
+  if (!looksLegacySwappedAdmin && roleLooksRegion && regionNorm === "user") {
+    role = "user";
+    region = roleRaw;
+  }
+  if (role === "admin" && !region) region = "*";
+  if (role === ROLE_ENGINEER && !region) region = "สำนักงานใหญ่";
+  if (role !== "admin" && role !== "user" && role !== "guest" && role !== ROLE_ENGINEER) role = "user";
+  return { role: role, region: region };
+}
+
+function isEngineerRole_(session) {
+  return !!session && session.role === ROLE_ENGINEER;
+}
+
+function canViewAllRegions_(session) {
+  if (!session) return false;
+  return session.role === "admin" || isEngineerRole_(session) || session.region === "*";
+}
+
+function sessionCanViewRegion_(session, rowRegion) {
+  if (!session) return false;
+  if (session.role === "admin" || session.region === "*") return true;
+  if (isEngineerRole_(session)) return true;
+  if (!session.region) return false;
+  return String(rowRegion) === String(session.region);
+}
+
+function sessionCanModifyRegion_(session, rowRegion) {
+  if (!session) return false;
+  if (session.role === "admin" || session.region === "*") return true;
+  if (!session.region) return false;
+  return String(rowRegion) === String(session.region);
+}
+
 function verifySession_(token) {
   const s = readSession_(token);
   if (!s) throw new Error("กรุณาเข้าสู่ระบบใหม่");
+  const normalized = normalizeRoleRegion_(s.username, s.role, s.region);
+  if (s.role !== normalized.role || s.region !== normalized.region) {
+    s.role = normalized.role;
+    s.region = normalized.region;
+    saveSession_(token, s);
+  }
   return s;
 }
 
@@ -147,14 +378,9 @@ function requireUserOrAdmin_(token) {
   return verifySession_(token);
 }
 
-// Region access guard (fail-closed). Admins and the wildcard region "*" may
-// access every region; a non-admin session WITHOUT a concrete region is denied
-// access to all rows instead of silently bypassing region scoping.
+// Region view guard (fail-closed). Admins, engineer team, and "*" see every region.
 function sessionCanAccessRegion_(session, rowRegion) {
-  if (!session) return false;
-  if (session.role === "admin" || session.region === "*") return true;
-  if (!session.region) return false; // fail closed: user without region sees nothing
-  return String(rowRegion) === String(session.region);
+  return sessionCanViewRegion_(session, rowRegion);
 }
 
 // === Auth: public endpoints ===========================================
@@ -172,8 +398,9 @@ function login(username, password) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     if (String(r[0]).trim() === u && String(r[1]) === hash) {
-      const role = String(r[2] || "user");
-      const region = String(r[3] || "");
+      const normalized = normalizeRoleRegion_(u, r[2], r[3]);
+      const role = normalized.role;
+      const region = normalized.region;
       const display = String(r[4] || u);
       const active = r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true;
       if (!active) throw new Error("บัญชีนี้ถูกระงับ");
@@ -203,6 +430,12 @@ function logout(token) {
 function verifySession(token) {
   const s = readSession_(token);
   if (!s) return { ok: false };
+  const normalized = normalizeRoleRegion_(s.username, s.role, s.region);
+  if (s.role !== normalized.role || s.region !== normalized.region) {
+    s.role = normalized.role;
+    s.region = normalized.region;
+    saveSession_(token, s);
+  }
   return {
     ok: true,
     username: s.username,
@@ -215,14 +448,26 @@ function verifySession(token) {
 function getGuestStockData() {
   ensureSheetsInitialized_();
   const data = buildBootstrapData_();
+  const round = data.round || {};
   return {
     regions: [],
-    round: data.round,
+    round: {
+      year: round.year,
+      name: round.name,
+      imageUrl: round.imageUrl,
+      imageDataThumb: round.imageDataThumb,
+      imageDisplayUrl: round.imageDisplayUrl,
+      imageSourceMode: round.imageSourceMode,
+      imageRef: round.imageRef
+    },
     stockSizes: data.stockSizes,
-    stock: data.stock,
-    sizeChart: [],
+    stock: (data.stock || []).map(s => ({
+      size: s.size,
+      remaining: s.remaining
+    })),
+    sizeChart: data.sizeChart || [],
     orders: [],
-    unitPrice: data.unitPrice,
+    unitPrice: 0,
     pickupStatus: [],
     generatedAt: data.generatedAt,
     me: {
@@ -235,17 +480,95 @@ function getGuestStockData() {
 }
 
 // === Admin user management ============================================
+function ensureUsersSheetMigrated_(ss) {
+  migrateUsersPasswordPlainColumn_(ss);
+}
+
+function ensureDefaultEngineerUser_(ss) {
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  if (!sheet) return;
+  const username = "team_eng";
+  const rows = getDataRows_(sheet, 6);
+  if (rows.some(function (r) { return String(r[0]).trim() === username; })) return;
+  const def = DEFAULT_USERS.filter(function (u) { return String(u[0]) === username; })[0];
+  if (!def) return;
+  sheet.appendRow([def[0], hashPassword_(def[1]), def[2], def[3], def[4], true, def[1]]);
+}
+
+function migrateUsersPasswordPlainColumn_(ss) {
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  if (!sheet) return;
+  const header = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  if (String(header[6] || "").trim() !== "PasswordPlain") {
+    sheet.getRange(1, 7).setValue("PasswordPlain");
+  }
+  const defaultPlainByUser = {};
+  DEFAULT_USERS.forEach(function (u) {
+    defaultPlainByUser[String(u[0]).trim()] = String(u[1] || "");
+  });
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const width = Math.max(sheet.getLastColumn(), 7);
+  const rows = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+  for (let i = 0; i < rows.length; i++) {
+    const uname = String(rows[i][0] || "").trim();
+    if (!uname) continue;
+    if (String(rows[i][6] || "").trim()) continue;
+    const plain = defaultPlainByUser[uname];
+    if (plain) sheet.getRange(i + 2, 7).setValue(plain);
+  }
+}
+
+function getUserPassword(token, username) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
+  const u = String(username || "").trim();
+  if (!u) throw new Error("ระบุชื่อผู้ใช้");
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]).trim() === u) {
+      const plain = String(values[i][6] || "").trim();
+      return {
+        username: u,
+        region: String(values[i][3] || ""),
+        password: plain,
+        hasPassword: !!plain
+      };
+    }
+  }
+  throw new Error("ไม่พบผู้ใช้ " + u);
+}
+
 function listUsers(token) {
   requireAdmin_(token);
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const rows = getDataRows_(ss.getSheetByName(USERS_SHEET), 6);
-  return rows.map(r => ({
-    username: String(r[0] || ""),
-    role: String(r[2] || "user"),
-    region: String(r[3] || ""),
-    displayName: String(r[4] || ""),
-    active: r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true
-  })).filter(u => u.username);
+  ensureUsersSheetMigrated_(ss);
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  const last = sheet.getLastRow();
+  if (last < 2) return [];
+  const width = Math.max(sheet.getLastColumn(), 7);
+  const rows = sheet.getRange(2, 1, last - 1, width).getValues();
+  const seen = {};
+  const out = [];
+  rows.forEach(function (r) {
+    const username = String(r[0] || "").trim();
+    if (!username) return;
+    const key = username.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    const normalized = normalizeRoleRegion_(username, r[2], r[3]);
+    out.push({
+      username: username,
+      role: normalized.role,
+      region: normalized.region,
+      displayName: String(r[4] || username),
+      active: r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true
+    });
+  });
+  return out;
 }
 
 function createUser(token, payload) {
@@ -257,15 +580,22 @@ function createUser(token, payload) {
   const displayName = String(payload.displayName || username);
   if (!username || !password) throw new Error("กรอกชื่อผู้ใช้และรหัสผ่าน");
   if (password.length < 4) throw new Error("รหัสผ่านต้องอย่างน้อย 4 ตัว");
-  if (role !== "admin" && role !== "user") throw new Error("ตำแหน่งไม่ถูกต้อง");
+  if (role !== "admin" && role !== "user" && role !== ROLE_ENGINEER) throw new Error("ตำแหน่งไม่ถูกต้อง");
+  if (role === ROLE_ENGINEER) {
+    if (!region || region === "*") region = "สำนักงานใหญ่";
+    if (!region || region === "*") {
+      throw new Error(ROLE_ENGINEER_LABEL + " ต้องเลือกเขตที่ใช้สั่งเสื้อ (เช่น สำนักงานใหญ่) — ไม่ใช่ * ทุกเขต");
+    }
+  }
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const rows = getDataRows_(sheet, 6);
   if (rows.some(r => String(r[0]).trim() === username)) {
     throw new Error("มีชื่อผู้ใช้นี้แล้ว");
   }
-  sheet.appendRow([username, hashPassword_(password), role, region, displayName, true]);
+  sheet.appendRow([username, hashPassword_(password), role, region, displayName, true, password]);
   return { ok: true };
 }
 
@@ -289,17 +619,29 @@ function updateUser(token, username, payload) {
 
 function deleteUser(token, username) {
   const me = requireAdmin_(token);
-  if (String(me.username) === String(username)) throw new Error("ห้ามลบบัญชีของตัวเอง");
+  const target = String(username || "").trim().toLowerCase();
+  if (!target) throw new Error("ระบุชื่อผู้ใช้");
+  if (String(me.username || "").trim().toLowerCase() === target) {
+    throw new Error("ห้ามลบบัญชีของตัวเอง");
+  }
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheet = ss.getSheetByName(USERS_SHEET);
-  const values = sheet.getDataRange().getValues();
-  for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0]).trim() === String(username).trim()) {
-      sheet.deleteRow(i + 1);
-      return { ok: true };
+  const last = sheet.getLastRow();
+  if (last < 2) throw new Error("ไม่พบผู้ใช้ " + username);
+  const width = Math.max(sheet.getLastColumn(), 7);
+  const values = sheet.getRange(2, 1, last - 1, width).getValues();
+  const rowsToDelete = [];
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0] || "").trim().toLowerCase() === target) {
+      rowsToDelete.push(i + 2);
     }
   }
-  throw new Error("ไม่พบผู้ใช้ " + username);
+  if (rowsToDelete.length === 0) throw new Error("ไม่พบผู้ใช้ " + username);
+  rowsToDelete.sort(function (a, b) { return b - a; }).forEach(function (row) {
+    sheet.deleteRow(row);
+  });
+  SpreadsheetApp.flush();
+  return { ok: true, deleted: rowsToDelete.length };
 }
 
 function resetPassword(token, username, newPassword) {
@@ -307,11 +649,13 @@ function resetPassword(token, username, newPassword) {
   const np = String(newPassword || "");
   if (np.length < 4) throw new Error("รหัสผ่านต้องอย่างน้อย 4 ตัว");
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
     if (String(values[i][0]).trim() === String(username).trim()) {
       sheet.getRange(i + 1, 2).setValue(hashPassword_(np));
+      sheet.getRange(i + 1, 7).setValue(np);
       return { ok: true };
     }
   }
@@ -341,6 +685,7 @@ function getBootstrapData(token) {
     orders: data.orders,
     unitPrice: data.unitPrice,
     pickupStatus: data.pickupStatus,
+    cartStatus: ORDER_STATUS_CART,
     generatedAt: data.generatedAt,
     me: {
       username: session.username,
@@ -349,12 +694,15 @@ function getBootstrapData(token) {
       displayName: session.displayName || session.username
     }
   };
-  if (session.role !== "admin" && session.region !== "*") {
-    // Fail closed: a non-admin without a concrete region must not see any orders.
+  if (!canViewAllRegions_(session)) {
+    // Fail closed: a scoped user without a concrete region must not see any orders.
     out.orders = session.region
       ? data.orders.filter(o => o.region === session.region)
       : [];
   }
+  out.orders = (out.orders || []).map(function (o) {
+    return sanitizeOrderForViewer_(o, session);
+  });
   return out;
 }
 
@@ -374,12 +722,22 @@ function buildBootstrapData_() {
     orders: orders,
     unitPrice: round.unitPrice,
     pickupStatus: ADMIN_ORDER_STATUS,
+    cartStatus: ORDER_STATUS_CART,
     generatedAt: new Date().toISOString()
   };
 }
 
 function invalidateDataCache_() {
   CacheService.getScriptCache().remove(CACHE_KEY_BOOTSTRAP);
+}
+
+function refreshBootstrapCache_() {
+  const cache = CacheService.getScriptCache();
+  try {
+    cache.put(CACHE_KEY_BOOTSTRAP, JSON.stringify(buildBootstrapData_()), CACHE_TTL_SEC);
+  } catch (e) {
+    try { cache.remove(CACHE_KEY_BOOTSTRAP); } catch (e2) {}
+  }
 }
 
 // === Orders ============================================================
@@ -417,39 +775,20 @@ function addMultiSizeOrder(token, payload) {
     });
     if (totalQty <= 0) throw new Error("จำนวนต้องมากกว่า 0");
 
-    const stock = getStockSummary_(ss);
-    Object.keys(agg).forEach(size => {
-      const s = stock.find(x => x.size === size);
-      if (!s) throw new Error("ไม่พบไซส์ " + size);
-      if (s.remaining < agg[size]) {
-        throw new Error("ไซส์ " + size + " คงเหลือ " + s.remaining + " ตัว (สั่ง " + agg[size] + ")");
-      }
-    });
+    validateStockForOrderItems_(ss, items, "");
 
-    const payDate = String(payload.payDate || "").trim();
-    const payTime = String(payload.payTime || "").trim();
+    const now = new Date();
+    const orderDt = orderDateTimeParts_(now);
+    const payDate = orderDt.payDate;
+    const payTime = orderDt.payTime;
+    const note = String(payload.note || "").trim().substring(0, 120);
     const requestedStatus = String(payload.status || "").trim();
     const status = resolveNewOrderStatus_(session, requestedStatus);
     const unitPrice = Number(payload.unitPrice) || getRoundInfo_(ss).unitPrice;
 
-    const now = new Date();
     const orderId = "ORD" + now.getTime() + Math.floor(Math.random() * 1000);
-
-    let slipName = "";
-    let slipUrl = "";
-    let slipWarning = "";
-    if (payload.slipBase64) {
-      try {
-        const slip = saveSlipFile_(payload.slipBase64, "Slip_" + orderId);
-        slipName = slip.name || "";
-        slipUrl = slip.url || "";
-      } catch (e) {
-        // Slip is optional: if Drive is blocked, allow order creation to continue.
-        slipName = "";
-        slipUrl = "";
-        slipWarning = "บันทึกออเดอร์สำเร็จ แต่แนบสลิปไม่สำเร็จ (สิทธิ์ Google Drive ยังไม่พร้อม)";
-      }
-    }
+    const slipName = "";
+    const slipUrl = "";
 
     const startNo = orderSheet.getLastRow();
     const rowsToAppend = [];
@@ -467,20 +806,126 @@ function addMultiSizeOrder(token, payload) {
         payDate,
         payTime,
         status,
-        "",
+        note,
         now,
         slipName,
         slipUrl,
         session.username,
         "",
         CHANGE_REQUEST_STATUS.NONE,
-        ""
+        "",
+        PAYMENT_STATUS.NONE
       ]);
     });
     orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
 
     invalidateDataCache_();
-    return { ok: true, orderId: orderId, totalQty: totalQty, rows: rowsToAppend.length, warning: slipWarning };
+    return {
+      ok: true,
+      orderId: orderId,
+      totalQty: totalQty,
+      rows: rowsToAppend.length,
+      slipName: "",
+      slipUrl: "",
+      region: region,
+      status: status,
+      note: note,
+      payDate: payDate,
+      payTime: payTime,
+      timestamp: now.toISOString(),
+      unitPrice: unitPrice,
+      paymentStatus: PAYMENT_STATUS.NONE
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateCartOrderByOrderId(token, orderId, payload) {
+  const session = requireUserOrAdmin_(token);
+  ensureSheetsInitialized_();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const orderSheet = ss.getSheetByName(ORDER_SHEET);
+    const meta = getOrderGroupMeta_(orderSheet, orderId, session);
+    assertUserCanModifyOwnOrder_(session, meta.status, meta.paymentStatus);
+    const preserveStatus = meta.status;
+    const items = Array.isArray(payload && payload.items) ? payload.items : [];
+    const agg = validateStockForOrderItems_(ss, items, orderId);
+    const values = orderSheet.getDataRange().getValues();
+    const templateRow = values[meta.rows[0].row - 1];
+    const payDate = String(payload && payload.payDate != null ? payload.payDate : templateRow[6] || "").trim();
+    const payTime = String(payload && payload.payTime != null ? payload.payTime : templateRow[7] || "").trim();
+    const note = String(payload && payload.note != null ? payload.note : templateRow[9] || "").trim().substring(0, 120);
+    const slipName = String(templateRow[11] || "");
+    const slipUrl = String(templateRow[12] || "");
+    const createdBy = String(templateRow[13] || session.username);
+    const paymentStatus = String(templateRow[17] || PAYMENT_STATUS.NONE);
+    const unitPrice = Number(payload && payload.unitPrice) || getRoundInfo_(ss).unitPrice;
+    const rowsToDelete = meta.rows.map(r => r.row).sort((a, b) => b - a);
+    rowsToDelete.forEach(r => orderSheet.deleteRow(r));
+    const startNo = orderSheet.getLastRow();
+    const rowsToAppend = [];
+    let counter = 0;
+    Object.keys(agg).forEach(size => {
+      counter++;
+      const qty = agg[size];
+      rowsToAppend.push([
+        startNo + counter,
+        meta.orderId,
+        meta.region,
+        size,
+        qty,
+        qty * unitPrice,
+        payDate,
+        payTime,
+        preserveStatus,
+        note,
+        new Date(),
+        slipName,
+        slipUrl,
+        createdBy,
+        "",
+        CHANGE_REQUEST_STATUS.NONE,
+        "",
+        paymentStatus
+      ]);
+    });
+    orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+    renumberOrders_(orderSheet);
+    invalidateDataCache_();
+    return { ok: true, orderId: meta.orderId, totalQty: Object.keys(agg).reduce((s, k) => s + agg[k], 0), status: preserveStatus };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function submitCartOrderToAdmin(token, orderId) {
+  const session = requireUserOrAdmin_(token);
+  ensureSheetsInitialized_();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const orderSheet = ss.getSheetByName(ORDER_SHEET);
+    const meta = getOrderGroupMeta_(orderSheet, orderId, session);
+    if (!isCartOrderStatus_(meta.status)) {
+      throw new Error("ออเดอร์นี้ถูกส่งไปยังแอดมินแล้ว");
+    }
+    let totalQty = 0;
+    const cartItems = meta.rows.map(function (r) {
+      totalQty += r.qty;
+      return { size: r.size, qty: r.qty };
+    });
+    if (totalQty <= 0) throw new Error("ออเดอร์ว่าง ไม่สามารถส่งได้");
+    validateStockForOrderItems_(ss, cartItems, orderId);
+    meta.rows.forEach(r => {
+      orderSheet.getRange(r.row, 9).setValue(ORDER_STATUS_ORDERED);
+    });
+    invalidateDataCache_();
+    return { ok: true, orderId: meta.orderId, status: ORDER_STATUS_ORDERED };
   } finally {
     lock.releaseLock();
   }
@@ -493,10 +938,71 @@ function addOrder(token, payload) {
     payDate: payload.payDate,
     payTime: payload.payTime,
     status: payload.status,
+    note: payload.note,
     slipBase64: payload.slipBase64,
     unitPrice: payload.price && payload.qty ? Number(payload.price) / Number(payload.qty) : undefined,
     items: [{ size: payload.size, qty: Number(payload.qty) || 0 }]
   });
+}
+
+function isCartOrderStatus_(status) {
+  return String(status || "").trim() === ORDER_STATUS_CART;
+}
+
+function isSubmittedOrderStatus_(status) {
+  const s = String(status || "").trim();
+  return SUBMITTED_ORDER_STATUSES.indexOf(s) > -1;
+}
+
+function isUserEditableOrderStatus_(status) {
+  if (isCartOrderStatus_(status)) return true;
+  const s = String(status || "").trim();
+  return USER_EDITABLE_STATUSES.indexOf(s) > -1;
+}
+
+function orderDateTimeParts_(d) {
+  const dt = d || new Date();
+  const tz = Session.getScriptTimeZone() || "Asia/Bangkok";
+  return {
+    payDate: Utilities.formatDate(dt, tz, "yyyy-MM-dd"),
+    payTime: Utilities.formatDate(dt, tz, "HH:mm")
+  };
+}
+
+function isUserLockedOrderStatus_(status) {
+  const s = String(status || "").trim();
+  return USER_LOCKED_STATUSES.indexOf(s) > -1;
+}
+
+function isPaymentVerified_(paymentStatus) {
+  return String(paymentStatus || "").trim() === PAYMENT_STATUS.VERIFIED;
+}
+
+function isFreeGiveawayPayment_(paymentStatus) {
+  return String(paymentStatus || "").trim() === PAYMENT_STATUS.FREE_GIVEAWAY;
+}
+
+function isPaymentLocked_(paymentStatus) {
+  return isPaymentVerified_(paymentStatus) || isFreeGiveawayPayment_(paymentStatus);
+}
+
+function countsAsSaleRevenue_(paymentStatus) {
+  return !isFreeGiveawayPayment_(paymentStatus);
+}
+
+function assertUserCanModifyOwnOrder_(session, groupStatus, paymentStatus) {
+  if (!session || session.role === "admin") return;
+  if (isPaymentLocked_(paymentStatus)) {
+    throw new Error("ออเดอร์ถูกปิดแล้ว แก้ไข/ลบได้เฉพาะแอดมิน");
+  }
+  const st = String(groupStatus || "").trim();
+  if (!isUserEditableOrderStatus_(st)) {
+    throw new Error("ออเดอร์ถูกล็อกแล้ว แก้ไข/ลบได้เฉพาะแอดมิน");
+  }
+}
+
+function assertUserCanDeleteOwnOrder_(session, groupStatus, paymentStatus) {
+  assertUserCanModifyOwnOrder_(session, groupStatus, paymentStatus);
 }
 
 function resolveNewOrderStatus_(session, incomingStatus) {
@@ -505,7 +1011,61 @@ function resolveNewOrderStatus_(session, incomingStatus) {
     if (!ADMIN_ORDER_STATUS.includes(incomingStatus)) throw new Error("สถานะไม่ถูกต้อง");
     return incomingStatus;
   }
-  return ORDER_STATUS_ORDERED;
+  return ORDER_STATUS_CART;
+}
+
+function getOrderGroupMeta_(orderSheet, orderId, session) {
+  const values = orderSheet.getDataRange().getValues();
+  const targetOrderId = String(orderId || "").trim();
+  const rows = [];
+  for (let i = 1; i < values.length; i++) {
+    const rowOrderId = String(values[i][1] || values[i][0]);
+    if (rowOrderId !== targetOrderId) continue;
+    if (!sessionCanModifyRegion_(session, values[i][2])) {
+      throw new Error("ไม่มีสิทธิ์จัดการออเดอร์นี้");
+    }
+    rows.push({
+      row: i + 1,
+      region: String(values[i][2] || ""),
+      size: String(values[i][3] || ""),
+      qty: Number(values[i][4]) || 0,
+      status: String(values[i][8] || ORDER_STATUS_ORDERED)
+    });
+  }
+  if (rows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+  const firstRow = values[rows[0].row - 1];
+  return {
+    orderId: targetOrderId,
+    rows: rows,
+    status: rows[0].status,
+    region: rows[0].region,
+    paymentStatus: String(firstRow[17] || PAYMENT_STATUS.NONE).trim()
+  };
+}
+
+function validateStockForOrderItems_(ss, items, excludeOrderId) {
+  const orders = getOrders_(ss).filter(o => String(o.orderId) !== String(excludeOrderId || ""));
+  const soldMap = calcSoldFromOrders_(orders);
+  const stock = getStockSummaryWithSold_(ss, soldMap);
+  const agg = {};
+  (Array.isArray(items) ? items : []).forEach(it => {
+    const size = String(it.size || "").trim();
+    const qty = Number(it.qty) || 0;
+    if (!STOCK_SIZES.includes(size)) throw new Error("ไซส์ไม่ถูกต้อง: " + size);
+    if (qty <= 0) return;
+    agg[size] = (agg[size] || 0) + qty;
+  });
+  let totalQty = 0;
+  Object.keys(agg).forEach(size => {
+    totalQty += agg[size];
+    const s = stock.find(x => x.size === size);
+    if (!s) throw new Error("ไม่พบไซส์ " + size);
+    if (s.remaining < agg[size]) {
+      throw new Error("ไซส์ " + size + " คงเหลือ " + s.remaining + " ตัว (สั่ง " + agg[size] + ")");
+    }
+  });
+  if (totalQty <= 0) throw new Error("กรุณาเพิ่มไซส์อย่างน้อย 1 รายการ");
+  return agg;
 }
 
 function updateOrderStatus(token, no, status) {
@@ -550,13 +1110,18 @@ function updateOrderNoteByOrderId(token, orderId, note) {
   ensureSheetsInitialized_();
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
+  const meta = getOrderGroupMeta_(orderSheet, orderId, session);
+  if (session.role === "admin" && isAdminHiddenNoteRegion_(meta.region)) {
+    throw new Error("ไม่มีสิทธิ์ดู/แก้หมายเหตุเขตสำนักงานใหญ่");
+  }
+  assertUserCanModifyOwnOrder_(session, meta.status, meta.paymentStatus);
   const values = orderSheet.getDataRange().getValues();
   const safeNote = String(note == null ? "" : note).trim();
   let changed = 0;
   for (let i = 1; i < values.length; i++) {
     const rowOrderId = String(values[i][1] || values[i][0]);
     if (rowOrderId === String(orderId)) {
-      if (!sessionCanAccessRegion_(session, values[i][2])) continue;
+      if (!sessionCanModifyRegion_(session, values[i][2])) continue;
       orderSheet.getRange(i + 1, 10).setValue(safeNote);
       changed++;
     }
@@ -573,45 +1138,44 @@ function updateOrderNoteByOrderId(token, orderId, note) {
 // AFTER the order was created, view it, or delete it. Region-scoped RBAC:
 // admins manage any order; non-admins only orders in their own region.
 
-// Upload an image for an order that does NOT already have one. Rejects when a
-// slip is already attached (caller must delete first).
-function uploadOrderImage(token, orderId, base64, filename) {
+// Upload/replace slip image. Saves under Drive subfolder per region; filename =
+// {region}_{datetime}_{amount}.ext. Older files remain in Drive; sheet shows latest only.
+function uploadOrderImage(token, orderId, base64, payDate, payTime, filename) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
   const targetOrderId = String(orderId || "").trim();
   if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
   if (!base64) throw new Error("กรุณาเลือกรูปก่อนอัปโหลด");
+  const transferDate = String(payDate || "").trim();
+  const transferTime = String(payTime || "").trim();
+  if (!transferDate) throw new Error("กรุณาระบุวันที่โอน");
+  if (!transferTime) throw new Error("กรุณาระบุเวลาโอน");
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
-    const values = orderSheet.getDataRange().getValues();
-    const targetRows = [];
-    let alreadyHasImage = false;
-    for (let i = 1; i < values.length; i++) {
-      const rowOrderId = String(values[i][1] || values[i][0]);
-      if (rowOrderId !== targetOrderId) continue;
-      if (!sessionCanAccessRegion_(session, values[i][2])) {
-        throw new Error("ไม่มีสิทธิ์จัดการรูปของออเดอร์นี้");
-      }
-      targetRows.push(i + 1);
-      if (String(values[i][12] || "").trim()) alreadyHasImage = true;
-    }
-    if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
-    if (alreadyHasImage) {
-      throw new Error("ออเดอร์นี้มีรูปแนบอยู่แล้ว กรุณาลบรูปเดิมก่อนจึงจะอัปโหลดใหม่ได้");
-    }
+    const ctx = getOrderSlipContext_(orderSheet, targetOrderId, session);
+    if (!ctx.targetRows.length) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    assertUserCanModifyOwnOrder_(session, ctx.orderStatus, ctx.paymentStatus);
 
-    const saved = saveSlipFile_(base64, "Slip_" + targetOrderId);
+    const saved = saveSlipFileForOrder_(base64, {
+      region: ctx.region,
+      payDate: transferDate,
+      payTime: transferTime,
+      amount: ctx.totalAmount,
+      uniqueSuffix: ctx.hadSlip
+    });
     const slipName = (saved && saved.name) || "";
     const slipUrl = (saved && saved.url) || "";
     if (!slipUrl) {
       throw new Error("อัปโหลดรูปไม่สำเร็จ: สิทธิ์ Google Drive ยังไม่พร้อม");
     }
-    targetRows.forEach(row => {
+    ctx.targetRows.forEach(row => {
+      orderSheet.getRange(row, 7, row, 8).setValues([[transferDate, transferTime]]);
       orderSheet.getRange(row, 12).setValue(slipName);
       orderSheet.getRange(row, 13).setValue(slipUrl);
+      orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.PENDING_REVIEW);
     });
     invalidateDataCache_();
     return {
@@ -619,7 +1183,88 @@ function uploadOrderImage(token, orderId, base64, filename) {
       orderId: targetOrderId,
       slipName: slipName,
       slipUrl: slipUrl,
+      payDate: transferDate,
+      payTime: transferTime,
+      paymentStatus: PAYMENT_STATUS.PENDING_REVIEW,
       fileId: extractDriveFileId_(slipUrl),
+      rows: ctx.targetRows.length,
+      replaced: ctx.hadSlip
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function acceptOrderPayment(token, orderId) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const targetOrderId = String(orderId || "").trim();
+  if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const orderSheet = ss.getSheetByName(ORDER_SHEET);
+    const last = orderSheet.getLastRow();
+    if (last <= 1) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    const values = orderSheet.getRange(2, 1, last - 1, ORDERS_HEADERS.length).getValues();
+    const targetRows = [];
+    let hasSlip = false;
+    for (let i = 0; i < values.length; i++) {
+      const rowOrderId = String(values[i][1] || values[i][0]);
+      if (rowOrderId !== targetOrderId) continue;
+      if (isFreeGiveawayPayment_(values[i][17])) {
+        throw new Error("ออเดอร์นี้เป็นเสื้อแจกฟรีแล้ว");
+      }
+      targetRows.push(i + 2);
+      if (String(values[i][12] || "").trim() || String(values[i][13] || "").trim()) hasSlip = true;
+    }
+    if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    if (!hasSlip) throw new Error("ยังไม่มีสลิปแนบ ไม่สามารถยอมรับการชำระได้");
+    targetRows.forEach(row => {
+      orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.VERIFIED);
+    });
+    invalidateDataCache_();
+    return { ok: true, orderId: targetOrderId, paymentStatus: PAYMENT_STATUS.VERIFIED, rows: targetRows.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function markOrderFreeGiveaway(token, orderId) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const targetOrderId = String(orderId || "").trim();
+  if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const orderSheet = ss.getSheetByName(ORDER_SHEET);
+    const last = orderSheet.getLastRow();
+    if (last <= 1) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    const values = orderSheet.getRange(2, 1, last - 1, ORDERS_HEADERS.length).getValues();
+    const targetRows = [];
+    for (let i = 0; i < values.length; i++) {
+      const rowOrderId = String(values[i][1] || values[i][0]);
+      if (rowOrderId !== targetOrderId) continue;
+      if (isPaymentVerified_(values[i][17])) {
+        throw new Error("ออเดอร์ชำระเงินแล้ว ไม่สามารถเปลี่ยนเป็นแจกฟรีได้");
+      }
+      if (isFreeGiveawayPayment_(values[i][17])) {
+        throw new Error("ออเดอร์นี้เป็นเสื้อแจกฟรีแล้ว");
+      }
+      targetRows.push(i + 2);
+    }
+    if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    targetRows.forEach(function (row) {
+      orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.FREE_GIVEAWAY);
+    });
+    invalidateDataCache_();
+    return {
+      ok: true,
+      orderId: targetOrderId,
+      paymentStatus: PAYMENT_STATUS.FREE_GIVEAWAY,
       rows: targetRows.length
     };
   } finally {
@@ -645,7 +1290,7 @@ function deleteOrderImage(token, orderId) {
     for (let i = 1; i < values.length; i++) {
       const rowOrderId = String(values[i][1] || values[i][0]);
       if (rowOrderId !== targetOrderId) continue;
-      if (!sessionCanAccessRegion_(session, values[i][2])) {
+      if (!sessionCanModifyRegion_(session, values[i][2])) {
         throw new Error("ไม่มีสิทธิ์จัดการรูปของออเดอร์นี้");
       }
       targetRows.push(i + 1);
@@ -653,6 +1298,9 @@ function deleteOrderImage(token, orderId) {
       if (id) fileIds[id] = true;
     }
     if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    const payStatus = String(values[targetRows[0] - 1][17] || PAYMENT_STATUS.NONE).trim();
+    const orderStatus = String(values[targetRows[0] - 1][8] || ORDER_STATUS_ORDERED);
+    assertUserCanModifyOwnOrder_(session, orderStatus, payStatus);
 
     // Best-effort: trash the Drive file(s). Tolerate permission errors so the
     // sheet reference is always cleared even if Drive cleanup fails.
@@ -665,6 +1313,7 @@ function deleteOrderImage(token, orderId) {
     targetRows.forEach(row => {
       orderSheet.getRange(row, 12).setValue("");
       orderSheet.getRange(row, 13).setValue("");
+      orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.NONE);
     });
     invalidateDataCache_();
     return { ok: true, orderId: targetOrderId, deletedRows: targetRows.length };
@@ -692,21 +1341,42 @@ function getOrderImage(token, orderId) {
       throw new Error("ไม่มีสิทธิ์ดูรูปของออเดอร์นี้");
     }
     found = true;
-    const ref = String(values[i][12] || "").trim();
+    const ref = String(values[i][12] || values[i][11] || "").trim();
     if (ref) { slipUrl = ref; break; }
   }
   if (!found) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
   if (!slipUrl) return { ok: false, warning: "ออเดอร์นี้ยังไม่มีรูปแนบ" };
   const fileId = extractDriveFileId_(slipUrl);
   const proxy = getImageProxy(fileId);
+  const viewUrl = slipUrl || ("https://drive.google.com/uc?export=view&id=" + fileId);
+  const thumbUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1000";
   if (proxy && proxy.ok && proxy.dataUrl) {
-    return { ok: true, orderId: targetOrderId, fileId: fileId, dataUrl: proxy.dataUrl, slipUrl: slipUrl };
+    return {
+      ok: true,
+      orderId: targetOrderId,
+      fileId: fileId,
+      dataUrl: proxy.dataUrl,
+      slipUrl: viewUrl,
+      thumbnailUrl: thumbUrl
+    };
+  }
+  if (proxy && proxy.ok && proxy.thumbnailUrl) {
+    return {
+      ok: true,
+      orderId: targetOrderId,
+      fileId: fileId,
+      dataUrl: "",
+      thumbnailUrl: proxy.thumbnailUrl,
+      slipUrl: viewUrl,
+      warning: proxy.warning || ""
+    };
   }
   return {
     ok: false,
     orderId: targetOrderId,
     fileId: fileId,
-    slipUrl: slipUrl,
+    slipUrl: viewUrl,
+    thumbnailUrl: thumbUrl,
     warning: (proxy && proxy.warning) || "โหลดรูปไม่สำเร็จ"
   };
 }
@@ -719,7 +1389,7 @@ function deleteOrder(token, no) {
   const values = orderSheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
     if (Number(values[i][0]) === Number(no)) {
-      if (!sessionCanAccessRegion_(session, values[i][2])) {
+      if (!sessionCanModifyRegion_(session, values[i][2])) {
         throw new Error("ไม่มีสิทธิ์ลบออเดอร์นี้");
       }
       orderSheet.deleteRow(i + 1);
@@ -734,74 +1404,111 @@ function deleteOrder(token, no) {
 function deleteOrderByOrderId(token, orderId) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getValues();
+  const last = orderSheet.getLastRow();
+  if (last <= 1) throw new Error("ไม่พบออเดอร์ " + orderId);
+  const values = orderSheet.getRange(2, 1, last - 1, ORDERS_HEADERS.length).getValues();
   const rowsToDelete = [];
-  for (let i = 1; i < values.length; i++) {
+  let groupStatus = "";
+  let paymentStatus = PAYMENT_STATUS.NONE;
+  const targetOrderId = String(orderId || "").trim();
+  for (let i = 0; i < values.length; i++) {
     const rowOrderId = String(values[i][1] || values[i][0]);
-    if (rowOrderId === String(orderId)) {
-      if (!sessionCanAccessRegion_(session, values[i][2])) continue;
-      rowsToDelete.push(i + 1);
+    if (rowOrderId !== targetOrderId) continue;
+    if (!sessionCanModifyRegion_(session, values[i][2])) continue;
+    if (!groupStatus) groupStatus = String(values[i][8] || ORDER_STATUS_ORDERED);
+    if (!paymentStatus || paymentStatus === PAYMENT_STATUS.NONE) {
+      paymentStatus = String(values[i][17] || PAYMENT_STATUS.NONE).trim();
     }
+    rowsToDelete.push(i + 2);
   }
-  if (rowsToDelete.length === 0) throw new Error("ไม่พบออเดอร์ " + orderId);
+  if (rowsToDelete.length === 0) {
+    throw new Error(session.role === "admin" ? "ไม่พบออเดอร์ " + targetOrderId : "ไม่มีสิทธิ์ลบออเดอร์นี้");
+  }
+  assertUserCanDeleteOwnOrder_(session, groupStatus, paymentStatus);
   // delete from bottom up to keep indices stable
   for (let i = rowsToDelete.length - 1; i >= 0; i--) {
     orderSheet.deleteRow(rowsToDelete[i]);
   }
   renumberOrders_(orderSheet);
   invalidateDataCache_();
-  return { ok: true, deleted: rowsToDelete.length };
+  return { ok: true, deleted: rowsToDelete.length, orderId: targetOrderId };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function requestOrderChange(token, orderId, items, reason) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getValues();
-  const targetRows = [];
-  const orderItems = [];
-  const targetOrderId = String(orderId || "").trim();
-  if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const orderSheet = ss.getSheetByName(ORDER_SHEET);
+    const last = orderSheet.getLastRow();
+    if (last <= 1) throw new Error("ไม่พบออเดอร์");
+    const values = orderSheet.getRange(2, 1, last - 1, ORDERS_HEADERS.length).getValues();
+    const targetRows = [];
+    const orderItems = [];
+    const targetOrderId = String(orderId || "").trim();
+    if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
 
-  for (let i = 1; i < values.length; i++) {
-    const rowOrderId = String(values[i][1] || values[i][0]);
-    if (rowOrderId !== targetOrderId) continue;
-    const rowRegion = String(values[i][2] || "");
-    if (!sessionCanAccessRegion_(session, rowRegion)) {
-      throw new Error("ไม่มีสิทธิ์ส่งคำขอแก้ไขออเดอร์นี้");
+    for (let i = 0; i < values.length; i++) {
+      const rowOrderId = String(values[i][1] || values[i][0]);
+      if (rowOrderId !== targetOrderId) continue;
+      const rowRegion = String(values[i][2] || "");
+      if (!sessionCanModifyRegion_(session, rowRegion)) {
+        throw new Error("ไม่มีสิทธิ์ส่งคำขอแก้ไขออเดอร์นี้");
+      }
+      const reqStatus = String(values[i][15] || CHANGE_REQUEST_STATUS.NONE).trim();
+      if (reqStatus === CHANGE_REQUEST_STATUS.PENDING) {
+        throw new Error("มีคำขอแก้ไขรออนุมัติอยู่แล้ว");
+      }
+      targetRows.push(i + 2);
+      orderItems.push({
+        size: String(values[i][3] || ""),
+        qty: Number(values[i][4]) || 0
+      });
     }
-    targetRows.push(i + 1);
-    orderItems.push({
-      size: String(values[i][3] || ""),
-      qty: Number(values[i][4]) || 0
+    if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    const orderStatus = String(values[targetRows[0] - 2][8] || ORDER_STATUS_ORDERED);
+    if (isCartOrderStatus_(orderStatus)) {
+      throw new Error("ออเดอร์ยังอยู่ในตะกร้า แก้ไขจำนวนได้โดยตรง หรือกดยืนยันส่งออเดอร์ก่อน");
+    }
+    if (!isSubmittedOrderStatus_(orderStatus) && session.role !== "admin") {
+      throw new Error("สถานะออเดอร์ไม่รองรับการขอแก้ไข");
+    }
+
+    const normalizedItems = normalizeChangeRequestItems_(items);
+    if (!normalizedItems.some(it => it.qty > 0)) {
+      throw new Error("ต้องมีอย่างน้อย 1 ไซส์ที่จำนวนมากกว่า 0");
+    }
+
+    const requestPayload = {
+      orderId: targetOrderId,
+      requestedBy: session.username,
+      requestedRole: session.role,
+      requestedAt: new Date().toISOString(),
+      reason: String(reason || "").trim(),
+      items: normalizedItems,
+      currentItems: orderItems
+    };
+
+    const requestedJson = JSON.stringify(requestPayload);
+    const pendingStatus = CHANGE_REQUEST_STATUS.PENDING;
+    targetRows.forEach(row => {
+      orderSheet.getRange(row, 15, 1, 3).setValues([[requestedJson, pendingStatus, ""]]);
     });
+    invalidateDataCache_();
+    return { ok: true, orderId: targetOrderId, status: pendingStatus };
+  } finally {
+    lock.releaseLock();
   }
-  if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
-
-  const normalizedItems = normalizeChangeRequestItems_(items);
-  if (normalizedItems.length === 0) throw new Error("กรุณาระบุจำนวนใหม่อย่างน้อย 1 ไซส์");
-
-  const requestPayload = {
-    orderId: targetOrderId,
-    requestedBy: session.username,
-    requestedRole: session.role,
-    requestedAt: new Date().toISOString(),
-    reason: String(reason || "").trim(),
-    items: normalizedItems,
-    currentItems: orderItems
-  };
-
-  const requestedJson = JSON.stringify(requestPayload);
-  targetRows.forEach(row => {
-    orderSheet.getRange(row, 15).setValue(requestedJson);
-    orderSheet.getRange(row, 16).setValue(CHANGE_REQUEST_STATUS.PENDING);
-    orderSheet.getRange(row, 17).setValue("");
-  });
-  invalidateDataCache_();
-  return { ok: true, orderId: targetOrderId, status: CHANGE_REQUEST_STATUS.PENDING };
 }
 
 function listPendingChangeRequests(token) {
@@ -846,7 +1553,7 @@ function getMyOrderStatus(token, year) {
     if (!y) return true;
     return String(o.payDate || "").indexOf(y) > -1 || String((o.timestamp || "")).indexOf(y) > -1;
   });
-  if (session.role === "admin") return filtered;
+  if (canViewAllRegions_(session)) return filtered;
   return filtered.filter(o => String(o.region || "") === String(session.region || ""));
 }
 
@@ -931,7 +1638,8 @@ function reviewOrderChangeRequest(token, orderId, action, note) {
           row0[13] || "",
           "",
           CHANGE_REQUEST_STATUS.NONE,
-          ""
+          "",
+          String(row0[17] || PAYMENT_STATUS.NONE)
         ]);
       });
       if (extraRows.length > 0) {
@@ -994,21 +1702,119 @@ function validateApprovedChangeAgainstStock_(ss, currentMap, requestMap) {
 }
 
 function exportOrdersCsv(token, region) {
+  return exportAllDataCsv(token, region);
+}
+
+function csvPushSection_(out, title, headerRow, dataRows) {
+  out.push(["# " + title]);
+  if (headerRow && headerRow.length) {
+    out.push(headerRow.slice());
+  }
+  (dataRows || []).forEach(function (row) {
+    out.push((row || []).map(serializeSheetValue_));
+  });
+  out.push([]);
+}
+
+function orderToCsvRow_(order, session) {
+  const o = sanitizeOrderForViewer_(order, session);
+  return [
+    o.no, o.orderId, o.region, o.size, o.qty, o.price,
+    o.payDate, o.payTime, o.status, o.note, o.timestamp,
+    o.slipName, o.slipUrl, o.createdBy,
+    o.requestedChange, o.changeRequestStatus, o.changeRequestNote,
+    o.paymentStatus
+  ];
+}
+
+function exportAllDataCsv(token, region) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getDisplayValues();
-  let filtered = values;
-  if (session.role !== "admin" && session.region !== "*") {
-    // Fail closed: a non-admin without a concrete region exports headers only.
-    filtered = session.region
-      ? [values[0]].concat(values.slice(1).filter(r => r[2] === session.region))
-      : [values[0]];
-  } else if (region && region !== "all") {
-    filtered = [values[0]].concat(values.slice(1).filter(r => r[2] === region));
+  const out = [];
+  const now = new Date();
+  out.push(["# PEACE Engineer Club — ส่งออกข้อมูลทั้งหมด"]);
+  out.push(["# สร้างเมื่อ", serializeSheetValue_(now)]);
+  out.push(["# ผู้ส่งออก", session.username, session.role, session.region || ""]);
+  out.push([]);
+
+  let allOrders = getOrders_(ss).filter(function (o) {
+    return sessionCanViewRegion_(session, o.region);
+  });
+  if (canViewAllRegions_(session) && region && region !== "all") {
+    allOrders = allOrders.filter(function (o) {
+      return String(o.region) === String(region);
+    });
   }
-  return filtered;
+
+  csvPushSection_(out, "รายการสั่งซื้อ (Orders)", ORDERS_HEADERS,
+    allOrders.map(function (o) { return orderToCsvRow_(o, session); }));
+
+  const stock = getStockSummary_(ss);
+  csvPushSection_(out, "สต็อก", ["ไซส์", "จำนวนที่มาส่ง", "ขายแล้ว (รวมตะกร้า)", "คงเหลือ"],
+    stock.map(function (s) { return [s.size, s.delivered, s.sold, s.remaining]; }));
+
+  const round = getRoundInfo_(ss);
+  csvPushSection_(out, "รอบสินค้า", ["รอบปี", "ชื่อสินค้า", "ราคาต่อตัว", "รูปภาพ", "เปิดใช้งาน"],
+    [[round.year, round.name, round.unitPrice, round.imageRef || round.imageUrl || "", round.active !== false]]);
+
+  const sizeChart = getSizeChart_(ss);
+  csvPushSection_(out, "ตารางไซส์", ["ขนาด", "รอบอก(นิ้ว)", "ยาว(นิ้ว)"],
+    sizeChart.map(function (r) { return [r.size, r.chest, r.length]; }));
+
+  const regionMap = {};
+  allOrders.forEach(function (o) {
+    if (isCartOrderStatus_(o.status || o.orderStatus)) return;
+    const reg = String(o.region || "").trim() || "?";
+    if (!regionMap[reg]) {
+      regionMap[reg] = { saleQty: 0, saleAmount: 0, freeQty: 0, freeLoss: 0 };
+    }
+    const qty = Number(o.qty) || 0;
+    const price = Number(o.price) || 0;
+    if (isFreeGiveawayPayment_(o.paymentStatus)) {
+      regionMap[reg].freeQty += qty;
+      regionMap[reg].freeLoss += price;
+    } else {
+      regionMap[reg].saleQty += qty;
+      regionMap[reg].saleAmount += price;
+    }
+  });
+  const regionRows = Object.keys(regionMap).sort().map(function (reg) {
+    const x = regionMap[reg];
+    return [reg, x.saleQty, x.saleAmount, x.freeQty, x.freeLoss];
+  });
+  csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "ขาย (ตัว)", "ยอดขาย (฿)", "แจกฟรี (ตัว)", "ขาดทุนแจก (฿)"], regionRows);
+
+  if (session.role === "admin") {
+    ensureUsersSheetMigrated_(ss);
+    const userSheet = ss.getSheetByName(USERS_SHEET);
+    const last = userSheet.getLastRow();
+    const userRows = [];
+    if (last >= 2) {
+      const width = Math.max(userSheet.getLastColumn(), 7);
+      const values = userSheet.getRange(2, 1, last - 1, width).getValues();
+      const seen = {};
+      values.forEach(function (r) {
+        const username = String(r[0] || "").trim();
+        if (!username) return;
+        const key = username.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        const normalized = normalizeRoleRegion_(username, r[2], r[3]);
+        userRows.push([
+          username,
+          normalized.role,
+          normalized.region,
+          String(r[4] || username),
+          r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true,
+          String(r[6] || "")
+        ]);
+      });
+    }
+    csvPushSection_(out, "ผู้ใช้ (Users)", ["Username", "Role", "Region", "DisplayName", "Active", "PasswordPlain"], userRows);
+  }
+
+  return out;
 }
 
 // === Round / Stock / Admin =============================================
@@ -1153,7 +1959,7 @@ function resetAllData(token) {
 const ORDERS_HEADERS = [
   "ลำดับ", "OrderId", "เขตที่สั่ง", "ไซส์", "จำนวน(ตัว)", "ราคา",
   "วันที่โอน", "เวลาโอน", "สถานะรับสินค้า", "หมายเหตุเพิ่มเติม", "Timestamp", "สลิป (ชื่อ)", "สลิป (URL)", "ผู้บันทึก",
-  "requestedChange", "changeRequestStatus", "changeRequestNote"
+  "requestedChange", "changeRequestStatus", "changeRequestNote", "สถานะชำระเงิน"
 ];
 
 function ensureSheetsInitialized_() {
@@ -1175,7 +1981,7 @@ function initializeSheets_() {
   createSheetIfMissing_(ss, SIZE_CHART_SHEET, ["ขนาด", "รอบอก(นิ้ว)", "ยาว(นิ้ว)"]);
   createSheetIfMissing_(ss, ORDER_SHEET, ORDERS_HEADERS);
   createSheetIfMissing_(ss, SETTINGS_SHEET, ["Key", "Value"]);
-  createSheetIfMissing_(ss, USERS_SHEET, ["Username", "PasswordHash", "Role", "Region", "DisplayName", "Active"]);
+  createSheetIfMissing_(ss, USERS_SHEET, ["Username", "PasswordHash", "Role", "Region", "DisplayName", "Active", "PasswordPlain"]);
 
   // Migrate Orders sheet if it has the old schema (11 cols without OrderId)
   migrateOrdersSheet_(ss);
@@ -1209,9 +2015,10 @@ function initializeSheets_() {
   // Seed default users if Users sheet empty
   const usersSheet = ss.getSheetByName(USERS_SHEET);
   if (usersSheet.getLastRow() < 2) {
-    const seeded = DEFAULT_USERS.map(u => [u[0], hashPassword_(u[1]), u[2], u[3], u[4], true]);
-    usersSheet.getRange(2, 1, seeded.length, 6).setValues(seeded);
+    const seeded = DEFAULT_USERS.map(u => [u[0], hashPassword_(u[1]), u[2], u[3], u[4], true, u[1]]);
+    usersSheet.getRange(2, 1, seeded.length, 7).setValues(seeded);
   }
+  migrateUsersPasswordPlainColumn_(ss);
 
   PropertiesService.getScriptProperties().setProperty(SHEETS_READY_KEY, "1");
 }
@@ -1244,13 +2051,25 @@ function migrateOrdersSheet_(ss) {
   const hasRequestedChange = headerRow.indexOf("requestedChange") > -1;
   const hasChangeRequestStatus = headerRow.indexOf("changeRequestStatus") > -1;
   const hasChangeRequestNote = headerRow.indexOf("changeRequestNote") > -1;
+  const hasPaymentStatus = headerRow.some(h => String(h || "").trim() === "สถานะชำระเงิน");
   const isLatestSchema = hasOrderId &&
     hasNoteColumn &&
     hasRequestedChange &&
     hasChangeRequestStatus &&
     hasChangeRequestNote &&
+    hasPaymentStatus &&
     sheet.getLastColumn() >= ORDERS_HEADERS.length;
   if (isLatestSchema) return;
+
+  if (hasOrderId && hasNoteColumn && hasRequestedChange && hasChangeRequestStatus && hasChangeRequestNote && !hasPaymentStatus) {
+    const payCol = sheet.getLastColumn() + 1;
+    sheet.getRange(1, payCol).setValue("สถานะชำระเงิน").setFontWeight("bold");
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, payCol, lastRow - 1, 1).setValue("");
+    }
+    return;
+  }
 
   // If sheet only has the original schema or old OrderId schema, migrate to latest columns
   if (sheet.getLastRow() <= 1) {
@@ -1288,7 +2107,8 @@ function migrateOrdersSheet_(ss) {
         "",                            // ผู้บันทึก (unknown)
         "",                            // requestedChange
         CHANGE_REQUEST_STATUS.NONE,    // changeRequestStatus
-        ""                             // changeRequestNote
+        "",                            // changeRequestNote
+        PAYMENT_STATUS.NONE            // paymentStatus
       ];
     }
     const baseChangeIdx = hasNoteColumn ? 14 : 13;
@@ -1309,7 +2129,8 @@ function migrateOrdersSheet_(ss) {
       hasNoteColumn ? String(r[13] || "") : String(r[12] || ""), // createdBy
       String(r[baseChangeIdx] || ""),                    // requestedChange
       String(r[baseChangeIdx + 1] || CHANGE_REQUEST_STATUS.NONE), // changeRequestStatus
-      String(r[baseChangeIdx + 2] || "")                 // changeRequestNote
+      String(r[baseChangeIdx + 2] || ""),                // changeRequestNote
+      String(r[baseChangeIdx + 3] || PAYMENT_STATUS.NONE) // paymentStatus
     ];
   });
 
@@ -1451,6 +2272,29 @@ function getRoundImageCellDebug(token) {
 // uses: the currently-configured round image, or files living inside the
 // shirt/slip upload folders. This stops the (anonymously callable) endpoint from
 // being used to read arbitrary Drive files the deploying account can access.
+function isFileUnderAllowedDriveFolders_(fileId) {
+  if (!fileId) return false;
+  const allowed = [DRIVE_FOLDER_ID, SLIP_FOLDER_ID].filter(Boolean);
+  if (!allowed.length) return false;
+  const seen = {};
+  const queue = [];
+  try {
+    const parents = DriveApp.getFileById(fileId).getParents();
+    while (parents.hasNext()) queue.push(parents.next().getId());
+    while (queue.length) {
+      const pid = queue.shift();
+      if (!pid || seen[pid]) continue;
+      seen[pid] = true;
+      if (allowed.indexOf(pid) > -1) return true;
+      try {
+        const up = DriveApp.getFolderById(pid).getParents();
+        while (up.hasNext()) queue.push(up.next().getId());
+      } catch (e2) {}
+    }
+  } catch (e) {}
+  return false;
+}
+
 function isProxyAllowedFileId_(id) {
   if (!id) return false;
   // (1) The round image stored in the sheet is always allowed. This also covers
@@ -1460,15 +2304,8 @@ function isProxyAllowedFileId_(id) {
     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(ROUND_SHEET);
     if (sheet && extractDriveFileId_(sheet.getRange(2, 4).getValue()) === id) return true;
   } catch (e) {}
-  // (2) Any file inside the configured shirt or slip upload folders.
-  try {
-    const parents = DriveApp.getFileById(id).getParents();
-    while (parents.hasNext()) {
-      const pid = parents.next().getId();
-      if (pid === DRIVE_FOLDER_ID || pid === SLIP_FOLDER_ID) return true;
-    }
-  } catch (e) {}
-  return false;
+  // (2) Any file under configured shirt/slip folders (including region subfolders).
+  return isFileUnderAllowedDriveFolders_(id);
 }
 
 function getImageProxy(imageRef) {
@@ -1494,8 +2331,20 @@ function getImageProxy(imageRef) {
     const file = DriveApp.getFileById(id);
     const blob = file.getBlob();
     const mime = blob.getContentType() || "image/jpeg";
-    const dataUrl = "data:" + mime + ";base64," + Utilities.base64Encode(blob.getBytes());
-    // Cache only if payload is safely below per-entry limit.
+    const bytes = blob.getBytes();
+    const dataUrl = "data:" + mime + ";base64," + Utilities.base64Encode(bytes);
+    const thumbUrl = "https://drive.google.com/thumbnail?id=" + id + "&sz=w1000";
+    // google.script.run payload limit — very large slips use thumbnail URL on client.
+    if (dataUrl.length >= 95000) {
+      return {
+        ok: true,
+        fileId: id,
+        dataUrl: "",
+        thumbnailUrl: thumbUrl,
+        cached: false,
+        warning: "ใช้ภาพย่อ (ไฟล์ใหญ่)"
+      };
+    }
     if (dataUrl.length < 90000) {
       try { cache.put(cacheKey, dataUrl, 600); } catch (e) {}
     }
@@ -1503,6 +2352,7 @@ function getImageProxy(imageRef) {
       ok: true,
       fileId: id,
       dataUrl: dataUrl,
+      thumbnailUrl: thumbUrl,
       cached: false
     };
   } catch (e) {
@@ -1561,6 +2411,47 @@ function getSizeChart_(ss) {
   })).filter(r => r.size);
 }
 
+function serializeSheetValue_(value) {
+  if (value == null || value === "") return "";
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return isNaN(value.getTime()) ? "" : value.toISOString();
+  }
+  return value;
+}
+
+function sanitizeOrderForClient_(order) {
+  if (!order) return order;
+  return {
+    no: Number(order.no) || 0,
+    orderId: String(order.orderId || ""),
+    region: String(order.region || ""),
+    size: String(order.size || ""),
+    qty: Number(order.qty) || 0,
+    price: Number(order.price) || 0,
+    payDate: String(serializeSheetValue_(order.payDate) || ""),
+    payTime: String(serializeSheetValue_(order.payTime) || ""),
+    orderStatus: String(order.orderStatus || order.status || ORDER_STATUS_ORDERED),
+    status: String(order.status || order.orderStatus || ORDER_STATUS_ORDERED),
+    note: String(order.note || ""),
+    timestamp: String(serializeSheetValue_(order.timestamp) || ""),
+    slipName: String(order.slipName || ""),
+    slipUrl: String(order.slipUrl || ""),
+    createdBy: String(order.createdBy || ""),
+    requestedChange: String(order.requestedChange || ""),
+    changeRequestStatus: String(order.changeRequestStatus || CHANGE_REQUEST_STATUS.NONE),
+    changeRequestNote: String(order.changeRequestNote || ""),
+    paymentStatus: String(order.paymentStatus || PAYMENT_STATUS.NONE)
+  };
+}
+
+function sanitizeOrderForViewer_(order, session) {
+  const out = sanitizeOrderForClient_(order);
+  if (session && session.role === "admin" && isAdminHiddenNoteRegion_(out.region)) {
+    out.note = "";
+  }
+  return out;
+}
+
 function getOrders_(ss) {
   const sheet = ss.getSheetByName(ORDER_SHEET);
   if (!sheet) return [];
@@ -1572,15 +2463,15 @@ function getOrders_(ss) {
   const maxCols = sheet.getMaxColumns();
   const width = Math.min(ORDERS_HEADERS.length, maxCols);
   const values = sheet.getRange(2, 1, last - 1, width).getValues();
-  return values.map(r => ({
+  return values.map(r => sanitizeOrderForClient_({
     no: Number(r[0]) || 0,
     orderId: String(r[1] || ("ORD-" + r[0])),
     region: String(r[2] || ""),
     size: String(r[3] || ""),
     qty: Number(r[4]) || 0,
     price: Number(r[5]) || 0,
-    payDate: String(r[6] || ""),
-    payTime: String(r[7] || ""),
+    payDate: r[6],
+    payTime: r[7],
     orderStatus: String(r[8] || ORDER_STATUS_ORDERED),
     status: String(r[8] || ORDER_STATUS_ORDERED),
     note: String(r[9] || ""),
@@ -1590,7 +2481,8 @@ function getOrders_(ss) {
     createdBy: String(r[13] || ""),
     requestedChange: String(r[14] || ""),
     changeRequestStatus: String(r[15] || CHANGE_REQUEST_STATUS.NONE),
-    changeRequestNote: String(r[16] || "")
+    changeRequestNote: String(r[16] || ""),
+    paymentStatus: String(r[17] || PAYMENT_STATUS.NONE)
   }));
 }
 
@@ -1634,6 +2526,105 @@ function saveBase64File_(base64, prefix) {
     saved.url = buildDriveImageRef_(saved.fileId);
   }
   return saved;
+}
+
+function sanitizeDriveSegment_(value) {
+  return String(value || "unknown")
+    .trim()
+    .replace(/[\\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, "_")
+    .substring(0, 80) || "unknown";
+}
+
+function formatSlipDateTime_(payDate, payTime) {
+  let d = new Date();
+  const pd = String(payDate || "").trim();
+  if (pd) {
+    if (/^\d{4}-\d{2}-\d{2}/.test(pd)) {
+      d = new Date(pd + (pd.length === 10 ? "T12:00:00" : ""));
+    } else {
+      const tryD = new Date(pd);
+      if (!isNaN(tryD.getTime())) d = tryD;
+    }
+  }
+  let hh = d.getHours();
+  let mm = d.getMinutes();
+  const pt = String(payTime || "").trim();
+  const tm = pt.match(/(\d{1,2}):(\d{2})/);
+  if (tm) {
+    hh = Number(tm[1]);
+    mm = Number(tm[2]);
+  }
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return y + mo + da + "_" + String(hh).padStart(2, "0") + String(mm).padStart(2, "0");
+}
+
+function buildSlipFileBaseName_(region, payDate, payTime, amount, uniqueSuffix) {
+  let dt = formatSlipDateTime_(payDate, payTime);
+  if (uniqueSuffix) {
+    const n = new Date();
+    dt += String(n.getSeconds()).padStart(2, "0") + String(n.getMilliseconds()).padStart(3, "0");
+  }
+  return sanitizeDriveSegment_(region) + "_" + dt + "_" + Math.round(Number(amount) || 0);
+}
+
+function getSlipSubfolderForRegion_(region) {
+  const root = getWritableFolder_(SLIP_FOLDER_ID, "PEACE-Slip-Uploads");
+  const folderName = sanitizeDriveSegment_(region);
+  const it = root.getFoldersByName(folderName);
+  if (it.hasNext()) return it.next();
+  return root.createFolder(folderName);
+}
+
+function getOrderSlipContext_(orderSheet, orderId, session) {
+  const values = orderSheet.getDataRange().getValues();
+  const targetOrderId = String(orderId || "").trim();
+  const targetRows = [];
+  let region = "";
+  let payDate = "";
+  let payTime = "";
+  let totalAmount = 0;
+  let hadSlip = false;
+  let orderStatus = "";
+  let paymentStatus = PAYMENT_STATUS.NONE;
+  for (let i = 1; i < values.length; i++) {
+    const rowOrderId = String(values[i][1] || values[i][0]);
+    if (rowOrderId !== targetOrderId) continue;
+    if (!sessionCanModifyRegion_(session, values[i][2])) {
+      throw new Error("ไม่มีสิทธิ์จัดการรูปของออเดอร์นี้");
+    }
+    targetRows.push(i + 1);
+    if (!region) {
+      region = String(values[i][2] || "");
+      orderStatus = String(values[i][8] || ORDER_STATUS_ORDERED);
+    }
+    if (!paymentStatus || paymentStatus === PAYMENT_STATUS.NONE) {
+      paymentStatus = String(values[i][17] || PAYMENT_STATUS.NONE).trim();
+    }
+    if (!payDate) payDate = String(values[i][6] || "");
+    if (!payTime) payTime = String(values[i][7] || "");
+    totalAmount += Number(values[i][5]) || 0;
+    if (String(values[i][12] || "").trim()) hadSlip = true;
+  }
+  return {
+    region: region,
+    payDate: payDate,
+    payTime: payTime,
+    totalAmount: totalAmount,
+    targetRows: targetRows,
+    hadSlip: hadSlip,
+    orderStatus: orderStatus || ORDER_STATUS_ORDERED,
+    paymentStatus: paymentStatus
+  };
+}
+
+function saveSlipFileForOrder_(base64, opts) {
+  opts = opts || {};
+  const folder = getSlipSubfolderForRegion_(opts.region);
+  const baseName = buildSlipFileBaseName_(opts.region, opts.payDate, opts.payTime, opts.amount, !!opts.uniqueSuffix);
+  return saveBase64ToFolder_(base64, baseName, folder.getId(), "w400", true);
 }
 
 function saveSlipFile_(base64, prefix) {

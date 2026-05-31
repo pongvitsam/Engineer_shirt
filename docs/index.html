@@ -5,8 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ระบบจัดการขายเสื้อชมรมวิศวกร กฟภ.</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
-
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/app.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
+
+  
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -14,31 +25,9 @@
   <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
   <link rel="dns-prefetch" href="https://drive.google.com">
   <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
-
-  <style>
-    /* â”€â”€ Critical first-paint CSS (no extra round-trip) â”€â”€ */
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0}
-    body{font-family:'Sarabun','Segoe UI',sans-serif;color:#fff;min-height:100vh;background:linear-gradient(135deg,#450A0A 0%,#7F1D1D 25%,#4C1D95 55%,#6D28D9 80%,#991B1B 100%);background-size:400% 400%;overflow-x:hidden;display:flex;flex-direction:column}
-    .pre-skel{padding:4.5rem 1rem 1rem;max-width:56rem;margin:0 auto}
-    .pre-skel-card{height:8rem;background:rgba(255,255,255,.12);border-radius:1.25rem;margin-bottom:.875rem;animation:preskel 1.2s ease-in-out infinite;background-image:linear-gradient(90deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,.18) 50%,rgba(255,255,255,.08) 100%);background-size:200% 100%}
-    .pre-skel-row{height:1.75rem;background:rgba(255,255,255,.1);border-radius:.5rem;margin-bottom:.5rem}
-    @keyframes preskel{0%{background-position:200% 0}100%{background-position:-200% 0}}
-    .pre-header{position:fixed;top:0;left:0;right:0;height:3.25rem;background:rgba(69,10,10,.55);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.28);display:flex;align-items:center;padding:0 1rem;font-weight:700;color:#fff;z-index:20}
-    .pre-header i{color:#F59E0B;margin-right:.5rem}
-    .pre-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:'Sarabun',sans-serif;z-index:30;background:rgba(20,5,10,.4);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-    .pre-spinner{width:3rem;height:3rem;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:.75rem}
-    @keyframes spin{to{transform:rotate(360deg)}}
-  </style>
-
-  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap">
-  <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-
-  <?!= include("CSS"); ?>
 </head>
 <body>
+
   <!-- Pre-rendered header skeleton (visible before JS runs) -->
   <div id="pre-header" class="pre-header">
     <i class="fas fa-tshirt"></i><span>PEACE Eng Club</span>
@@ -75,8 +64,6 @@
     <div id="app-container" class="max-w-4xl mx-auto p-4"></div>
   </main>
 
-  <script>window.PEACE_GAS_ADMIN_ONLY=true;</script>
-  <script src="<?= assetBaseUrl ?>?asset=js&amp;v=<?= assetVersion ?>"></script>
   <script>
     (function () {
       var DEFAULT_ADMIN_RE = /^(admin1|admin2)$/;
@@ -277,6 +264,8 @@
       }
     })();
   </script>
+
+  <script src="config.js"></script>
+  <script src="assets/app.js"></script>
 </body>
 </html>
-

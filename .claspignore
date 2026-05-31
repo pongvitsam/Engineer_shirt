@@ -1,5 +1,12 @@
-_extract_classes.js
-node_modules/**
-*.log
-served.html
-__repro.js
+**/**
+!appsscript.json
+!Code.js
+!CSS.html
+!Index.html
+!JavaScript.html
+__test_*.cjs
+__test_*.js
+docs/**
+scripts/**
+package.json
+package-lock.json

@@ -1,4 +1,3 @@
-<script>
 // ===== PEACE Engineer Club — front-end (RBAC + multi-size + speed) =====
 
 // ── Boot error trap + watchdog (shows real errors on screen since the
@@ -2700,4 +2699,3 @@ function bootEntry(){
 window.onload=bootEntry;
 // In case the load event already fired (script injected late), boot anyway.
 if(document.readyState==="complete"){setTimeout(bootEntry,0);}
-</script>
