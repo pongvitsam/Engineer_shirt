@@ -20,6 +20,11 @@ function doGet(e) {
   const params = e.parameter || {};
   const asset = String(params.asset || "").toLowerCase();
 
+  // GitHub Pages / external frontend — JSONP (no CORS preflight)
+  if (String(params.rpc || "") === "1") {
+    return handleRpcGet_(params);
+  }
+
   if (asset === "js") {
     return ContentService
       .createTextOutput(getClientJs_())
@@ -75,6 +80,38 @@ function getGasWebAppUrl_() {
 function jsonRpcOutput_(payload) {
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function jsonpRpcOutput_(callback, payload) {
+  const safeCb = String(callback || "peaceRpcCb").replace(/[^a-zA-Z0-9_]/g, "") || "peaceRpcCb";
+  return ContentService.createTextOutput(safeCb + "(" + JSON.stringify(payload) + ");")
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
+
+function parseRpcBody_(payloadRaw) {
+  const raw = String(payloadRaw || "").trim();
+  if (!raw) throw new Error("ไม่มี payload");
+  return JSON.parse(raw);
+}
+
+function handleRpcGet_(params) {
+  try {
+    const body = parseRpcBody_(params.payload);
+    const method = String(body.method || "").trim();
+    const args = Array.isArray(body.args) ? body.args : [];
+    const gasAdminOnly = body.gasAdminOnly === true;
+    if (!method) throw new Error("ไม่ระบุ method");
+    const result = invokeRpc_(method, args, { gasAdminOnly: gasAdminOnly });
+    const envelope = { ok: true, result: result };
+    const callback = String(params.callback || "").trim();
+    if (callback) return jsonpRpcOutput_(callback, envelope);
+    return jsonRpcOutput_(envelope);
+  } catch (err) {
+    const envelope = { ok: false, error: String(err && err.message ? err.message : err) };
+    const callback = String(params.callback || "").trim();
+    if (callback) return jsonpRpcOutput_(callback, envelope);
+    return jsonRpcOutput_(envelope);
+  }
 }
 
 function handleRpcPost_(e) {
@@ -185,7 +222,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v3";
-const APP_BUILD = "104";
+const APP_BUILD = "105";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";

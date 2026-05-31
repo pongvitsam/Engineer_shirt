@@ -62,7 +62,9 @@ const NAV = [
   { id:"admin", label:"แอดมิน", icon:"fa-cog", adminOnly:true }
 ];
 
-// ── Server bridge (GAS iframe OR GitHub Pages → RPC POST) ─────────────
+// ── Server bridge (GAS iframe OR GitHub Pages → JSONP RPC) ────────────
+const RPC_JSONP_MAX_PAYLOAD = 1800;
+const RPC_JSONP_TIMEOUT_MS = 120000;
 function isGasScriptBridge_() {
   return typeof google !== "undefined" && google.script && google.script.run;
 }
@@ -76,6 +78,48 @@ function getGithubPagesUrl_() {
 function isGasAdminOnlyHost_() {
   return window.PEACE_GAS_ADMIN_ONLY === true;
 }
+function callServerRpcJsonp_(apiUrl, envelope) {
+  return new Promise(function (resolve, reject) {
+    const payload = JSON.stringify(envelope);
+    if (payload.length > RPC_JSONP_MAX_PAYLOAD) {
+      reject(new Error("ข้อมูลคำขอใหญ่เกินไป (เช่นอัปโหลดรูป) — ใช้ลิงก์ GAS ?gas=1 แทน"));
+      return;
+    }
+    const cb = "peaceRpc_" + Date.now() + "_" + Math.floor(Math.random() * 1e9);
+    const sep = apiUrl.indexOf("?") >= 0 ? "&" : "?";
+    const url = apiUrl + sep + "rpc=1&callback=" + encodeURIComponent(cb) +
+      "&payload=" + encodeURIComponent(payload);
+    let script = null;
+    let timeoutId = null;
+    function cleanup() {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = null;
+      try { delete window[cb]; } catch (_) {}
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+      script = null;
+    }
+    timeoutId = setTimeout(function () {
+      cleanup();
+      reject(new Error("เซิร์ฟเวอร์ตอบช้าเกินไป กรุณาลองใหม่"));
+    }, RPC_JSONP_TIMEOUT_MS);
+    window[cb] = function (data) {
+      cleanup();
+      if (!data || !data.ok) {
+        reject(new Error((data && data.error) || "เกิดข้อผิดพลาด"));
+        return;
+      }
+      resolve(data.result);
+    };
+    script = document.createElement("script");
+    script.src = url;
+    script.async = true;
+    script.onerror = function () {
+      cleanup();
+      reject(new Error("Failed to fetch"));
+    };
+    document.head.appendChild(script);
+  });
+}
 function callServer(method) {
   const args = Array.prototype.slice.call(arguments, 1);
   if (isGasScriptBridge_()) {
@@ -85,21 +129,9 @@ function callServer(method) {
   }
   const apiUrl = getRpcApiUrl_();
   if (!apiUrl) return Promise.reject(new Error("ไม่พบ API URL — ตรวจสอบ config.js"));
-  const body = { method: method, args: args };
-  if (isGasAdminOnlyHost_()) body.gasAdminOnly = true;
-  return fetch(apiUrl, {
-    method: "POST",
-    mode: "cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(body)
-  }).then(function (res) {
-    return res.text().then(function (text) {
-      let data;
-      try { data = JSON.parse(text); } catch (e) { throw new Error("ตอบกลับจากเซิร์ฟเวอร์ไม่ถูกต้อง"); }
-      if (!data || !data.ok) throw new Error((data && data.error) || "เกิดข้อผิดพลาด");
-      return data.result;
-    });
-  });
+  const envelope = { method: method, args: args };
+  if (isGasAdminOnlyHost_()) envelope.gasAdminOnly = true;
+  return callServerRpcJsonp_(apiUrl, envelope);
 }
 
 function callAuthed(method) {
