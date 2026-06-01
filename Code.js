@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "117";
+const APP_BUILD = "118";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -2511,9 +2511,6 @@ function buildRoundDisplayPayload_(imageUrl, imageDataThumb) {
   const url = sanitizeImageUrl_(imageUrl);
   const thumb = sanitizeThumbDataUrl_(imageDataThumb);
   const id = extractDriveFileId_(url);
-  if (thumb) {
-    return { imageDisplayUrl: thumb, imageSourceMode: "thumb" };
-  }
   if (id) {
     const proxy = getImageProxy(id);
     if (proxy && proxy.ok && proxy.dataUrl) {
@@ -2525,6 +2522,9 @@ function buildRoundDisplayPayload_(imageUrl, imageDataThumb) {
   }
   if (url && !/^drivefile:/i.test(url)) {
     return { imageDisplayUrl: url, imageSourceMode: "url" };
+  }
+  if (thumb) {
+    return { imageDisplayUrl: thumb, imageSourceMode: "thumb" };
   }
   return { imageDisplayUrl: DEFAULT_IMAGE, imageSourceMode: "placeholder" };
 }
@@ -2611,7 +2611,7 @@ function getImageProxy(imageRef) {
     const mime = blob.getContentType() || "image/jpeg";
     const bytes = blob.getBytes();
     const dataUrl = "data:" + mime + ";base64," + Utilities.base64Encode(bytes);
-    const thumbUrl = "https://drive.google.com/thumbnail?id=" + id + "&sz=w1000";
+    const thumbUrl = "https://drive.google.com/thumbnail?id=" + id + "&sz=w1920";
     // google.script.run payload limit — very large slips use thumbnail URL on client.
     if (dataUrl.length >= 95000) {
       return {

@@ -90,6 +90,8 @@ const UPLOAD_MAX_RAW_BYTES = 28 * 1024 * 1024;
 const UPLOAD_TARGET_B64_MAX = 2800000;
 const SLIP_IMAGE_MAX_EDGE = 2400;
 const SLIP_IMAGE_JPEG_QUALITY = 0.85;
+const SHIRT_IMAGE_MAX_EDGE = 3200;
+const SHIRT_IMAGE_JPEG_QUALITY = 0.92;
 
 function hasOpenModal_() {
   return !!document.querySelector(".login-overlay");
@@ -361,10 +363,34 @@ function formatUploadSize_(bytes) {
 
 async function compressShirtThumbForSheet_(dataUrl) {
   try {
-    return await compressDataUrlForUpload_(dataUrl, 400, 0.78, 28000);
+    return await compressDataUrlForUpload_(dataUrl, 480, 0.8, 28000);
   } catch (_) {
     return "";
   }
+}
+
+async function prepareShirtImageBase64ForUpload_(file, onProgress) {
+  if (!file) throw new Error("ไม่พบไฟล์รูป");
+  if (!String(file.type || "").startsWith("image/")) {
+    throw new Error("รองรับเฉพาะไฟล์รูปภาพ (JPG, PNG, WEBP ฯลฯ)");
+  }
+  if (file.size > UPLOAD_MAX_RAW_BYTES) {
+    throw new Error("ไฟล์ใหญ่เกินไป (สูงสุด ~28 MB)");
+  }
+  if (onProgress) onProgress("กำลังอ่านไฟล์ " + formatUploadSize_(file.size) + "…");
+  const dataUrl = await fileToBase64(file);
+  if (onProgress) onProgress("กำลังเตรียมรูปเสื้อความละเอียดสูง…");
+  let out = await compressDataUrlForUpload_(dataUrl, SHIRT_IMAGE_MAX_EDGE, SHIRT_IMAGE_JPEG_QUALITY);
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    out = await compressDataUrlForUpload_(dataUrl, 2600, 0.88);
+  }
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    out = await compressDataUrlForUpload_(dataUrl, 2200, 0.85);
+  }
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    out = await compressDataUrlForUpload_(dataUrl, 1800, 0.8);
+  }
+  return out;
 }
 
 async function prepareImageBase64ForUpload_(file, onProgress) {
@@ -535,27 +561,26 @@ function ensureAppData(force) {
       let displayUrl="";
       let sourceMode="";
       let warning="";
-      if(round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl)){
-        displayUrl=String(round.imageDisplayUrl);
-        sourceMode=String(round.imageSourceMode||"proxy");
-      }else if(extractDriveFileId(imageRef)){
+      if(extractDriveFileId(imageRef)){
         const resolved=await resolveRoundImageForDisplay(imageRef,!!force);
         if(resolved.url&&!isPlaceholderImage(resolved.url)){
           displayUrl=resolved.url;
           sourceMode="proxy";
         }
         warning=resolved.warning||"";
-        if(!displayUrl&&round.imageDataThumb&&isDataUrl(round.imageDataThumb)){
-          displayUrl=round.imageDataThumb;
-          sourceMode="thumb";
-        }
-      }else if(isValidRoundUrl(imageRef)){
-        displayUrl=imageRef;
-        sourceMode="url";
-      }else if(round.imageDataThumb&&isDataUrl(round.imageDataThumb)){
+      }
+      if(!displayUrl&&round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl)&&round.imageSourceMode!=="thumb"){
+        displayUrl=String(round.imageDisplayUrl);
+        sourceMode=String(round.imageSourceMode||"proxy");
+      }
+      if(!displayUrl&&round.imageDataThumb&&isDataUrl(round.imageDataThumb)){
         displayUrl=round.imageDataThumb;
         sourceMode="thumb";
-      }else{
+      }
+      if(!displayUrl&&isValidRoundUrl(imageRef)){
+        displayUrl=imageRef;
+        sourceMode="url";
+      }else if(!displayUrl){
         displayUrl=SHIRT_PLACEHOLDER_URL;
         sourceMode="placeholder";
       }
@@ -863,6 +888,18 @@ function withCacheBust(url, stamp){
   if(!raw||isDataUrl(raw))return raw;
   const t=encodeURIComponent(String(stamp||Date.now()));
   return raw+(raw.indexOf("?")>-1?"&":"?")+"t="+t;
+}
+
+function pickRoundDisplayImage_(round){
+  const r=round||{};
+  const stamp=(appData&&appData.generatedAt)||Date.now();
+  if(r.imageDisplaySrc&&!isPlaceholderImage(r.imageDisplaySrc))return r.imageDisplaySrc;
+  if(r.imageDisplayUrl&&!isPlaceholderImage(r.imageDisplayUrl)&&r.imageSourceMode!=="thumb"){
+    return isDataUrl(r.imageDisplayUrl)?r.imageDisplayUrl:withCacheBust(r.imageDisplayUrl,stamp);
+  }
+  if(isValidRoundUrl(r.imageUrl))return withCacheBust(r.imageUrl,stamp);
+  if(r.imageDataThumb&&isDataUrl(r.imageDataThumb))return r.imageDataThumb;
+  return SHIRT_PLACEHOLDER_URL;
 }
 
 function isValidRoundUrl(url){
@@ -1501,13 +1538,7 @@ const app = {
   // ── Stock view ─────────────────────────────────────────────────────
   renderGuestStock(){
     const round=appData.round, stock=appData.stock||[], sizeChartRows=appData.sizeChart||[];
-    const displayImage=(round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl))
-      ? withCacheBust(round.imageDisplayUrl,appData.generatedAt||Date.now())
-      : (isValidRoundUrl(round.imageUrl)
-          ? withCacheBust(round.imageUrl,appData.generatedAt||Date.now())
-          : ((round.imageDataThumb&&isDataUrl(round.imageDataThumb))
-              ? round.imageDataThumb
-              : SHIRT_PLACEHOLDER_URL));
+    const displayImage=pickRoundDisplayImage_(round);
     const stockHeader=stock.map(s=>`<th class="stock-cell"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span></th>`).join("");
     const remainRow=stock.map(s=>{
       const cls=s.remaining<=5?"text-red-glass font-bold":"text-green-glass font-bold";
@@ -1535,7 +1566,7 @@ const app = {
         <div class="p-4">
           ${isPlaceholderImage(displayImage)
             ? `<div class="glass-image-wrap flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
-            : `<img id="stock-shirt-image" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-80 object-contain rounded-lg glass-image-wrap">`}
+            : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-[32rem] object-contain rounded-lg glass-image-wrap">`}
         </div>
       </div>
       <div class="glass-card p-4">
@@ -1563,13 +1594,7 @@ const app = {
   renderStock(){
     if(isGuest())return this.renderGuestStock();
     const round=appData.round, stock=appData.stock, sizeChartRows=appData.sizeChart;
-    const displayImage=(round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl))
-      ? withCacheBust(round.imageDisplayUrl,appData.generatedAt||Date.now())
-      : (isValidRoundUrl(round.imageUrl)
-          ? withCacheBust(round.imageUrl,appData.generatedAt||Date.now())
-          : ((round.imageDataThumb&&isDataUrl(round.imageDataThumb))
-              ? round.imageDataThumb
-              : SHIRT_PLACEHOLDER_URL));
+    const displayImage=pickRoundDisplayImage_(round);
     const stockHeader=stock.map(s=>`<th class="stock-cell"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span></th>`).join("");
     const deliveredRow=stock.map(s=>`<td class="stock-cell font-semibold">${s.delivered}</td>`).join("");
     const soldRow=stock.map(s=>`<td class="stock-cell text-orange-glass">${s.sold}</td>`).join("");
@@ -1614,7 +1639,7 @@ const app = {
           <div class="relative mb-4">
             ${isPlaceholderImage(displayImage)
               ? `<div class="glass-image-wrap flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
-              : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-80 object-contain rounded-lg glass-image-wrap">`}
+              : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-[32rem] object-contain rounded-lg glass-image-wrap">`}
             ${adminUpload}
           </div>
         </div>
@@ -2792,7 +2817,7 @@ const app = {
 
   async previewShirtImage(input){
     if(!(input.files&&input.files[0]))return;
-    pendingImageBase64=await prepareImageBase64ForUpload_(input.files[0]);
+    pendingImageBase64=await prepareShirtImageBase64ForUpload_(input.files[0]);
     document.getElementById("admin-image-preview").src=pendingImageBase64;
     setImageDebug("preview: local image selected");
     document.getElementById("admin-image-filename").textContent=input.files[0].name;
@@ -2804,7 +2829,7 @@ const app = {
       let base64=pendingImageBase64||"";
       if(!base64){
         const fi=document.getElementById("admin-image-file");
-        if(fi.files&&fi.files[0])base64=await prepareImageBase64ForUpload_(fi.files[0]);
+        if(fi.files&&fi.files[0])base64=await prepareShirtImageBase64ForUpload_(fi.files[0]);
       }
       if(!base64)return this.showMsg("กรุณาเลือกรูปก่อน","error");
       const thumb=await compressShirtThumbForSheet_(base64);
@@ -2836,7 +2861,7 @@ const app = {
     if(!(input.files&&input.files[0]))return;
     try{
       this.showMsg("กำลังอัปโหลด...","success");
-      const b=await prepareImageBase64ForUpload_(input.files[0]);
+      const b=await prepareShirtImageBase64ForUpload_(input.files[0]);
       const img=document.getElementById("stock-shirt-image");
       const prevSrc=img?img.src:"";
       if(img)img.src=b;
