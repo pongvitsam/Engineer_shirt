@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v5";
-const APP_BUILD = "114";
+const APP_BUILD = "115";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -297,7 +297,8 @@ const DEFAULT_USERS = [
   ["user_e2", "Peace@2569", "user",  "กฟก.2",        "ผู้ใช้งานเขต กฟก.2"],
   ["user_e3", "Peace@2569", "user",  "กฟก.3",        "ผู้ใช้งานเขต กฟก.3"],
   ["user_hq", "Peace@2569", "user",  "สำนักงานใหญ่", "ผู้ใช้งานสำนักงานใหญ่"],
-  ["team_eng", "Peace@2569", "engineer", "สำนักงานใหญ่", "ทีมงาน ชวศ"]
+  ["team_eng", "Peace@2569", "engineer", "สำนักงานใหญ่", "ทีมงาน ชวศ"],
+  ["viewer", "Peace@2569", "viewer", "*", "ผู้ดูข้อมูล (อ่านอย่างเดียว)"]
 ];
 
 // === Auth: hashing / sessions =========================================
@@ -400,8 +401,7 @@ function normalizeRoleRegion_(username, roleValue, regionValue) {
   }
   if (role === "admin" && !region) region = "*";
   if (role === ROLE_ENGINEER && !region) region = "สำนักงานใหญ่";
-  if (role === "viewer") role = "user";
-  if (role !== "admin" && role !== "user" && role !== "guest" && role !== ROLE_ENGINEER) role = "user";
+  if (role !== "admin" && role !== "user" && role !== "guest" && role !== ROLE_ENGINEER && role !== "viewer") role = "user";
   return { role: role, region: region };
 }
 
@@ -409,9 +409,13 @@ function isEngineerRole_(session) {
   return !!session && session.role === ROLE_ENGINEER;
 }
 
+function isViewerRole_(session) {
+  return !!session && session.role === "viewer";
+}
+
 function canViewAllRegions_(session) {
   if (!session) return false;
-  return session.role === "admin" || isEngineerRole_(session) || session.region === "*";
+  return session.role === "admin" || isEngineerRole_(session) || isViewerRole_(session) || session.region === "*";
 }
 
 function sessionCanViewRegion_(session, rowRegion) {
@@ -424,6 +428,7 @@ function sessionCanViewRegion_(session, rowRegion) {
 
 function sessionCanModifyRegion_(session, rowRegion) {
   if (!session) return false;
+  if (isViewerRole_(session)) return false;
   if (session.role === "admin" || session.region === "*") return true;
   if (!session.region) return false;
   return String(rowRegion) === String(session.region);
@@ -465,6 +470,7 @@ function login(username, password) {
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureUsersSheetMigrated_(ss);
+  ensureDefaultViewerUser_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const width = Math.max(sheet.getLastColumn(), 7);
   const rows = getDataRows_(sheet, width);
@@ -611,12 +617,20 @@ function ensureUsersSheetMigrated_(ss) {
 }
 
 function ensureDefaultEngineerUser_(ss) {
+  ensureDefaultUserByUsername_(ss, "team_eng");
+}
+
+function ensureDefaultViewerUser_(ss) {
+  ensureDefaultUserByUsername_(ss, "viewer");
+}
+
+function ensureDefaultUserByUsername_(ss, username) {
   const sheet = ss.getSheetByName(USERS_SHEET);
   if (!sheet) return;
-  const username = "team_eng";
-  const rows = getDataRows_(sheet, 6);
-  if (rows.some(function (r) { return String(r[0]).trim() === username; })) return;
-  const def = DEFAULT_USERS.filter(function (u) { return String(u[0]) === username; })[0];
+  const uname = String(username || "").trim();
+  const rows = getDataRows_(sheet, 7);
+  if (rows.some(function (r) { return String(r[0] || "").trim().toLowerCase() === uname.toLowerCase(); })) return;
+  const def = DEFAULT_USERS.filter(function (u) { return String(u[0]) === uname; })[0];
   if (!def) return;
   sheet.appendRow([def[0], hashPassword_(def[1]), def[2], def[3], def[4], true, def[1]]);
 }
@@ -706,7 +720,9 @@ function createUser(token, payload) {
   const displayName = String(payload.displayName || username);
   if (!username || !password) throw new Error("กรอกชื่อผู้ใช้และรหัสผ่าน");
   if (password.length < 4) throw new Error("รหัสผ่านต้องอย่างน้อย 4 ตัว");
-  if (role !== "admin" && role !== "user" && role !== ROLE_ENGINEER) throw new Error("ตำแหน่งไม่ถูกต้อง");
+  if (role !== "admin" && role !== "user" && role !== ROLE_ENGINEER && role !== "viewer") {
+    throw new Error("ตำแหน่งไม่ถูกต้อง");
+  }
   if (role === ROLE_ENGINEER) {
     if (!region || region === "*") region = "สำนักงานใหญ่";
     if (!region || region === "*") {
@@ -2204,6 +2220,8 @@ function initializeSheets_() {
     usersSheet.getRange(2, 1, seeded.length, 7).setValues(seeded);
   }
   migrateUsersPasswordPlainColumn_(ss);
+  ensureDefaultEngineerUser_(ss);
+  ensureDefaultViewerUser_(ss);
 
   PropertiesService.getScriptProperties().setProperty(SHEETS_READY_KEY, "1");
 }

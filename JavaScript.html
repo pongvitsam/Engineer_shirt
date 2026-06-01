@@ -79,8 +79,8 @@ const RPC_JSONP_MAX_PAYLOAD = 1800;
 const RPC_JSONP_TIMEOUT_MS = 120000;
 const RPC_POST_TIMEOUT_MS = 180000;
 const RPC_POST_METHODS_ = { uploadOrderImage: true, uploadShirtImage: true };
-/** GitHub Pages: POST ก่อน (หลีกเลี่ยง AdBlock ที่บล็อก script JSONP) แล้วค่อย JSONP */
-const RPC_FETCH_FIRST_METHODS_ = {
+/** GitHub Pages: JSONP ก่อน (POST ผ่าน redirect มักล้มในเบราว์เซอร์) แล้วค่อย POST */
+const RPC_JSONP_FIRST_METHODS_ = {
   login: true,
   verifySession: true,
   getRpcPing: true,
@@ -258,13 +258,14 @@ function callServerRpcJsonp_(apiUrl, envelope, attempt) {
     script.async = true;
     script.onerror = function () {
       cleanup();
-      if (tryNo < 2) {
+      if (tryNo < 3) {
         callServerRpcJsonp_(apiUrl, envelope, tryNo + 1).then(resolve).catch(reject);
         return;
       }
       reject(new Error(rpcApiUnreachableMessage_()));
     };
-    document.head.appendChild(script);
+    script.crossOrigin = "anonymous";
+    (document.body || document.head).appendChild(script);
   });
 }
 function callServer(method) {
@@ -280,13 +281,17 @@ function callServer(method) {
   if (isGasAdminOnlyHost_()) envelope.gasAdminOnly = true;
   const payloadLen = JSON.stringify(envelope).length;
   const postMs = RPC_POST_METHODS_[method] ? RPC_POST_TIMEOUT_MS : RPC_JSONP_TIMEOUT_MS;
-  const useFetchFirst = !isGasScriptBridge_() &&
-    (RPC_FETCH_FIRST_METHODS_[method] || shouldUseRpcPost_(method, payloadLen));
-  if (useFetchFirst) {
-    return callServerRpcPost_(apiUrl, envelope, postMs).catch(function (err) {
-      if (shouldUseRpcPost_(method, payloadLen) || payloadLen > RPC_JSONP_MAX_PAYLOAD) throw err;
-      return callServerRpcJsonp_(apiUrl, envelope);
+  const jsonpFirst = !isGasScriptBridge_() &&
+    RPC_JSONP_FIRST_METHODS_[method] &&
+    payloadLen <= RPC_JSONP_MAX_PAYLOAD &&
+    !shouldUseRpcPost_(method, payloadLen);
+  if (jsonpFirst) {
+    return callServerRpcJsonp_(apiUrl, envelope).catch(function () {
+      return callServerRpcPost_(apiUrl, envelope, postMs);
     });
+  }
+  if (shouldUseRpcPost_(method, payloadLen)) {
+    return callServerRpcPost_(apiUrl, envelope, postMs);
   }
   return callServerRpcJsonp_(apiUrl, envelope);
 }
@@ -788,8 +793,12 @@ function isEngineer(){
   if (me) me = normalizeMeClient_(me);
   return !!(me&&me.role===ROLE_ENGINEER);
 }
+function isViewer(){
+  if (me) me = normalizeMeClient_(me);
+  return !!(me && me.role === "viewer");
+}
 function canViewAllRegions(){
-  return isAdmin()||isEngineer();
+  return isAdmin() || isEngineer() || isViewer();
 }
 function ownsOrderRegion(g){
   return !isGuest()&&!!(me&&String(me.region)===String(g&&g.region));
@@ -1184,7 +1193,7 @@ function renderLogin(errMsg){
         <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
           <div>
             <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
-            <input id="login-username" name="username" class="glass-input" autocomplete="username" placeholder="${gasOnly?"admin1":"เช่น admin1 หรือ user_n1"}">
+            <input id="login-username" name="username" class="glass-input" autocomplete="username" placeholder="${gasOnly?"admin1":"เช่น admin1, user_n1 หรือ viewer"}">
           </div>
           <div>
             <label class="glass-label" for="login-password">รหัสผ่าน</label>
@@ -1365,9 +1374,9 @@ function bootApp(){
 function renderUserChip(){
   const chip=document.getElementById("user-info-chip");
   if(!chip||!me)return;
-  const roleCls=me.role==="admin"?"role-badge-admin":(isEngineer()?"role-badge-engineer":(isGuest()?"role-badge-guest":"role-badge-user"));
-  const roleLabel=me.role==="admin"?"แอดมิน":(isEngineer()?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(isGuest()?"Guest":"ผู้ใช้"));
-  const regionLabel=canViewAllRegions()?(isEngineer()?`ดูทุกเขต · สั่ง ${me.region||""}`:"ทุกเขต"):(isGuest()?"ดูสต็อกเท่านั้น":me.region);
+  const roleCls=me.role==="admin"?"role-badge-admin":(isEngineer()?"role-badge-engineer":(isViewer()?"role-badge-user":(isGuest()?"role-badge-guest":"role-badge-user")));
+  const roleLabel=me.role==="admin"?"แอดมิน":(isEngineer()?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(isViewer()?"ผู้ดูข้อมูล":(isGuest()?"Guest":"ผู้ใช้")));
+  const regionLabel=canViewAllRegions()?(isEngineer()?`ดูทุกเขต · สั่ง ${me.region||""}`:(isViewer()?"ดูทุกเขต (อ่านอย่างเดียว)":"ทุกเขต")):(isGuest()?"ดูสต็อกเท่านั้น":me.region);
   chip.className="user-chip";
   const pwdBtn=!isGuest()&&authToken
     ?`<button onclick="openChangePasswordModal()" title="เปลี่ยนรหัสผ่าน" class="chip-logout" type="button"><i class="fas fa-key"></i></button>`

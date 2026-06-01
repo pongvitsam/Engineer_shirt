@@ -55,10 +55,12 @@ function patchIndexPatches(html) {
   );
 }
 
-function buildConfigJs() {
+function buildConfigJs(deployStamp) {
   const pagesBase = GITHUB_PAGES_URL.endsWith("/")
     ? GITHUB_PAGES_URL
     : GITHUB_PAGES_URL + "/";
+  const build = readBuildFromCodeJs();
+  const stamp = deployStamp || String(Date.now());
   return (
     "/* PEACE Engineer Club — GitHub Pages config (generated) */\n" +
     "window.PEACE_CONFIG = {\n" +
@@ -66,7 +68,8 @@ function buildConfigJs() {
     "  githubPagesUrl: " + JSON.stringify(GITHUB_PAGES_URL) + ",\n" +
     "  userGuideHtml: " + JSON.stringify(pagesBase + "guides/user-guide-user.html") + ",\n" +
     "  userGuidePdf: " + JSON.stringify(pagesBase + "guides/user-guide.pdf") + ",\n" +
-    "  build: " + JSON.stringify(readBuildFromCodeJs()) + "\n" +
+    "  build: " + JSON.stringify(build) + ",\n" +
+    "  deployStamp: " + JSON.stringify(stamp) + "\n" +
     "};\n" +
     "window.PEACE_GAS_ADMIN_ONLY = false;\n"
   );
@@ -99,8 +102,9 @@ function readBuildFromCodeJs() {
   return m ? m[1] : "0";
 }
 
-function buildIndexHtml(bodyInner, headExtras, build) {
+function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   const v = build || readBuildFromCodeJs();
+  const ts = deployStamp || String(Date.now());
   return `<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -121,8 +125,8 @@ function buildIndexHtml(bodyInner, headExtras, build) {
 </head>
 <body>
 ${bodyInner}
-  <script src="config.js?v=${v}"></script>
-  <script src="assets/app.js?v=${v}"></script>
+  <script src="config.js?v=${v}&amp;t=${ts}"></script>
+  <script src="assets/app.js?v=${v}&amp;t=${ts}"></script>
 </body>
 </html>
 `;
@@ -137,13 +141,13 @@ function main() {
   const js = stripTag(read("JavaScript.html"), "script");
   fs.writeFileSync(path.join(ASSETS, "app.js"), js, "utf8");
 
-  fs.writeFileSync(path.join(DOCS, "config.js"), buildConfigJs(), "utf8");
-
   let indexSrc = read("Index.html");
   let body = patchIndexPatches(extractIndexBody(indexSrc));
   const headExtras = extractIndexHeadExtras(indexSrc);
   const build = readBuildFromCodeJs();
-  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build), "utf8");
+  const stamp = String(Date.now());
+  fs.writeFileSync(path.join(DOCS, "config.js"), buildConfigJs(stamp), "utf8");
+  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build, stamp), "utf8");
 
   const nojekyll = path.join(DOCS, ".nojekyll");
   if (!fs.existsSync(nojekyll)) fs.writeFileSync(nojekyll, "", "utf8");
