@@ -1143,19 +1143,19 @@ function renderLogin(errMsg){
         <div class="login-title"><i class="fas fa-tshirt mr-2" style="color:#F59E0B"></i>PEACE Engineer Club</div>
         <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":"ระบบจัดการขายเสื้อชมรม กฟภ."}</div>
         ${gasOnly?`<p class="text-xs text-center mb-2 opacity-80">ผู้ใช้ทั่วไป <a href="${escHtml(ghUrl)}" style="color:#FDE68A;text-decoration:underline">เปิดแอปหลัก (GitHub Pages)</a></p>`:""}
-        <div class="space-y-3">
+        <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
           <div>
-            <label class="glass-label">ชื่อผู้ใช้</label>
-            <input id="login-username" class="glass-input" autocomplete="username" placeholder="${gasOnly?"admin1":"เช่น admin1 หรือ user_n1"}">
+            <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
+            <input id="login-username" name="username" class="glass-input" autocomplete="username" placeholder="${gasOnly?"admin1":"เช่น admin1 หรือ user_n1"}">
           </div>
           <div>
-            <label class="glass-label">รหัสผ่าน</label>
-            <input id="login-password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
+            <label class="glass-label" for="login-password">รหัสผ่าน</label>
+            <input id="login-password" name="password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
           </div>
-          <button id="login-btn" onclick="doLogin()" class="glass-btn-primary w-full" style="padding:.75rem">
+          <button id="login-btn" type="submit" class="glass-btn-primary w-full" style="padding:.75rem">
             <i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ
           </button>
-          ${gasOnly?"":`<button onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
+          ${gasOnly?"":`<button type="button" onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
             <i class="fas fa-user-clock mr-1"></i> Log in as Guest
           </button>`}
           <p class="text-xs text-center pt-1">
@@ -1165,7 +1165,7 @@ function renderLogin(errMsg){
           </p>
           <p class="text-xs text-center login-support-line">${supportContactInlineHtml_()}</p>
           <div id="login-msg" class="text-xs text-center">${errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:''}</div>
-        </div>
+        </form>
       </div>
     </div>`;
   setTimeout(()=>{
@@ -1923,6 +1923,10 @@ const app = {
   },
 
   openSlipUploadModal(orderId,isReplace){
+    const self=this;
+    setTimeout(function(){self._openSlipUploadModalNow_(orderId,isReplace);},0);
+  },
+  _openSlipUploadModalNow_(orderId,isReplace){
     const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     const ownsOrder=ownsOrderRegion(orderGroup);
@@ -1972,6 +1976,7 @@ const app = {
     this.clearSlipModalMsg();
     if(!file)return this.showSlipModalMsg("กรุณาเลือกรูปสลิป","error");
     if(!payDate||!payTime)return this.showSlipModalMsg("กรุณากรอกวันที่และเวลาโอน","error");
+    await new Promise(function(r){setTimeout(r,0);});
     try{
       const self=this;
       const base64=await prepareImageBase64ForUpload_(file,function(status){

@@ -223,7 +223,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v3";
-const APP_BUILD = "109";
+const APP_BUILD = "110";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -1245,7 +1245,7 @@ function uploadOrderImage(token, orderId, base64, payDate, payTime, filename) {
       throw new Error("อัปโหลดรูปไม่สำเร็จ: สิทธิ์ Google Drive ยังไม่พร้อม");
     }
     ctx.targetRows.forEach(row => {
-      orderSheet.getRange(row, 7, row, 8).setValues([[transferDate, transferTime]]);
+      orderSheet.getRange(row, 7, 1, 2).setValues([[transferDate, transferTime]]);
       orderSheet.getRange(row, 12).setValue(slipName);
       orderSheet.getRange(row, 13).setValue(slipUrl);
       orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.PENDING_REVIEW);
