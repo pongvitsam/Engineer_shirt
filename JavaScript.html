@@ -53,6 +53,16 @@ const dropdownRegistry = {};
 const FILTER_DEBOUNCE_MS = 200;
 const TOKEN_KEY = "peace_token_v1";
 const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=PEACE+Engineer+Club";
+const SUPPORT_PHONE_DISPLAY = "02-009-6703";
+const SUPPORT_PHONE_TEL = "+6620096703";
+
+function supportContactInlineHtml_(){
+  return `แจ้งปัญหาการใช้งาน โทร <a href="tel:${SUPPORT_PHONE_TEL}" style="color:#FDE68A;text-decoration:underline;font-weight:600">${escHtml(SUPPORT_PHONE_DISPLAY)}</a>`;
+}
+function setSupportFooterVisible_(show){
+  const el=document.getElementById("app-support-footer");
+  if(el)el.classList.toggle("hidden",!show);
+}
 
 const NAV = [
   { id:"stock", label:"สต็อก", icon:"fa-boxes" },
@@ -977,6 +987,7 @@ function renderLogin(errMsg){
   document.getElementById("pre-header").style.display="none";
   document.getElementById("pre-skeleton").style.display="none";
   document.getElementById("app-header").classList.add("hidden");
+  setSupportFooterVisible_(true);
   const gasOnly=isGasAdminOnlyHost_();
   const ghUrl=getGithubPagesUrl_();
   const c=document.getElementById("app-container");
@@ -1006,6 +1017,7 @@ function renderLogin(errMsg){
               <i class="fas fa-book mr-1"></i> คู่มือการใช้งาน
             </button>
           </p>
+          <p class="text-xs text-center login-support-line">${supportContactInlineHtml_()}</p>
           <div id="login-msg" class="text-xs text-center">${errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:''}</div>
         </div>
       </div>
@@ -1143,6 +1155,7 @@ function bootApp(){
   document.getElementById("pre-header").style.display="none";
   document.getElementById("pre-skeleton").style.display="none";
   document.getElementById("app-header").classList.remove("hidden");
+  setSupportFooterVisible_(true);
   renderUserChip();
   app.renderNav();
   app.container.innerHTML=skeletonHtml("stock");
