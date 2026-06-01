@@ -224,8 +224,8 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v4";
-const APP_BUILD = "111";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v5";
+const APP_BUILD = "112";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -518,6 +518,19 @@ function slimRoundPayloadForExternal_(round) {
   return out;
 }
 
+function slimRoundImageRpcFields_(imageUrl, display) {
+  const slim = slimRoundPayloadForExternal_({
+    imageUrl: imageUrl,
+    imageDisplayUrl: display && display.imageDisplayUrl,
+    imageSourceMode: display && display.imageSourceMode
+  });
+  return {
+    imageUrl: slim.imageUrl,
+    imageDisplayUrl: slim.imageDisplayUrl,
+    imageSourceMode: slim.imageSourceMode
+  };
+}
+
 function getGuestStockData() {
   ensureSheetsInitialized_();
   const data = buildBootstrapData_();
@@ -765,7 +778,7 @@ function getBootstrapData(token) {
     try { data = JSON.parse(cached); } catch (e) { data = null; }
   }
   if (!data) {
-    data = buildBootstrapData_();
+    data = buildBootstrapDataForCache_();
     try { cache.put(CACHE_KEY_BOOTSTRAP, JSON.stringify(data), CACHE_TTL_SEC); } catch (e) {}
   }
   // Scope orders by region for non-admin users
@@ -827,6 +840,13 @@ function buildBootstrapData_() {
   };
 }
 
+/** Bootstrap cache — ไม่เก็บ data URL ขนาดใหญ่ */
+function buildBootstrapDataForCache_() {
+  const data = buildBootstrapData_();
+  data.round = slimRoundPayloadForExternal_(data.round);
+  return data;
+}
+
 function invalidateDataCache_() {
   CacheService.getScriptCache().remove(CACHE_KEY_BOOTSTRAP);
 }
@@ -834,7 +854,7 @@ function invalidateDataCache_() {
 function refreshBootstrapCache_() {
   const cache = CacheService.getScriptCache();
   try {
-    cache.put(CACHE_KEY_BOOTSTRAP, JSON.stringify(buildBootstrapData_()), CACHE_TTL_SEC);
+    cache.put(CACHE_KEY_BOOTSTRAP, JSON.stringify(buildBootstrapDataForCache_()), CACHE_TTL_SEC);
   } catch (e) {
     try { cache.remove(CACHE_KEY_BOOTSTRAP); } catch (e2) {}
   }
@@ -954,7 +974,7 @@ function updateCartOrderByOrderId(token, orderId, payload) {
     const preserveStatus = meta.status;
     const items = Array.isArray(payload && payload.items) ? payload.items : [];
     const agg = validateStockForOrderItems_(ss, items, orderId);
-    const values = orderSheet.getDataRange().getValues();
+    const values = getOrderSheetValues_(orderSheet);
     const templateRow = values[meta.rows[0].row - 1];
     const payDate = String(payload && payload.payDate != null ? payload.payDate : templateRow[6] || "").trim();
     const payTime = String(payload && payload.payTime != null ? payload.payTime : templateRow[7] || "").trim();
@@ -1115,7 +1135,7 @@ function resolveNewOrderStatus_(session, incomingStatus) {
 }
 
 function getOrderGroupMeta_(orderSheet, orderId, session) {
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   const targetOrderId = String(orderId || "").trim();
   const rows = [];
   for (let i = 1; i < values.length; i++) {
@@ -1174,7 +1194,7 @@ function updateOrderStatus(token, no, status) {
   if (!ADMIN_ORDER_STATUS.includes(status)) throw new Error("สถานะไม่ถูกต้อง");
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   for (let i = 1; i < values.length; i++) {
     if (Number(values[i][0]) === Number(no)) {
       orderSheet.getRange(i + 1, 9).setValue(status);
@@ -1191,7 +1211,7 @@ function updateOrderStatusByOrderId(token, orderId, status) {
   if (!ADMIN_ORDER_STATUS.includes(status)) throw new Error("สถานะไม่ถูกต้อง");
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   let changed = 0;
   for (let i = 1; i < values.length; i++) {
     const rowOrderId = String(values[i][1] || values[i][0]);
@@ -1215,7 +1235,7 @@ function updateOrderNoteByOrderId(token, orderId, note) {
     throw new Error("ไม่มีสิทธิ์ดู/แก้หมายเหตุเขตสำนักงานใหญ่");
   }
   assertUserCanModifyOwnOrder_(session, meta.status, meta.paymentStatus);
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   const safeNote = String(note == null ? "" : note).trim();
   let changed = 0;
   for (let i = 1; i < values.length; i++) {
@@ -1384,7 +1404,7 @@ function deleteOrderImage(token, orderId) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
-    const values = orderSheet.getDataRange().getValues();
+    const values = getOrderSheetValues_(orderSheet);
     const targetRows = [];
     const fileIds = {};
     for (let i = 1; i < values.length; i++) {
@@ -1431,7 +1451,7 @@ function getOrderImage(token, orderId) {
   if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   let slipUrl = "";
   let found = false;
   for (let i = 1; i < values.length; i++) {
@@ -1486,7 +1506,7 @@ function deleteOrder(token, no) {
   ensureSheetsInitialized_();
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   for (let i = 1; i < values.length; i++) {
     if (Number(values[i][0]) === Number(no)) {
       if (!sessionCanModifyRegion_(session, values[i][2])) {
@@ -1669,7 +1689,7 @@ function reviewOrderChangeRequest(token, orderId, action, note) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
-    const values = orderSheet.getDataRange().getValues();
+    const values = getOrderSheetValues_(orderSheet);
     const targetOrderId = String(orderId || "").trim();
     if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
 
@@ -1987,12 +2007,13 @@ function saveRoundConfig(token, payload) {
   roundSheet.getRange(2, 1, 1, 6).setValues([[year, name, unitPrice, imageUrl, true, imageDataThumb]]);
   invalidateDataCache_();
   const display = buildRoundDisplayPayload_(imageUrl, imageDataThumb);
+  const slimImg = slimRoundImageRpcFields_(imageUrl, display);
   return {
     ok: true,
-    imageUrl: imageUrl,
-    imageDataThumb: imageDataThumb,
-    imageDisplayUrl: display.imageDisplayUrl,
-    imageSourceMode: display.imageSourceMode,
+    imageUrl: slimImg.imageUrl,
+    imageDataThumb: "",
+    imageDisplayUrl: slimImg.imageDisplayUrl,
+    imageSourceMode: slimImg.imageSourceMode,
     warning: warning
   };
 }
@@ -2028,12 +2049,13 @@ function uploadShirtImage(token, imageBase64) {
   ]]);
   invalidateDataCache_();
   const display = buildRoundDisplayPayload_(imageUrl, imageDataThumb);
+  const slimImg = slimRoundImageRpcFields_(imageUrl, display);
   return {
     ok: true,
-    imageUrl: imageUrl,
-    imageDataThumb: imageDataThumb,
-    imageDisplayUrl: display.imageDisplayUrl,
-    imageSourceMode: display.imageSourceMode,
+    imageUrl: slimImg.imageUrl,
+    imageDataThumb: "",
+    imageDisplayUrl: slimImg.imageDisplayUrl,
+    imageSourceMode: slimImg.imageSourceMode,
     warning: warning
   };
 }
@@ -2633,6 +2655,16 @@ function getDataRows_(sheet, width) {
   return sheet.getRange(2, 1, last - 1, width).getValues();
 }
 
+/** อ่าน Orders แบบเดียวกับ getOrders_ (มี header แถวที่ 1, ไม่รวมแถวสรุปท้ายชีต) */
+function getOrderSheetValues_(orderSheet) {
+  const last = orderSheet.getLastRow();
+  const width = Math.min(ORDERS_HEADERS.length, orderSheet.getMaxColumns());
+  const header = orderSheet.getRange(1, 1, 1, width).getValues()[0];
+  if (last <= 1) return [header];
+  const data = orderSheet.getRange(2, 1, last - 1, width).getValues();
+  return [header].concat(data);
+}
+
 function saveBase64File_(base64, prefix) {
   // w400 instead of w1200 — 9x smaller payload for browser
   const saved = saveBase64ToFolder_(base64, prefix, DRIVE_FOLDER_ID, "w400", false);
@@ -2693,7 +2725,7 @@ function getSlipSubfolderForRegion_(region) {
 }
 
 function getOrderSlipContext_(orderSheet, orderId, session) {
-  const values = orderSheet.getDataRange().getValues();
+  const values = getOrderSheetValues_(orderSheet);
   const targetOrderId = String(orderId || "").trim();
   const targetRows = [];
   let region = "";
