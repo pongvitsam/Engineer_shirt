@@ -358,6 +358,14 @@ function formatUploadSize_(bytes) {
   return (n / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+async function compressShirtThumbForSheet_(dataUrl) {
+  try {
+    return await compressDataUrlForUpload_(dataUrl, 400, 0.78, 28000);
+  } catch (_) {
+    return "";
+  }
+}
+
 async function prepareImageBase64ForUpload_(file, onProgress) {
   if (!file) throw new Error("ไม่พบไฟล์รูป");
   if (!String(file.type || "").startsWith("image/")) {
@@ -838,6 +846,9 @@ async function resolveRoundImageForDisplay(imageRef, bustCache){
     if(res&&res.ok&&res.dataUrl){
       imageProxyCache[fileId]=res.dataUrl;
       return {url:res.dataUrl,cached:!!res.cached};
+    }
+    if(res&&res.ok&&res.thumbnailUrl){
+      return {url:res.thumbnailUrl,warning:res.warning||""};
     }
     const serverErr=res&&res.error?(" ("+res.error+")"):"";
     return {url:SHIRT_PLACEHOLDER_URL,warning:((res&&res.warning)||"โหลดรูปไม่สำเร็จ")+serverErr};
@@ -2795,7 +2806,8 @@ const app = {
         if(fi.files&&fi.files[0])base64=await prepareImageBase64ForUpload_(fi.files[0]);
       }
       if(!base64)return this.showMsg("กรุณาเลือกรูปก่อน","error");
-      const r=await runSaving({btn:btn,busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",base64));
+      const thumb=await compressShirtThumbForSheet_(base64);
+      const r=await runSaving({btn:btn,busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",base64,thumb));
       if(!r||r.ok===false){
         this.showMsg((r&&r.warning)||"อัปโหลดรูปไม่สำเร็จ","warning");
         setImageDebug("upload-failed: "+((r&&r.warning)||"unknown"));
@@ -2827,7 +2839,8 @@ const app = {
       const img=document.getElementById("stock-shirt-image");
       const prevSrc=img?img.src:"";
       if(img)img.src=b;
-      const r=await runSaving({busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",b));
+      const thumb=await compressShirtThumbForSheet_(b);
+      const r=await runSaving({busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",b,thumb));
       if(!r||r.ok===false){
         if(img&&prevSrc)img.src=prevSrc;
         this.showMsg((r&&r.warning)||"อัปโหลดรูปไม่สำเร็จ","warning");
@@ -2852,6 +2865,22 @@ const app = {
     if(!imgEl)return;
     const alreadyFallback=imgEl.getAttribute("data-fallback")==="1";
     if(alreadyFallback)return;
+    const ref=imgEl.getAttribute("data-image-ref")||"";
+    if(ref&&imgEl.getAttribute("data-retry")!=="1"){
+      imgEl.setAttribute("data-retry","1");
+      const self=this;
+      resolveRoundImageForDisplay(ref,true).then(function(r){
+        if(r&&r.url&&!isPlaceholderImage(r.url)){
+          imgEl.removeAttribute("data-retry");
+          imgEl.src=withCacheBust(r.url,Date.now());
+          return;
+        }
+        self.onShirtImageError(imgEl,isAdminPreview);
+      }).catch(function(){
+        self.onShirtImageError(imgEl,isAdminPreview);
+      });
+      return;
+    }
     const reason="onerror src="+String(imgEl.currentSrc||imgEl.src||"");
     console.warn("[shirt-image] load failed",reason);
     if(isAdminPreview){
@@ -2860,7 +2889,7 @@ const app = {
     imgEl.setAttribute("data-fallback","1");
     imgEl.src=SHIRT_PLACEHOLDER_URL;
     if(!isAdminPreview){
-      this.showMsg("รูปเสื้อโหลดไม่สำเร็จ ระบบใช้รูปสำรองแทนชั่วคราว","warning");
+      this.showMsg("รูปเสื้อโหลดไม่สำเร็จ — ลองรีเฟรช หรือให้แอดมินอัปโหลดรูปใหม่","warning");
     }
   },
 

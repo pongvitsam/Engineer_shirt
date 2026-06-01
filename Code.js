@@ -224,8 +224,8 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v5";
-const APP_BUILD = "116";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
+const APP_BUILD = "117";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -575,6 +575,8 @@ function slimRoundPayloadForExternal_(round) {
     out.imageDisplayUrl = disp || DEFAULT_IMAGE;
     out.imageSourceMode = String(src.imageSourceMode || "placeholder");
   }
+  const thumb = sanitizeThumbDataUrl_(src.imageDataThumb || "");
+  if (thumb) out.imageDataThumb = thumb;
   return out;
 }
 
@@ -2084,7 +2086,8 @@ function saveRoundConfig(token, payload) {
     try {
       const file = saveBase64File_(payload.imageBase64, "ShirtImage_" + new Date().getTime());
       if (file.url) imageUrl = sanitizeImageUrl_(file.url);
-      const generatedThumb = generateImageThumbDataUrl_(payload.imageBase64);
+      const generatedThumb = generateImageThumbFromDriveFile_(file.fileId) ||
+        generateImageThumbDataUrl_(payload.imageBase64);
       if (generatedThumb) imageDataThumb = generatedThumb;
       if (file.warning) warning = file.warning;
       else if (!file.url) warning = "บันทึกข้อมูลสำเร็จ แต่ไม่สามารถอัปโหลดรูปไป Google Drive ได้";
@@ -2106,7 +2109,7 @@ function saveRoundConfig(token, payload) {
   };
 }
 
-function uploadShirtImage(token, imageBase64) {
+function uploadShirtImage(token, imageBase64, imageThumbBase64) {
   requireAdmin_(token);
   ensureSheetsInitialized_();
   if (!imageBase64) throw new Error("กรุณาเลือกรูปภาพก่อนอัปโหลด");
@@ -2119,7 +2122,9 @@ function uploadShirtImage(token, imageBase64) {
   try {
     const file = saveBase64File_(imageBase64, "ShirtImage_" + new Date().getTime());
     imageUrl = sanitizeImageUrl_(file.url || "");
-    imageDataThumb = generateImageThumbDataUrl_(imageBase64);
+    imageDataThumb = generateImageThumbFromDriveFile_(file.fileId) ||
+      generateImageThumbDataUrl_(imageThumbBase64) ||
+      generateImageThumbDataUrl_(imageBase64);
     warning = String(file.warning || "");
   } catch (e) {
     imageUrl = "";
@@ -2390,6 +2395,7 @@ function migrateRoundSheet_(ss) {
 
 function getRoundInfo_(ss) {
   const sheet = ss.getSheetByName(ROUND_SHEET);
+  ensureRoundImageThumb_(ss);
   const row = getDataRows_(sheet, 6)[0] || [];
   const safeImageUrl = sanitizeImageUrl_(row[3]);
   const thumb = sanitizeThumbDataUrl_(row[5]);
@@ -2405,13 +2411,42 @@ function getRoundInfo_(ss) {
   };
 }
 
+/** ซ่อม thumbnail จาก Drive หรือย้าย data URL เก่าในคอลัมน์รูป → คอลัมน์ย่อ */
+function ensureRoundImageThumb_(ss) {
+  const sheet = ss.getSheetByName(ROUND_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return "";
+  const row = sheet.getRange(2, 1, 1, 6).getValues()[0];
+  const rawUrl = String(row[3] || "").trim();
+  let thumb = sanitizeThumbDataUrl_(row[5]);
+  if (!thumb && /^data:image\//i.test(rawUrl)) {
+    thumb = sanitizeThumbDataUrl_(rawUrl);
+    if (thumb) {
+      sheet.getRange(2, 6).setValue(thumb);
+      if (extractDriveFileId_(rawUrl)) {
+        sheet.getRange(2, 4).setValue(buildDriveImageRef_(extractDriveFileId_(rawUrl)));
+      }
+      invalidateDataCache_();
+      return thumb;
+    }
+  }
+  const fileId = extractDriveFileId_(rawUrl);
+  if (!thumb && fileId) {
+    thumb = generateImageThumbFromDriveFile_(fileId);
+    if (thumb) {
+      sheet.getRange(2, 6).setValue(thumb);
+      invalidateDataCache_();
+    }
+  }
+  return thumb || "";
+}
+
 function sanitizeImageUrl_(value) {
   const s = String(value || "").trim();
-  // Prevent oversized data URLs from ever flowing back into sheet writes.
-  if (!s) return DEFAULT_IMAGE;
-  if (/^data:/i.test(s)) return DEFAULT_IMAGE;
-  if (s.length > 1800) return DEFAULT_IMAGE;
-  return normalizeDriveImageUrl_(s);
+  if (!s) return "";
+  if (/^data:/i.test(s)) return "";
+  if (s.length > 1800) return "";
+  const normalized = normalizeDriveImageUrl_(s);
+  return normalized || "";
 }
 
 function normalizeDriveImageUrl_(url) {
@@ -2449,30 +2484,47 @@ function sanitizeThumbDataUrl_(value) {
 }
 
 function generateImageThumbDataUrl_(base64) {
-  // Apps Script has no built-in image-resize service (there is no global
-  // "ImagesService"), so server-side thumbnail generation is not possible.
-  // The previous implementation referenced ImagesService and therefore always
-  // threw a ReferenceError that was swallowed, returning "" on every call.
-  // Returning "" directly preserves that behaviour while removing dead code;
-  // image display still works via the Drive proxy / URL / placeholder chain.
-  return "";
+  const s = String(base64 || "").trim();
+  if (!s || !/^data:image\//i.test(s)) return "";
+  return sanitizeThumbDataUrl_(s);
+}
+
+function generateImageThumbFromDriveFile_(fileId) {
+  const id = extractDriveFileId_(fileId);
+  if (!id || !isProxyAllowedFileId_(id)) return "";
+  try {
+    const resp = UrlFetchApp.fetch(
+      "https://drive.google.com/thumbnail?id=" + encodeURIComponent(id) + "&sz=w400",
+      { muteHttpExceptions: true, followRedirects: true }
+    );
+    if (resp.getResponseCode() !== 200) return "";
+    const blob = resp.getBlob();
+    const mime = blob.getContentType() || "image/jpeg";
+    const dataUrl = "data:" + mime + ";base64," + Utilities.base64Encode(blob.getBytes());
+    return sanitizeThumbDataUrl_(dataUrl);
+  } catch (e) {
+    return "";
+  }
 }
 
 function buildRoundDisplayPayload_(imageUrl, imageDataThumb) {
   const url = sanitizeImageUrl_(imageUrl);
   const thumb = sanitizeThumbDataUrl_(imageDataThumb);
   const id = extractDriveFileId_(url);
+  if (thumb) {
+    return { imageDisplayUrl: thumb, imageSourceMode: "thumb" };
+  }
   if (id) {
     const proxy = getImageProxy(id);
     if (proxy && proxy.ok && proxy.dataUrl) {
       return { imageDisplayUrl: proxy.dataUrl, imageSourceMode: "proxy" };
     }
+    if (proxy && proxy.ok && proxy.thumbnailUrl) {
+      return { imageDisplayUrl: proxy.thumbnailUrl, imageSourceMode: "thumb-url" };
+    }
   }
-  if (url && url !== DEFAULT_IMAGE && !/^drivefile:/i.test(url)) {
+  if (url && !/^drivefile:/i.test(url)) {
     return { imageDisplayUrl: url, imageSourceMode: "url" };
-  }
-  if (thumb) {
-    return { imageDisplayUrl: thumb, imageSourceMode: "thumb" };
   }
   return { imageDisplayUrl: DEFAULT_IMAGE, imageSourceMode: "placeholder" };
 }
