@@ -12,7 +12,8 @@ const RPC_PUBLIC_METHODS_ = {
   logout: true,
   verifySession: true,
   getGuestStockData: true,
-  getImageProxy: true
+  getImageProxy: true,
+  getRpcPing: true
 };
 
 function doGet(e) {
@@ -142,6 +143,7 @@ function invokeRpc_(method, args, options) {
     logout: logout,
     verifySession: verifySession,
     getGuestStockData: getGuestStockData,
+    getRpcPing: getRpcPing,
     getBootstrapData: getBootstrapData,
     addMultiSizeOrder: addMultiSizeOrder,
     updateOrderStatusByOrderId: updateOrderStatusByOrderId,
@@ -222,8 +224,8 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v3";
-const APP_BUILD = "110";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v4";
+const APP_BUILD = "111";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -483,21 +485,46 @@ function verifySession(token) {
   };
 }
 
+function getRpcPing() {
+  return {
+    ok: true,
+    build: APP_BUILD,
+    time: new Date().toISOString()
+  };
+}
+
+/** ลดขนาด JSONP — ไม่ส่ง data URL ขนาดใหญ่ ให้ฝั่งเว็บโหลดรูปผ่าน getImageProxy */
+function slimRoundPayloadForExternal_(round) {
+  const src = round || {};
+  const imageUrl = String(src.imageUrl || "").trim();
+  const out = {
+    year: src.year,
+    name: src.name,
+    unitPrice: src.unitPrice,
+    imageUrl: imageUrl,
+    imageRef: imageUrl
+  };
+  const disp = String(src.imageDisplayUrl || "").trim();
+  if (disp && !/^data:/i.test(disp) && disp.length < 2000) {
+    out.imageDisplayUrl = disp;
+    out.imageSourceMode = String(src.imageSourceMode || "url");
+  } else if (extractDriveFileId_(imageUrl)) {
+    out.imageDisplayUrl = "";
+    out.imageSourceMode = "lazy";
+  } else {
+    out.imageDisplayUrl = disp || DEFAULT_IMAGE;
+    out.imageSourceMode = String(src.imageSourceMode || "placeholder");
+  }
+  return out;
+}
+
 function getGuestStockData() {
   ensureSheetsInitialized_();
   const data = buildBootstrapData_();
-  const round = data.round || {};
+  const round = slimRoundPayloadForExternal_(data.round || {});
   return {
     regions: [],
-    round: {
-      year: round.year,
-      name: round.name,
-      imageUrl: round.imageUrl,
-      imageDataThumb: round.imageDataThumb,
-      imageDisplayUrl: round.imageDisplayUrl,
-      imageSourceMode: round.imageSourceMode,
-      imageRef: round.imageRef
-    },
+    round: round,
     stockSizes: data.stockSizes,
     stock: (data.stock || []).map(s => ({
       size: s.size,
@@ -744,7 +771,7 @@ function getBootstrapData(token) {
   // Scope orders by region for non-admin users
   const out = {
     regions: data.regions,
-    round: data.round,
+    round: slimRoundPayloadForExternal_(data.round),
     stockSizes: data.stockSizes,
     stock: data.stock,
     sizeChart: data.sizeChart,

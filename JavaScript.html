@@ -165,7 +165,7 @@ function callServerRpcPost_(apiUrl, envelope, timeoutMs) {
   return fetch(apiUrl, {
     method: "POST",
     mode: "cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    headers: { "Content-Type": "text/plain" },
     body: JSON.stringify(envelope),
     signal: ac ? ac.signal : undefined
   }).then(function (res) {
@@ -192,7 +192,14 @@ function callServerRpcPost_(apiUrl, envelope, timeoutMs) {
     if (tid) clearTimeout(tid);
   });
 }
-function callServerRpcJsonp_(apiUrl, envelope) {
+function rpcApiUnreachableMessage_() {
+  const cfgBuild = (window.PEACE_CONFIG && window.PEACE_CONFIG.build) || "?";
+  const api = getRpcApiUrl_();
+  return "เชื่อมต่อ API ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต ปิด AdBlock แล้วรีเฟรช (build " + cfgBuild + ")" +
+    (api ? " · API: " + api : "");
+}
+function callServerRpcJsonp_(apiUrl, envelope, attempt) {
+  const tryNo = Number(attempt) || 1;
   return new Promise(function (resolve, reject) {
     const payload = JSON.stringify(envelope);
     if (payload.length > RPC_JSONP_MAX_PAYLOAD) {
@@ -201,8 +208,9 @@ function callServerRpcJsonp_(apiUrl, envelope) {
     }
     const cb = "peaceRpc_" + Date.now() + "_" + Math.floor(Math.random() * 1e9);
     const sep = apiUrl.indexOf("?") >= 0 ? "&" : "?";
+    const bust = tryNo > 1 ? "&_t=" + Date.now() : "";
     const url = apiUrl + sep + "rpc=1&callback=" + encodeURIComponent(cb) +
-      "&payload=" + encodeURIComponent(payload);
+      "&payload=" + encodeURIComponent(payload) + bust;
     let script = null;
     let timeoutId = null;
     function cleanup() {
@@ -229,7 +237,11 @@ function callServerRpcJsonp_(apiUrl, envelope) {
     script.async = true;
     script.onerror = function () {
       cleanup();
-      reject(new Error("เชื่อมต่อ API ไม่สำเร็จ — ให้ Deploy GAS เวอร์ชันล่าสุด (build " + (window.PEACE_CONFIG && window.PEACE_CONFIG.build || "?") + ") แล้วรีเฟรชหน้านี้"));
+      if (tryNo < 2) {
+        callServerRpcJsonp_(apiUrl, envelope, tryNo + 1).then(resolve).catch(reject);
+        return;
+      }
+      reject(new Error(rpcApiUnreachableMessage_()));
     };
     document.head.appendChild(script);
   });
