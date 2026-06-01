@@ -56,15 +56,41 @@ function patchIndexPatches(html) {
 }
 
 function buildConfigJs() {
+  const pagesBase = GITHUB_PAGES_URL.endsWith("/")
+    ? GITHUB_PAGES_URL
+    : GITHUB_PAGES_URL + "/";
   return (
     "/* PEACE Engineer Club — GitHub Pages config (generated) */\n" +
     "window.PEACE_CONFIG = {\n" +
     "  apiUrl: " + JSON.stringify(GAS_WEB_APP_URL) + ",\n" +
     "  githubPagesUrl: " + JSON.stringify(GITHUB_PAGES_URL) + ",\n" +
+    "  userGuideHtml: " + JSON.stringify(pagesBase + "guides/user-guide-user.html") + ",\n" +
+    "  userGuidePdf: " + JSON.stringify(pagesBase + "guides/user-guide.pdf") + ",\n" +
     "  build: " + JSON.stringify(readBuildFromCodeJs()) + "\n" +
     "};\n" +
     "window.PEACE_GAS_ADMIN_ONLY = false;\n"
   );
+}
+
+function copyUserGuides_() {
+  const srcDir = path.join(ROOT, "docs", "guides");
+  const outDir = path.join(DOCS, "guides");
+  fs.mkdirSync(outDir, { recursive: true });
+  const htmlSrc = path.join(srcDir, "user-guide-user.html");
+  if (fs.existsSync(htmlSrc)) {
+    fs.copyFileSync(htmlSrc, path.join(outDir, "user-guide-user.html"));
+  }
+  const pdfCandidates = [
+    path.join(srcDir, "คู่มือผู้ใช้-PEACE-Eng-Club-landscape.pdf"),
+    path.join(srcDir, "คู่มือผู้ใช้-PEACE-Eng-Club.pdf")
+  ];
+  const pdfOut = path.join(outDir, "user-guide.pdf");
+  for (const p of pdfCandidates) {
+    if (fs.existsSync(p)) {
+      fs.copyFileSync(p, pdfOut);
+      break;
+    }
+  }
 }
 
 function readBuildFromCodeJs() {
@@ -121,6 +147,8 @@ function main() {
 
   const nojekyll = path.join(DOCS, ".nojekyll");
   if (!fs.existsSync(nojekyll)) fs.writeFileSync(nojekyll, "", "utf8");
+
+  copyUserGuides_();
 
   console.log("Built GitHub Pages → docs/");
   console.log("  API:", GAS_WEB_APP_URL);

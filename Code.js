@@ -159,6 +159,7 @@ function invokeRpc_(method, args, options) {
     createUser: createUser,
     getUserPassword: getUserPassword,
     resetPassword: resetPassword,
+    changeOwnPassword: changeOwnPassword,
     deleteUser: deleteUser,
     uploadShirtImage: uploadShirtImage,
     saveRoundConfig: saveRoundConfig,
@@ -697,6 +698,34 @@ function resetPassword(token, username, newPassword) {
     }
   }
   throw new Error("ไม่พบผู้ใช้ " + username);
+}
+
+/** ผู้ใช้แต่ละเขต (และแอดมิน) เปลี่ยนรหัสผ่านของตัวเอง — ต้องใส่รหัสเดิมถูกต้อง */
+function changeOwnPassword(token, currentPassword, newPassword) {
+  const session = requireUserOrAdmin_(token);
+  const cur = String(currentPassword || "");
+  const np = String(newPassword || "");
+  if (!cur || !np) throw new Error("กรอกรหัสผ่านปัจจุบันและรหัสใหม่");
+  if (np.length < 4) throw new Error("รหัสผ่านใหม่ต้องอย่างน้อย 4 ตัว");
+  if (cur === np) throw new Error("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม");
+
+  const username = String(session.username || "").trim();
+  const hashCur = hashPassword_(cur);
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]).trim() === username) {
+      if (String(values[i][1]) !== hashCur) {
+        throw new Error("รหัสผ่านปัจจุบันไม่ถูกต้อง");
+      }
+      sheet.getRange(i + 1, 2).setValue(hashPassword_(np));
+      sheet.getRange(i + 1, 7).setValue(np);
+      return { ok: true };
+    }
+  }
+  throw new Error("ไม่พบบัญชีผู้ใช้");
 }
 
 // === Bootstrap (single round-trip endpoint) ============================

@@ -59,6 +59,7 @@ const NAV = [
   { id:"list", label:"รายการขาย", icon:"fa-list" },
   { id:"dashboard", label:"แดชบอร์ด", icon:"fa-chart-pie" },
   { id:"report", label:"รายงาน", icon:"fa-file-alt" },
+  { id:"guide", label:"คู่มือ", icon:"fa-book", guestOk:true },
   { id:"admin", label:"แอดมิน", icon:"fa-cog", adminOnly:true }
 ];
 
@@ -74,6 +75,34 @@ function getRpcApiUrl_() {
 function getGithubPagesUrl_() {
   return (window.PEACE_CONFIG && window.PEACE_CONFIG.githubPagesUrl) ||
     "https://pongvitsam.github.io/Engineer_shirt/";
+}
+function peacePagesBaseUrl_() {
+  const cfg = window.PEACE_CONFIG || {};
+  const base = cfg.githubPagesUrl || getGithubPagesUrl_();
+  return base.endsWith("/") ? base : base + "/";
+}
+function getUserGuideHtmlUrl_() {
+  const cfg = window.PEACE_CONFIG || {};
+  if (cfg.userGuideHtml) return cfg.userGuideHtml;
+  if (!isGasScriptBridge_() && typeof location !== "undefined") {
+    try {
+      return new URL("guides/user-guide-user.html", location.href).href;
+    } catch (_) {}
+  }
+  return new URL("guides/user-guide-user.html", peacePagesBaseUrl_()).href;
+}
+function getUserGuidePdfUrl_() {
+  const cfg = window.PEACE_CONFIG || {};
+  if (cfg.userGuidePdf) return cfg.userGuidePdf;
+  if (!isGasScriptBridge_() && typeof location !== "undefined") {
+    try {
+      return new URL("guides/user-guide.pdf", location.href).href;
+    } catch (_) {}
+  }
+  return new URL("guides/user-guide.pdf", peacePagesBaseUrl_()).href;
+}
+function openUserGuideInNewTab_() {
+  window.open(getUserGuideHtmlUrl_(), "_blank", "noopener");
 }
 function isGasAdminOnlyHost_() {
   return window.PEACE_GAS_ADMIN_ONLY === true;
@@ -971,6 +1000,11 @@ function renderLogin(errMsg){
           ${gasOnly?"":`<button onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
             <i class="fas fa-user-clock mr-1"></i> Log in as Guest
           </button>`}
+          <p class="text-xs text-center pt-1">
+            <button type="button" onclick="openUserGuideFromLogin()" class="glass-btn-secondary w-full" style="padding:.55rem">
+              <i class="fas fa-book mr-1"></i> คู่มือการใช้งาน
+            </button>
+          </p>
           <div id="login-msg" class="text-xs text-center">${errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:''}</div>
         </div>
       </div>
@@ -983,6 +1017,14 @@ function renderLogin(errMsg){
       p.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
     }
   },50);
+}
+
+function openUserGuideFromLogin(){
+  if(typeof app!=="undefined"&&app&&me&&!document.getElementById("app-header").classList.contains("hidden")){
+    app.navigate("guide");
+    return;
+  }
+  openUserGuideInNewTab_();
 }
 
 async function doLogin(){
@@ -1015,6 +1057,75 @@ function doGuestLogin(){
   me={username:"guest",role:"guest",region:"",displayName:"Guest"};
   try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
   bootApp();
+}
+
+function openChangePasswordModal(){
+  if(isGuest()||!authToken)return;
+  const existing=document.getElementById("change-password-modal");
+  if(existing)existing.remove();
+  const html=`
+    <div class="login-overlay" id="change-password-modal">
+      <div class="login-card" style="max-width:400px">
+        <div class="login-title"><i class="fas fa-key mr-1" style="color:#F59E0B"></i>เปลี่ยนรหัสผ่าน</div>
+        <p class="login-sub text-xs">บัญชี: ${escHtml(me&&me.username||"")} · แต่ละเขตเปลี่ยนรหัสของตัวเองได้</p>
+        <div class="space-y-2">
+          <div>
+            <label class="glass-label">รหัสผ่านปัจจุบัน *</label>
+            <input id="pwd-change-current" type="password" class="glass-input" autocomplete="current-password">
+          </div>
+          <div>
+            <label class="glass-label">รหัสผ่านใหม่ *</label>
+            <input id="pwd-change-new" type="password" class="glass-input" autocomplete="new-password" placeholder="อย่างน้อย 4 ตัว">
+          </div>
+          <div>
+            <label class="glass-label">ยืนยันรหัสผ่านใหม่ *</label>
+            <input id="pwd-change-confirm" type="password" class="glass-input" autocomplete="new-password">
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <button type="button" onclick="closeChangePasswordModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
+            <button type="button" id="pwd-change-submit" onclick="submitChangePassword(this)" class="glass-btn-primary py-2">บันทึก</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML("beforeend",html);
+  setTimeout(()=>document.getElementById("pwd-change-current")?.focus(),50);
+}
+
+function closeChangePasswordModal(){
+  const m=document.getElementById("change-password-modal");
+  if(m)m.remove();
+}
+
+async function submitChangePassword(btn){
+  const cur=String(document.getElementById("pwd-change-current")?.value||"");
+  const np=String(document.getElementById("pwd-change-new")?.value||"");
+  const cf=String(document.getElementById("pwd-change-confirm")?.value||"");
+  if(!cur||!np||!cf){
+    if(typeof app!=="undefined"&&app.showMsg)app.showMsg("กรอกข้อมูลให้ครบ","error");
+    else alert("กรอกข้อมูลให้ครบ");
+    return;
+  }
+  if(np.length<4){
+    if(typeof app!=="undefined"&&app.showMsg)app.showMsg("รหัสผ่านใหม่ต้องอย่างน้อย 4 ตัว","error");
+    else alert("รหัสผ่านใหม่ต้องอย่างน้อย 4 ตัว");
+    return;
+  }
+  if(np!==cf){
+    if(typeof app!=="undefined"&&app.showMsg)app.showMsg("รหัสผ่านใหม่กับยืนยันไม่ตรงกัน","error");
+    else alert("รหัสผ่านใหม่กับยืนยันไม่ตรงกัน");
+    return;
+  }
+  try{
+    await runSaving({btn:btn,busyText:"กำลังบันทึก…"},()=>callAuthed("changeOwnPassword",cur,np));
+    closeChangePasswordModal();
+    if(typeof app!=="undefined"&&app.showMsg)app.showMsg("เปลี่ยนรหัสผ่านแล้ว — ครั้งถัดไปใช้รหัสใหม่","success");
+    else alert("เปลี่ยนรหัสผ่านแล้ว");
+  }catch(e){
+    const msg=e&&e.message||"เปลี่ยนรหัสผ่านไม่สำเร็จ";
+    if(typeof app!=="undefined"&&app.showMsg)app.showMsg(msg,"error");
+    else alert(msg);
+  }
 }
 
 async function doLogout(){
@@ -1059,7 +1170,10 @@ function renderUserChip(){
   const roleLabel=me.role==="admin"?"แอดมิน":(isEngineer()?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(isGuest()?"Guest":"ผู้ใช้"));
   const regionLabel=canViewAllRegions()?(isEngineer()?`ดูทุกเขต · สั่ง ${me.region||""}`:"ทุกเขต"):(isGuest()?"ดูสต็อกเท่านั้น":me.region);
   chip.className="user-chip";
-  chip.innerHTML=`<span class="${roleCls}">${roleLabel}</span><span class="chip-name" style="font-weight:700">${escHtml(me.displayName||me.username)}</span><span class="chip-region">${escHtml(regionLabel)}</span><button onclick="doLogout()" title="ออกจากระบบ" class="chip-logout"><i class="fas fa-sign-out-alt"></i></button>`;
+  const pwdBtn=!isGuest()&&authToken
+    ?`<button onclick="openChangePasswordModal()" title="เปลี่ยนรหัสผ่าน" class="chip-logout" type="button"><i class="fas fa-key"></i></button>`
+    :"";
+  chip.innerHTML=`<span class="${roleCls}">${roleLabel}</span><span class="chip-name" style="font-weight:700">${escHtml(me.displayName||me.username)}</span><span class="chip-region">${escHtml(regionLabel)}</span>${pwdBtn}<button onclick="doLogout()" title="ออกจากระบบ" class="chip-logout" type="button"><i class="fas fa-sign-out-alt"></i></button>`;
   const adminBtn=document.getElementById("header-admin-btn");
   const hdrBtns=document.getElementById("header-buttons");
   if(hdrBtns)hdrBtns.style.display=isGuest()?"none":"flex";
@@ -1078,15 +1192,21 @@ const app = {
     const nav=document.getElementById("nav-tabs");
     if(!nav)return;
     nav.innerHTML=NAV.filter(n=>{
-      if(isGuest())return n.id==="stock";
+      if(isGuest())return n.id==="stock"||n.guestOk;
       return !n.adminOnly||isAdmin();
     }).map(n=>
       `<button class="nav-tab ${this.currentModule===n.id?"active":""}" onclick="app.navigate('${n.id}')"><i class="fas ${n.icon} mr-1"></i>${n.label}</button>`).join("");
   },
 
   async navigate(module, forceRefresh){
-    if(isGuest()&&module!=="stock")module="stock";
+    if(isGuest()&&module!=="stock"&&module!=="guide")module="stock";
     if(module==="admin"&&!isAdmin())module="stock";
+    if(module==="guide"){
+      this.currentModule=module;
+      this.renderNav();
+      this.paintModule(module);
+      return;
+    }
     this.currentModule=module;
     this.renderNav();
     const fresh=appData&&!appDataStale&&!forceRefresh;
@@ -1134,10 +1254,29 @@ const app = {
       case "dashboard":content.innerHTML=this.renderDashboard();break;
       case "report":content.innerHTML=this.renderReport();break;
       case "admin":content.innerHTML=this.renderAdmin();break;
+      case "guide":content.innerHTML=this.renderGuide();break;
       default:content.innerHTML=this.renderStock();
     }
     this.container.innerHTML="";
     this.container.appendChild(content);
+  },
+
+  renderGuide(){
+    const htmlUrl=escHtml(getUserGuideHtmlUrl_());
+    const pdfUrl=escHtml(getUserGuidePdfUrl_());
+    return `
+      <div class="glass-card p-4">
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-3 border-b glass-divider pb-2">
+          <h2 class="text-lg font-bold glass-section-title"><i class="fas fa-book mr-1"></i>คู่มือผู้ใช้ (User)</h2>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <button type="button" onclick="openUserGuideInNewTab_()" class="glass-btn-secondary py-2 px-3"><i class="fas fa-external-link-alt mr-1"></i>เปิดแท็บใหม่</button>
+            <a href="${pdfUrl}" target="_blank" rel="noopener" class="glass-btn-primary py-2 px-3" style="text-decoration:none;display:inline-flex;align-items:center"><i class="fas fa-file-pdf mr-1"></i>ดาวน์โหลด PDF</a>
+          </div>
+        </div>
+        <p class="text-xs text-glass-dim mb-2">ตั้งแต่เข้าสู่ระบบ → สั่งเสื้อ → ชำระเงิน · เปลี่ยนรหัสผ่านได้ที่ปุ่ม 🔑 มุมขวาบน</p>
+        <iframe class="guide-frame" title="คู่มือผู้ใช้ PEACE Engineer Club" src="${htmlUrl}"></iframe>
+      </div>
+      <div id="msg-box"></div>`;
   },
 
   // ── Stock view ─────────────────────────────────────────────────────
