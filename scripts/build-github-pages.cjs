@@ -112,7 +112,7 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="peace-build" content="${v}">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>ระบบจัดการขายเสื้อชมรมวิศวกร กฟภ.</title>
+  <title>ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

@@ -52,7 +52,10 @@ const dropdownRegistry = {};
 
 const FILTER_DEBOUNCE_MS = 200;
 const TOKEN_KEY = "peace_token_v1";
-const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=PEACE+Engineer+Club";
+const APP_BRAND_FULL = "สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
+const APP_BRAND_SHORT = "สั่งซื้อเสื้อชมรม กฟภ.";
+const APP_PAGE_TITLE = "ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
+const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=Engineer+Club+Shirt";
 const SUPPORT_PHONE_DISPLAY = "02-009-6703";
 const SUPPORT_PHONE_TEL = "+6620096703";
 
@@ -64,10 +67,22 @@ function setSupportFooterVisible_(show){
   if(el)el.classList.toggle("hidden",!show);
 }
 
+function syncAppBranding_(){
+  try{ document.title = APP_PAGE_TITLE; }catch(_){}
+  const pre=document.querySelector("#pre-header span");
+  if(pre) pre.textContent = APP_BRAND_SHORT;
+  const hdr=document.querySelector(".glass-header-title span");
+  if(hdr){
+    hdr.textContent = APP_BRAND_SHORT;
+    const wrap = hdr.parentElement;
+    if(wrap) wrap.title = APP_BRAND_FULL;
+  }
+}
+
 const NAV = [
   { id:"stock", label:"สต็อก", icon:"fa-boxes" },
-  { id:"orders", label:"บันทึกขาย", icon:"fa-plus-circle" },
-  { id:"list", label:"รายการขาย", icon:"fa-list" },
+  { id:"orders", label:"สั่งซื้อเสื้อ", icon:"fa-plus-circle" },
+  { id:"list", label:"รายการสั่งซื้อ", icon:"fa-list" },
   { id:"dashboard", label:"แดชบอร์ด", icon:"fa-chart-pie" },
   { id:"report", label:"รายงาน", icon:"fa-file-alt" },
   { id:"guide", label:"คู่มือ", icon:"fa-book", guestOk:true },
@@ -1225,6 +1240,7 @@ function computeSalesReport(){
 
 // ── Login screen ─────────────────────────────────────────────────────
 function renderLogin(errMsg){
+  syncAppBranding_();
   document.getElementById("pre-header").style.display="none";
   document.getElementById("pre-skeleton").style.display="none";
   document.getElementById("app-header").classList.add("hidden");
@@ -1235,8 +1251,8 @@ function renderLogin(errMsg){
   c.innerHTML=`
     <div class="login-overlay">
       <div class="login-card">
-        <div class="login-title"><i class="fas fa-tshirt mr-2" style="color:#F59E0B"></i>PEACE Engineer Club</div>
-        <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":"ระบบจัดการขายเสื้อชมรม กฟภ."}</div>
+        <div class="login-title"><i class="fas fa-tshirt mr-2" style="color:#F59E0B"></i>${escHtml(APP_BRAND_FULL)}</div>
+        <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":escHtml(APP_BRAND_FULL)}</div>
         ${gasOnly?`<p class="text-xs text-center mb-2 opacity-80">ผู้ใช้ทั่วไป <a href="${escHtml(ghUrl)}" style="color:#FDE68A;text-decoration:underline">เปิดแอปหลัก (GitHub Pages)</a></p>`:""}
         <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
           <div>
@@ -1397,6 +1413,7 @@ function bootApp(){
   document.getElementById("pre-header").style.display="none";
   document.getElementById("pre-skeleton").style.display="none";
   document.getElementById("app-header").classList.remove("hidden");
+  syncAppBranding_();
   setSupportFooterVisible_(true);
   renderUserChip();
   app.renderNav();
@@ -1530,7 +1547,7 @@ const app = {
           </div>
         </div>
         <p class="text-xs text-glass-dim mb-2">ตั้งแต่เข้าสู่ระบบ → สั่งเสื้อ → ชำระเงิน · เปลี่ยนรหัสผ่านได้ที่ปุ่ม 🔑 มุมขวาบน</p>
-        <iframe class="guide-frame" title="คู่มือผู้ใช้ PEACE Engineer Club" src="${htmlUrl}"></iframe>
+        <iframe class="guide-frame" title="คู่มือผู้ใช้ ${escAttr(APP_BRAND_FULL)}" src="${htmlUrl}"></iframe>
       </div>
       <div id="msg-box"></div>`;
   },
@@ -1609,14 +1626,14 @@ const app = {
       return `<div class="stock-mobile-card ${low?'low':''}">
         <div class="flex justify-between items-center" style="margin-bottom:.35rem"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><span class="font-bold ${remainCls}" style="font-size:1.1rem">${s.remaining}<span class="text-xs opacity-70">/${s.delivered}</span></span></div>
         <div class="row"><span class="lbl">มาส่ง</span><span class="val">${s.delivered}</span></div>
-        <div class="row"><span class="lbl">ขายแล้ว</span><span class="val text-orange-glass">${s.sold}</span></div>
+        <div class="row"><span class="lbl">สั่งแล้ว</span><span class="val text-orange-glass">${s.sold}</span></div>
         <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${s.remaining}</span></div>
       </div>`;
     }).join("");
     const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="absolute top-2 right-2 glass-btn-primary text-xs cursor-pointer" style="padding:.35rem .75rem;border-radius:9999px"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
     const guestNote=isGuest()?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-info-circle mr-1"></i> โหมด Guest: ดูจำนวนเสื้อคงเหลือได้เท่านั้น</div></div>`:"";
     const guestActions=isGuest()?"":`<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> บันทึกการขาย</button>
+        <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> สั่งซื้อเสื้อ</button>
         <button onclick="app.navigate('list')" class="glass-btn-secondary py-3"><i class="fas fa-list mr-1"></i> ดูรายการ (${appData.orders.length})</button>
       </div>`;
     const guestSizeChart=isGuest()?"":`<div class="glass-card p-4">
@@ -1651,7 +1668,7 @@ const app = {
             <thead><tr><th class="text-left px-2">รายการ</th>${stockHeader}</tr></thead>
             <tbody>
               <tr><td class="px-2 font-semibold text-glass-muted whitespace-nowrap">จำนวนที่มาส่ง</td>${deliveredRow}</tr>
-              <tr><td class="px-2 font-semibold text-glass-muted whitespace-nowrap">ขายแล้ว</td>${soldRow}</tr>
+              <tr><td class="px-2 font-semibold text-glass-muted whitespace-nowrap">สั่งแล้ว</td>${soldRow}</tr>
               <tr class="glass-row-remain"><td class="px-2 font-bold text-green-glass whitespace-nowrap">คงเหลือ</td>${remainRow}</tr>
             </tbody>
           </table>
@@ -1689,7 +1706,7 @@ const app = {
     }).join("");
     return `
       <div class="glass-card p-5">
-        <h2 class="text-lg font-bold glass-section-title mb-4 border-b glass-divider pb-2"><i class="fas fa-plus-circle mr-1"></i>บันทึกการขาย (สั่งหลายไซส์)</h2>
+        <h2 class="text-lg font-bold glass-section-title mb-4 border-b glass-divider pb-2"><i class="fas fa-plus-circle mr-1"></i>สั่งซื้อเสื้อ (สั่งหลายไซส์)</h2>
         <div class="space-y-3">
           <div>
             <label class="glass-label">เขตที่สั่ง *</label>
@@ -1711,14 +1728,14 @@ const app = {
               </table>
             </div>
           </div>
-          <p class="text-xs text-glass-dim">วันที่/เวลาสั่งซื้อบันทึกอัตโนมัติ · แนบสลิปและระบุวันที่โอนได้ที่รายการขาย</p>
+          <p class="text-xs text-glass-dim">วันที่/เวลาสั่งซื้อบันทึกอัตโนมัติ · แนบสลิปและระบุวันที่โอนได้ที่รายการสั่งซื้อ</p>
           <div>
             <label class="glass-label">สถานะ</label>
             ${isAdm
               ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"])})
               : `<input id="order-status-fixed" class="glass-input glass-input-readonly" value="${escHtml(orderCartStatus())}" readonly>`}
           </div>
-          ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการขาย</p>`}
+          ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
           <div>
             <label class="glass-label">หมายเหตุ (ไม่บังคับ)</label>
             <input id="order-note" type="text" class="glass-input text-sm" maxlength="120" placeholder="เช่น ชื่อผู้รับ, รายละเอียดเพิ่มเติม">
@@ -1791,7 +1808,7 @@ const app = {
       });
       const okMsg=isAdmin()
         ?`บันทึกออเดอร์ ${total} ตัว (${items.length} ไซส์) เรียบร้อย`
-        :`เพิ่มลงตะกร้า ${total} ตัว (${items.length} ไซส์) แล้ว — ไปรายการขายเพื่อแก้ไขหรือยืนยันส่งออเดอร์`;
+        :`เพิ่มลงตะกร้า ${total} ตัว (${items.length} ไซส์) แล้ว — ไปรายการสั่งซื้อเพื่อแก้ไขหรือยืนยันส่งออเดอร์`;
       this.showMsg(okMsg,"success");
       if(result&&result.warning){
         setTimeout(()=>this.showMsg(result.warning,"warning"),900);
@@ -1800,7 +1817,7 @@ const app = {
     }catch(e){
       const msg=e&&e.message||"บันทึกไม่สำเร็จ";
       if(isSessionReloginMessage(msg) && await verifySessionAlive_()){
-        this.showMsg("บันทึกออเดอร์แล้ว แต่รีเฟรชข้อมูลไม่สำเร็จ กรุณาเปิดรายการขายอีกครั้ง","warning");
+        this.showMsg("บันทึกออเดอร์แล้ว แต่รีเฟรชข้อมูลไม่สำเร็จ กรุณาเปิดรายการสั่งซื้ออีกครั้ง","warning");
         return;
       }
       this.showMsg(msg,"error");
@@ -1814,12 +1831,12 @@ const app = {
     appData.regions.forEach(r=>{filterOpts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
     const showFilter=canViewAllRegions();
     const body=grouped.length===0
-      ? '<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการขาย</td></tr>'
+      ? '<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
     return `
       <div class="glass-card p-4">
         <div class="flex justify-between items-center mb-4 border-b glass-divider pb-2">
-          <h2 class="text-lg font-bold glass-section-title"><i class="fas fa-list mr-1"></i>รายการขาย (${grouped.length} ออเดอร์)</h2>
+          <h2 class="text-lg font-bold glass-section-title"><i class="fas fa-list mr-1"></i>รายการสั่งซื้อ (${grouped.length} ออเดอร์)</h2>
           <button onclick="app.navigate('orders')" class="text-xs glass-btn-primary"><i class="fas fa-plus"></i> เพิ่ม</button>
         </div>
         ${showFilter?`<div class="mb-3"><select id="list-filter" onchange="app.filterList()" class="glass-select p-2 text-sm w-full">${filterOpts}</select></div>`:""}
@@ -1891,7 +1908,7 @@ const app = {
     if(isAdmin()&&!isFreeGiveawayPayment(g.paymentStatus)&&!isPaymentVerified(g.paymentStatus)){
       paymentCell+=`<div class="mt-1 flex flex-wrap gap-1 justify-center">
         ${g.slipUrl?`<button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="app.openPaymentReviewModal('${escHtml(g.orderId)}')"><i class="fas fa-${String(g.paymentStatus||"")==="รอตรวจสลิป"?"check-double":"search"}"></i> ${String(g.paymentStatus||"")==="รอตรวจสลิป"?"ตรวจ/ยอมรับ":"ตรวจสอบ"}</button>`:""}
-        <button class="glass-btn text-xs" style="padding:.3rem .55rem;background:rgba(109,40,217,.45)" onclick="app.markOrderFreeGiveaway('${escHtml(g.orderId)}',this)" title="ผู้บริหาร/แจกฟรี — ไม่รวมยอดขาย"><i class="fas fa-gift"></i> เสื้อแจกฟรี</button>
+        <button class="glass-btn text-xs" style="padding:.3rem .55rem;background:rgba(109,40,217,.45)" onclick="app.markOrderFreeGiveaway('${escHtml(g.orderId)}',this)" title="ผู้บริหาร/แจกฟรี — ไม่รวมยอดสั่งซื้อ"><i class="fas fa-gift"></i> เสื้อแจกฟรี</button>
       </div>`;
     }
     const noteBlock=renderOrderNoteBlock_(g);
@@ -1911,7 +1928,7 @@ const app = {
         <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold">#${shortId}</td>
         <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
         <td data-label="รายการ" class="py-2 px-2">${itemsLabel}</td>
-        <td data-label="รวม" class="py-2 px-2 text-center"><div class="font-bold">${g.totalQty} ตัว</div>${isFreeGiveawayPayment(g.paymentStatus)?`<div class="text-xs" style="color:#C4B5FD">แจกฟรี (ไม่รวมยอดขาย)</div>`:`<div class="text-xs opacity-80">${fmtMoney(g.totalPrice)} ฿</div>`}</td>
+        <td data-label="รวม" class="py-2 px-2 text-center"><div class="font-bold">${g.totalQty} ตัว</div>${isFreeGiveawayPayment(g.paymentStatus)?`<div class="text-xs" style="color:#C4B5FD">แจกฟรี (ไม่รวมยอดสั่งซื้อ)</div>`:`<div class="text-xs opacity-80">${fmtMoney(g.totalPrice)} ฿</div>`}</td>
         <td data-label="วันที่สั่ง" class="py-2 px-2 text-center text-xs">${formatOrderTimestampCell(g.timestamp)}</td>
         <td data-label="สถานะ" class="py-2 px-2 text-center">
           ${canEditStatus
@@ -2098,7 +2115,7 @@ const app = {
             <button id="payment-accept-btn" onclick="app.acceptOrderPayment('${escHtml(orderId)}',this)" class="glass-btn-primary py-2" ${String(g.paymentStatus||"")==="ชำระเงินแล้ว"||isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}>ยอมรับการชำระ</button>
             <button onclick="app.markOrderFreeGiveaway('${escHtml(orderId)}',this)" class="glass-btn py-2" style="background:rgba(109,40,217,.5)" ${isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}><i class="fas fa-gift mr-1"></i>เสื้อแจกฟรี</button>
           </div>
-          <p class="text-xs text-glass-dim mt-2">เสื้อแจกฟรี: ไม่รวมยอดขาย · แสดงเป็นขาดทุนในแดชบอร์ด</p>
+          <p class="text-xs text-glass-dim mt-2">เสื้อแจกฟรี: ไม่รวมยอดสั่งซื้อ · แสดงเป็นขาดทุนในแดชบอร์ด</p>
         </div>
       </div>`;
     const wrap=document.createElement("div");
@@ -2157,7 +2174,7 @@ const app = {
     const g=groupOrdersByOrderId(appData?.orders||[]).find(x=>x.orderId===orderId);
     if(g&&isFreeGiveawayPayment(g.paymentStatus))return this.showMsg("ออเดอร์นี้เป็นเสื้อแจกฟรีแล้ว","warning");
     if(g&&isPaymentVerified(g.paymentStatus))return this.showMsg("ออเดอร์ชำระเงินแล้ว ไม่สามารถเปลี่ยนเป็นแจกฟรีได้","warning");
-    if(!confirm("บันทึกเป็นเสื้อแจกฟรี (ผู้บริหาร)?\nยอดนี้จะไม่รวมกับเสื้อที่ขาย และแสดงเป็นขาดทุนในแดชบอร์ด"))return;
+    if(!confirm("บันทึกเป็นเสื้อแจกฟรี (ผู้บริหาร)?\nยอดนี้จะไม่รวมกับเสื้อที่สั่งซื้อ และแสดงเป็นขาดทุนในแดชบอร์ด"))return;
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("markOrderFreeGiveaway",orderId);
@@ -2165,7 +2182,7 @@ const app = {
         ensureAppData(true).catch(function(){});
       });
       this.closePaymentReviewModal();
-      this.showMsg("บันทึกเป็นเสื้อแจกฟรีแล้ว (ไม่รวมยอดขาย)","success");
+      this.showMsg("บันทึกเป็นเสื้อแจกฟรีแล้ว (ไม่รวมยอดสั่งซื้อ)","success");
       this.fillOrderListBody();
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
@@ -2373,8 +2390,8 @@ const app = {
         <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${dash.freeGiveawayQty||0}</div></div>
         <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.freeGiveawayLoss||0)}</div></div>`:"";
       cardsEl.innerHTML=`
-        <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ขายแล้ว (ตัว)</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
-        <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดขาย (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
+        <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">สั่งแล้ว (ตัว)</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
+        <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
         ${giveawayCards}
         <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
         <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอรับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
@@ -2397,12 +2414,12 @@ const app = {
     const canvas=document.getElementById("regionChart");
     if(!canvas)return;
     const datasets=[
-      {label:"ขาย (ตัว)",data:dash.regionQtys,backgroundColor:"#7F1D1D",borderRadius:4,maxBarThickness:40},
+      {label:"สั่งซื้อ (ตัว)",data:dash.regionQtys,backgroundColor:"#7F1D1D",borderRadius:4,maxBarThickness:40},
     ];
     if(isAdmin()){
       datasets.push({label:"แจกฟรี (ตัว)",data:dash.regionFreeQtys,backgroundColor:"#6D28D9",borderRadius:4,maxBarThickness:40});
     }
-    const chartTitle=isAdmin()?"จำนวนเสื้อตามเขต (ขาย vs แจกฟรี)":"จำนวนเสื้อตามเขต";
+    const chartTitle=isAdmin()?"จำนวนเสื้อตามเขต (สั่งซื้อ vs แจกฟรี)":"จำนวนเสื้อตามเขต";
     if(regionChart&&regionChart.canvas===canvas&&document.body.contains(canvas)){
       regionChart.data.labels=dash.regionLabels;
       regionChart.data.datasets=datasets;
@@ -2422,19 +2439,19 @@ const app = {
       giveawayChart.update();return;
     }
     if(giveawayChart)try{giveawayChart.destroy()}catch(_){}
-    giveawayChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:dash.regionLabels,datasets:[{label:"ขาดทุนแจก (฿)",data:lossData,backgroundColor:"#8B5CF6",borderRadius:6,maxBarThickness:48}]},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:false},title:{display:true,text:"มูลค่าขาดทุนจากการแจกฟรี (ไม่รวมยอดขาย)",color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{ticks:{color:"rgba(255,255,255,.85)",font:{size:10,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
+    giveawayChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:dash.regionLabels,datasets:[{label:"ขาดทุนแจก (฿)",data:lossData,backgroundColor:"#8B5CF6",borderRadius:6,maxBarThickness:48}]},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:false},title:{display:true,text:"มูลค่าขาดทุนจากการแจกฟรี (ไม่รวมยอดสั่งซื้อ)",color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{ticks:{color:"rgba(255,255,255,.85)",font:{size:10,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
   },
 
   upsertSizeChart(dash){
     const canvas=document.getElementById("sizeChart");
     if(!canvas)return;
     const sizeDatasets=[
-      sizeChartDataset_("ขาย",dash.sizeQtys,"sale"),
+      sizeChartDataset_("สั่งซื้อ",dash.sizeQtys,"sale"),
     ];
     if(isAdmin()){
       sizeDatasets.push(sizeChartDataset_("แจกฟรี",dash.sizeFreeQtys,"free"));
     }
-    const chartTitle=isAdmin()?"จำนวนตามไซส์ (ขาย vs แจกฟรี)":"จำนวนตามไซส์";
+    const chartTitle=isAdmin()?"จำนวนตามไซส์ (สั่งซื้อ vs แจกฟรี)":"จำนวนตามไซส์";
     if(sizeChart&&sizeChart.canvas===canvas&&document.body.contains(canvas)){
       sizeChart.data.labels=dash.sizeLabels;
       sizeChart.data.datasets=sizeDatasets;
@@ -2456,11 +2473,11 @@ const app = {
             <table class="glass-table report-table w-full text-xs" id="report-region-table">
               <thead><tr>
                 <th class="py-2 px-2 text-left">เขต</th>
-                <th class="py-2 px-2 text-center">ขาย (ตัว)</th>
-                <th class="py-2 px-2 text-right">ยอดขาย (฿)</th>
+                <th class="py-2 px-2 text-center">สั่งซื้อ (ตัว)</th>
+                <th class="py-2 px-2 text-right">ยอดสั่งซื้อ (฿)</th>
                 ${isAdmin()?`<th class="py-2 px-2 text-center">แจกฟรี</th>
                 <th class="py-2 px-2 text-right">ขาดทุนแจก</th>`:""}
-                <th class="py-2 px-2 text-left">ไซส์ (ขาย)</th>
+                <th class="py-2 px-2 text-left">ไซส์ (สั่งซื้อ)</th>
               </tr></thead>
               <tbody id="report-region-body"></tbody>
               <tfoot id="report-region-foot"></tfoot>
@@ -2479,8 +2496,8 @@ const app = {
     const r=computeSalesReport();
     const t=r.totals, p=r.pendingPayment;
     document.getElementById("report-cards").innerHTML=`
-      <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดขาย (ตัว)</div><div class="glass-stat-value">${t.totalQty}</div></div>
-      <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดขาย (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.totalAmount)}</div></div>
+      <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดสั่งซื้อ (ตัว)</div><div class="glass-stat-value">${t.totalQty}</div></div>
+      <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.totalAmount)}</div></div>
       ${isAdmin()?`
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${t.freeQty||0}</div></div>
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.freeLoss||0)}</div></div>`:""}
@@ -2493,11 +2510,11 @@ const app = {
         : '<span class="text-glass-dim">-</span>';
       const cls=x.totalQty>0?"":"text-glass-dim";
       const giveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td>`:"";
-      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="ขาย" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดขาย" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td></tr>`;
+      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td></tr>`;
     }).join("");
     document.getElementById("report-region-body").innerHTML=rows;
     const footGiveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td>`:"";
-    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="ขาย" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดขาย" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td></tr>`;
+    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td></tr>`;
     const cells=r.stock.map(s=>{
       const cls=s.remaining<=5?"low":"";
       const nc=s.remaining<=5?"text-red-glass":"text-green-glass";
@@ -2509,7 +2526,7 @@ const app = {
   // ── Admin view ─────────────────────────────────────────────────────
   renderAdmin(){
     if(!isAdmin())return '<div class="glass-msg-error text-center font-semibold">เฉพาะแอดมินเท่านั้น</div>';
-    const stockInputs=appData.stock.map((s,i)=>`<label class="text-xs font-semibold block text-glass">${s.size} (ขายแล้ว ${s.sold})<input id="stock-del-${i}" type="number" min="0" class="glass-input p-2 mt-1" value="${s.delivered}"></label>`).join("");
+    const stockInputs=appData.stock.map((s,i)=>`<label class="text-xs font-semibold block text-glass">${s.size} (สั่งแล้ว ${s.sold})<input id="stock-del-${i}" type="number" min="0" class="glass-input p-2 mt-1" value="${s.delivered}"></label>`).join("");
     return `
       <div class="glass-card p-4 space-y-4">
         <h2 class="text-lg font-bold glass-section-title border-b glass-divider pb-2"><i class="fas fa-cog text-red-glass mr-1"></i>ตั้งค่าระบบ</h2>
@@ -2547,7 +2564,7 @@ const app = {
         </div>
         <div class="glass-danger-zone">
           <h3 class="font-bold text-sm mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> ล้างข้อมูลทั้งหมด</h3>
-          <p class="text-xs mb-3 opacity-80">ลบรายการขายทั้งหมด รีเซ็ตสต็อก (ไม่ลบ Users)</p>
+          <p class="text-xs mb-3 opacity-80">ลบรายการสั่งซื้อทั้งหมด รีเซ็ตสต็อก (ไม่ลบ Users)</p>
           <button onclick="app.resetData(this)" class="w-full glass-btn-danger py-2 text-sm font-bold">ล้างข้อมูล เริ่มจาก 0</button>
         </div>
         <button onclick="app.exportCSV(this)" class="w-full glass-btn-blue py-2 text-sm"><i class="fas fa-file-csv mr-1"></i> Export CSV ทั้งหมด</button>
@@ -3141,6 +3158,7 @@ syncWindowSession_();
 
 // ── Boot ─────────────────────────────────────────────────────────────
 function bootEntry(){
+  syncAppBranding_();
   try{
     app.container=document.getElementById("app-container");
     try{authToken=localStorage.getItem(TOKEN_KEY)||null}catch(_){authToken=null}

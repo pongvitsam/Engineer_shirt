@@ -44,7 +44,7 @@ function doGet(e) {
   tpl.gasAdminOnly = true;
 
   return tpl.evaluate()
-    .setTitle("ระบบจัดการขายเสื้อชมรมวิศวกร กฟภ. (แอดมิน GAS)")
+    .setTitle("ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค (แอดมิน GAS)")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
 }
@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "118";
+const APP_BUILD = "119";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -1943,7 +1943,7 @@ function exportAllDataCsv(token, region) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const out = [];
   const now = new Date();
-  out.push(["# PEACE Engineer Club — ส่งออกข้อมูลทั้งหมด"]);
+  out.push(["# สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค — ส่งออกข้อมูลทั้งหมด"]);
   out.push(["# สร้างเมื่อ", serializeSheetValue_(now)]);
   out.push(["# ผู้ส่งออก", session.username, session.role, session.region || ""]);
   out.push([]);
@@ -1967,7 +1967,7 @@ function exportAllDataCsv(token, region) {
     allOrders.map(function (o) { return orderToCsvRow_(o, session); }));
 
   const stock = getStockSummary_(ss);
-  csvPushSection_(out, "สต็อก", ["ไซส์", "จำนวนที่มาส่ง", "ขายแล้ว (รวมตะกร้า)", "คงเหลือ"],
+  csvPushSection_(out, "สต็อก", ["ไซส์", "จำนวนที่มาส่ง", "สั่งแล้ว (รวมตะกร้า)", "คงเหลือ"],
     stock.map(function (s) { return [s.size, s.delivered, s.sold, s.remaining]; }));
 
   const round = getRoundInfo_(ss);
@@ -2004,9 +2004,9 @@ function exportAllDataCsv(token, region) {
     return [reg, x.saleQty, x.saleAmount, x.freeQty, x.freeLoss];
   });
   if (session.role !== "admin") {
-    csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "ขาย (ตัว)", "ยอดขาย (฿)"], regionRows);
+    csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "สั่งซื้อ (ตัว)", "ยอดสั่งซื้อ (฿)"], regionRows);
   } else {
-    csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "ขาย (ตัว)", "ยอดขาย (฿)", "แจกฟรี (ตัว)", "ขาดทุนแจก (฿)"], regionRows);
+    csvPushSection_(out, "สรุปยอดตามเขต", ["เขต", "สั่งซื้อ (ตัว)", "ยอดสั่งซื้อ (฿)", "แจกฟรี (ตัว)", "ขาดทุนแจก (฿)"], regionRows);
   }
 
   if (session.role === "admin") {
