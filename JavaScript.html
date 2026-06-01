@@ -77,6 +77,9 @@ const NAV = [
 // ── Server bridge (GAS iframe OR GitHub Pages → JSONP RPC) ────────────
 const RPC_JSONP_MAX_PAYLOAD = 1800;
 const RPC_JSONP_TIMEOUT_MS = 120000;
+const RPC_POST_METHODS_ = { uploadOrderImage: true, uploadShirtImage: true };
+const SLIP_IMAGE_MAX_EDGE = 1600;
+const SLIP_IMAGE_JPEG_QUALITY = 0.82;
 function isGasScriptBridge_() {
   return typeof google !== "undefined" && google.script && google.script.run;
 }
@@ -118,11 +121,40 @@ function openUserGuideInNewTab_() {
 function isGasAdminOnlyHost_() {
   return window.PEACE_GAS_ADMIN_ONLY === true;
 }
+function shouldUseRpcPost_(method, payloadLen) {
+  if (RPC_POST_METHODS_[method]) return true;
+  return payloadLen > RPC_JSONP_MAX_PAYLOAD;
+}
+function callServerRpcPost_(apiUrl, envelope) {
+  return fetch(apiUrl, {
+    method: "POST",
+    mode: "cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(envelope)
+  }).then(function (res) {
+    return res.text().then(function (text) {
+      if (!res.ok) {
+        throw new Error("เชื่อมต่อ API ไม่สำเร็จ (HTTP " + res.status + ")");
+      }
+      var data;
+      try { data = JSON.parse(text); } catch (e) {
+        throw new Error("เซิร์ฟเวอร์ตอบรูปแบบไม่ถูกต้อง — ลองรีเฟรชหรือลองใหม่");
+      }
+      if (!data || !data.ok) {
+        throw new Error((data && data.error) || "เกิดข้อผิดพลาด");
+      }
+      return data.result;
+    });
+  }).catch(function (err) {
+    if (err && err.message) throw err;
+    throw new Error("เชื่อมต่อ API ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่");
+  });
+}
 function callServerRpcJsonp_(apiUrl, envelope) {
   return new Promise(function (resolve, reject) {
     const payload = JSON.stringify(envelope);
     if (payload.length > RPC_JSONP_MAX_PAYLOAD) {
-      reject(new Error("ข้อมูลคำขอใหญ่เกินไป (เช่นอัปโหลดรูป) — ใช้ลิงก์ GAS ?gas=1 แทน"));
+      reject(new Error("ข้อมูลคำขอใหญ่เกินไป — ระบบจะส่งแบบ POST อัตโนมัติ กรุณาลองใหม่"));
       return;
     }
     const cb = "peaceRpc_" + Date.now() + "_" + Math.floor(Math.random() * 1e9);
@@ -171,6 +203,10 @@ function callServer(method) {
   if (!apiUrl) return Promise.reject(new Error("ไม่พบ API URL — ตรวจสอบ config.js"));
   const envelope = { method: method, args: args };
   if (isGasAdminOnlyHost_()) envelope.gasAdminOnly = true;
+  const payloadLen = JSON.stringify(envelope).length;
+  if (shouldUseRpcPost_(method, payloadLen)) {
+    return callServerRpcPost_(apiUrl, envelope);
+  }
   return callServerRpcJsonp_(apiUrl, envelope);
 }
 
@@ -198,6 +234,43 @@ function fileToBase64(file) {
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+function compressDataUrlForUpload_(dataUrl, maxEdge, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = function () {
+      let w = img.width;
+      let h = img.height;
+      const scale = Math.min(1, maxEdge / Math.max(w, h, 1));
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      let q = quality;
+      let out = canvas.toDataURL("image/jpeg", q);
+      while (out.length > 1200000 && q > 0.5) {
+        q -= 0.08;
+        out = canvas.toDataURL("image/jpeg", q);
+      }
+      resolve(out);
+    };
+    img.onerror = () => reject(new Error("อ่านรูปไม่สำเร็จ — ลองไฟล์ JPG/PNG อื่น"));
+    img.src = dataUrl;
+  });
+}
+
+async function prepareImageBase64ForUpload_(file) {
+  if (!file) throw new Error("ไม่พบไฟล์รูป");
+  const dataUrl = await fileToBase64(file);
+  if (!String(file.type || "").startsWith("image/")) return dataUrl;
+  if (file.size <= 400000 && !String(file.name || "").toLowerCase().includes(".png")) {
+    return dataUrl;
+  }
+  return compressDataUrlForUpload_(dataUrl, SLIP_IMAGE_MAX_EDGE, SLIP_IMAGE_JPEG_QUALITY);
 }
 
 function invalidateClientCache() { appDataStale = true; }
@@ -1761,15 +1834,31 @@ const app = {
   },
 
   // ── Per-order slip + transfer date/time ─────────────────────────────
+  showSlipModalMsg(msg,type){
+    const el=document.getElementById("slip-modal-msg");
+    if(!el){this.showMsg(msg,type);return;}
+    const isErr=type!=="success"&&type!=="warning";
+    el.className="text-xs text-center mt-2 font-semibold fade-in " +
+      (type==="success"?"glass-msg-success":(type==="warning"?"glass-msg-success":"glass-msg-error"));
+    el.style.display="block";
+    el.textContent=type==="warning"?"⚠️ "+msg:msg;
+  },
+
+  clearSlipModalMsg(){
+    const el=document.getElementById("slip-modal-msg");
+    if(el){el.style.display="none";el.textContent="";}
+  },
+
   openSlipUploadModal(orderId,isReplace){
     const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     const ownsOrder=ownsOrderRegion(orderGroup);
     if(!canUserEditOrderGroup(orderGroup,ownsOrder))return this.showMsg("ออเดอร์ชำระเงินแล้ว แก้ไขสลิปได้เฉพาะแอดมิน","warning");
+    this.closeSlipUploadModal();
     const safeOid=ddSafeId(orderId);
     const html=`
-      <div class="login-overlay" id="slip-upload-modal">
-        <div class="login-card" style="max-width:480px">
+      <div class="login-overlay" id="slip-upload-modal" onclick="if(event.target===this)app.closeSlipUploadModal()">
+        <div class="login-card" style="max-width:480px" onclick="event.stopPropagation()">
           <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
           <p class="login-sub text-xs">วันที่สั่ง: ${formatOrderTimestampCell(orderGroup.timestamp)} · กรอกวันที่/เวลาที่โอนตามสลิป</p>
           <div class="space-y-2">
@@ -1778,9 +1867,11 @@ const app = {
               <div><label class="glass-label">เวลาโอน *</label><input id="slip-pay-time-${safeOid}" type="time" value="${nowTimeStr()}" class="glass-input p-2 text-sm"></div>
             </div>
             <div><label class="glass-label">รูปสลิป *</label><input id="slip-file-${safeOid}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs"></div>
+            <p class="text-xs text-glass-dim">รูปใหญ่ระบบจะย่ออัตโนมัติ · แนะนำ JPG/PNG ชัดอ่านยอดได้</p>
+            <div id="slip-modal-msg" class="text-xs text-center mt-2 font-semibold" style="display:none"></div>
             <div class="grid grid-cols-2 gap-2 mt-2">
-              <button onclick="app.closeSlipUploadModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
-              <button onclick="app.submitSlipUpload('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">บันทึกสลิป</button>
+              <button type="button" onclick="app.closeSlipUploadModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
+              <button type="button" onclick="app.submitSlipUpload('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">บันทึกสลิป</button>
             </div>
           </div>
         </div>
@@ -1788,10 +1879,15 @@ const app = {
     const wrap=document.createElement("div");
     wrap.innerHTML=html;
     document.body.appendChild(wrap.firstElementChild);
+    const escHandler=function(e){if(e.key==="Escape")app.closeSlipUploadModal();};
+    document.addEventListener("keydown",escHandler);
+    const m=document.getElementById("slip-upload-modal");
+    if(m)m._escHandler=escHandler;
   },
 
   closeSlipUploadModal(){
     const m=document.getElementById("slip-upload-modal");
+    if(m&&m._escHandler)document.removeEventListener("keydown",m._escHandler);
     if(m)m.remove();
   },
 
@@ -1800,10 +1896,11 @@ const app = {
     const file=document.getElementById("slip-file-"+safeOid)?.files?.[0];
     const payDate=String(document.getElementById("slip-pay-date-"+safeOid)?.value||"").trim();
     const payTime=String(document.getElementById("slip-pay-time-"+safeOid)?.value||"").trim();
-    if(!file)return this.showMsg("กรุณาเลือกรูปสลิป","error");
-    if(!payDate||!payTime)return this.showMsg("กรุณากรอกวันที่และเวลาโอน","error");
+    this.clearSlipModalMsg();
+    if(!file)return this.showSlipModalMsg("กรุณาเลือกรูปสลิป","error");
+    if(!payDate||!payTime)return this.showSlipModalMsg("กรุณากรอกวันที่และเวลาโอน","error");
     try{
-      const base64=await fileToBase64(file);
+      const base64=await prepareImageBase64ForUpload_(file);
       await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
         await callAuthed("uploadOrderImage",orderId,base64,payDate,payTime,file.name);
         invalidateClientCache();
@@ -1813,7 +1910,7 @@ const app = {
       this.showMsg("บันทึกสลิปแล้ว รอแอดมินตรวจสอบ","success");
       this.fillOrderListBody();
     }catch(e){
-      this.showMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
+      this.showSlipModalMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
     }
   },
 
@@ -2555,7 +2652,7 @@ const app = {
 
   async previewShirtImage(input){
     if(!(input.files&&input.files[0]))return;
-    pendingImageBase64=await fileToBase64(input.files[0]);
+    pendingImageBase64=await prepareImageBase64ForUpload_(input.files[0]);
     document.getElementById("admin-image-preview").src=pendingImageBase64;
     setImageDebug("preview: local image selected");
     document.getElementById("admin-image-filename").textContent=input.files[0].name;
@@ -2567,7 +2664,7 @@ const app = {
       let base64=pendingImageBase64||"";
       if(!base64){
         const fi=document.getElementById("admin-image-file");
-        if(fi.files&&fi.files[0])base64=await fileToBase64(fi.files[0]);
+        if(fi.files&&fi.files[0])base64=await prepareImageBase64ForUpload_(fi.files[0]);
       }
       if(!base64)return this.showMsg("กรุณาเลือกรูปก่อน","error");
       const r=await runSaving({btn:btn,busyText:"กำลังอัปโหลดรูป…"},()=>callAuthed("uploadShirtImage",base64));
@@ -2598,7 +2695,7 @@ const app = {
     if(!(input.files&&input.files[0]))return;
     try{
       this.showMsg("กำลังอัปโหลด...","success");
-      const b=await fileToBase64(input.files[0]);
+      const b=await prepareImageBase64ForUpload_(input.files[0]);
       const img=document.getElementById("stock-shirt-image");
       const prevSrc=img?img.src:"";
       if(img)img.src=b;
