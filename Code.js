@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v5";
-const APP_BUILD = "112";
+const APP_BUILD = "114";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -315,6 +315,38 @@ function hashPassword_(plain) {
   return hex;
 }
 
+function isSha256Hex_(value) {
+  return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
+}
+
+/** ตรวจรหัสผ่าน — รองรับ hash ปกติ, คอลัมน์ PasswordPlain และแถวเก่าที่เก็บ plain ในคอลัมน์ hash */
+function passwordMatchesUserRow_(row, password) {
+  const p = String(password || "");
+  const hash = hashPassword_(p);
+  const storedHash = String(row[1] || "").trim();
+  if (storedHash && storedHash === hash) return { ok: true, repair: false };
+  const plainCol = String(row[6] || "").trim();
+  if (plainCol && plainCol === p) return { ok: true, repair: true };
+  if (storedHash && !isSha256Hex_(storedHash) && storedHash === p) {
+    return { ok: true, repair: true };
+  }
+  return { ok: false, repair: false };
+}
+
+function findUserRowIndex_(username) {
+  const uLower = String(username || "").trim().toLowerCase();
+  if (!uLower) return -1;
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  if (!sheet) return -1;
+  const width = Math.max(sheet.getLastColumn(), 7);
+  const rows = getDataRows_(sheet, width);
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0] || "").trim().toLowerCase() === uLower) return i;
+  }
+  return -1;
+}
+
 function genToken_() {
   return Utilities.getUuid().replace(/-/g, "") + Date.now().toString(36);
 }
@@ -368,6 +400,7 @@ function normalizeRoleRegion_(username, roleValue, regionValue) {
   }
   if (role === "admin" && !region) region = "*";
   if (role === ROLE_ENGINEER && !region) region = "สำนักงานใหญ่";
+  if (role === "viewer") role = "user";
   if (role !== "admin" && role !== "user" && role !== "guest" && role !== ROLE_ENGINEER) role = "user";
   return { role: role, region: region };
 }
@@ -431,31 +464,46 @@ function login(username, password) {
   if (!u || !p) throw new Error("กรอกชื่อผู้ใช้และรหัสผ่าน");
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
-  const rows = getDataRows_(sheet, 6);
-  const hash = hashPassword_(p);
+  const width = Math.max(sheet.getLastColumn(), 7);
+  const rows = getDataRows_(sheet, width);
+  const uLower = u.toLowerCase();
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    if (String(r[0]).trim() === u && String(r[1]) === hash) {
-      const normalized = normalizeRoleRegion_(u, r[2], r[3]);
-      const role = normalized.role;
-      const region = normalized.region;
-      const display = String(r[4] || u);
-      const active = r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true;
-      if (!active) throw new Error("บัญชีนี้ถูกระงับ");
-      const token = genToken_();
-      const session = {
-        username: u,
-        role: role,
-        region: region,
-        displayName: display,
-        loginAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + SESSION_TTL_SEC * 1000).toISOString()
-      };
-      saveSession_(token, session);
-      return { ok: true, token: token, username: u, role: role, region: region, displayName: display };
+    const uname = String(r[0] || "").trim();
+    if (!uname || uname.toLowerCase() !== uLower) continue;
+    const check = passwordMatchesUserRow_(r, p);
+    if (!check.ok) continue;
+    if (check.repair) {
+      sheet.getRange(i + 2, 2).setValue(hashPassword_(p));
+      sheet.getRange(i + 2, 7).setValue(p);
     }
+    const normalized = normalizeRoleRegion_(uname, r[2], r[3]);
+    const role = normalized.role;
+    const region = normalized.region;
+    const display = String(r[4] || uname);
+    const active = r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true;
+    if (!active) throw new Error("บัญชีนี้ถูกระงับ — ติดต่อแอดมิน");
+    const token = genToken_();
+    const session = {
+      username: uname,
+      role: role,
+      region: region,
+      displayName: display,
+      loginAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + SESSION_TTL_SEC * 1000).toISOString()
+    };
+    saveSession_(token, session);
+    return {
+      ok: true,
+      token: token,
+      username: uname,
+      role: role,
+      region: region,
+      displayName: display
+    };
   }
   throw new Error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
 }
@@ -669,8 +717,8 @@ function createUser(token, payload) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
-  const rows = getDataRows_(sheet, 6);
-  if (rows.some(r => String(r[0]).trim() === username)) {
+  const rows = getDataRows_(sheet, 7);
+  if (rows.some(r => String(r[0] || "").trim().toLowerCase() === username.toLowerCase())) {
     throw new Error("มีชื่อผู้ใช้นี้แล้ว");
   }
   sheet.appendRow([username, hashPassword_(password), role, region, displayName, true, password]);
@@ -730,8 +778,9 @@ function resetPassword(token, username, newPassword) {
   ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const values = sheet.getDataRange().getValues();
+  const uLower = String(username || "").trim().toLowerCase();
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0]).trim() === String(username).trim()) {
+    if (String(values[i][0] || "").trim().toLowerCase() === uLower) {
       sheet.getRange(i + 1, 2).setValue(hashPassword_(np));
       sheet.getRange(i + 1, 7).setValue(np);
       return { ok: true };

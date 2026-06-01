@@ -79,6 +79,13 @@ const RPC_JSONP_MAX_PAYLOAD = 1800;
 const RPC_JSONP_TIMEOUT_MS = 120000;
 const RPC_POST_TIMEOUT_MS = 180000;
 const RPC_POST_METHODS_ = { uploadOrderImage: true, uploadShirtImage: true };
+/** GitHub Pages: POST ก่อน (หลีกเลี่ยง AdBlock ที่บล็อก script JSONP) แล้วค่อย JSONP */
+const RPC_FETCH_FIRST_METHODS_ = {
+  login: true,
+  verifySession: true,
+  getRpcPing: true,
+  getGuestStockData: true
+};
 const UPLOAD_MAX_RAW_BYTES = 28 * 1024 * 1024;
 const UPLOAD_TARGET_B64_MAX = 2800000;
 const SLIP_IMAGE_MAX_EDGE = 2400;
@@ -165,6 +172,7 @@ function callServerRpcPost_(apiUrl, envelope, timeoutMs) {
   return fetch(apiUrl, {
     method: "POST",
     mode: "cors",
+    cache: "no-store",
     headers: { "Content-Type": "text/plain" },
     body: JSON.stringify(envelope),
     signal: ac ? ac.signal : undefined
@@ -195,8 +203,21 @@ function callServerRpcPost_(apiUrl, envelope, timeoutMs) {
 function rpcApiUnreachableMessage_() {
   const cfgBuild = (window.PEACE_CONFIG && window.PEACE_CONFIG.build) || "?";
   const api = getRpcApiUrl_();
-  return "เชื่อมต่อ API ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต ปิด AdBlock แล้วรีเฟรช (build " + cfgBuild + ")" +
+  return "เชื่อมต่อ API ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต ปิด AdBlock แล้วกด Ctrl+Shift+R (build " + cfgBuild + ")" +
+    " · ถ้า build เก่ากว่าเวอร์ชันล่าสุด ให้รอ GitHub Pages อัปเดตหรือเปิดลิงก์แอปใหม่" +
     (api ? " · API: " + api : "");
+}
+function probeApiOnLogin_() {
+  const msg = document.getElementById("login-msg");
+  if (!msg || !getRpcApiUrl_() || isGasScriptBridge_()) return;
+  callServer("getRpcPing").then(function (r) {
+    const serverBuild = r && r.build ? String(r.build) : "";
+    const cfgBuild = (window.PEACE_CONFIG && window.PEACE_CONFIG.build) || "";
+    if (serverBuild && cfgBuild && serverBuild !== cfgBuild) {
+      msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(cfgBuild) +
+        " แต่ API เป็น build " + escHtml(serverBuild) + " — กด Ctrl+Shift+R</span>";
+    }
+  }).catch(function () {});
 }
 function callServerRpcJsonp_(apiUrl, envelope, attempt) {
   const tryNo = Number(attempt) || 1;
@@ -258,9 +279,14 @@ function callServer(method) {
   const envelope = { method: method, args: args };
   if (isGasAdminOnlyHost_()) envelope.gasAdminOnly = true;
   const payloadLen = JSON.stringify(envelope).length;
-  if (shouldUseRpcPost_(method, payloadLen)) {
-    const postMs = RPC_POST_METHODS_[method] ? RPC_POST_TIMEOUT_MS : RPC_JSONP_TIMEOUT_MS;
-    return callServerRpcPost_(apiUrl, envelope, postMs);
+  const postMs = RPC_POST_METHODS_[method] ? RPC_POST_TIMEOUT_MS : RPC_JSONP_TIMEOUT_MS;
+  const useFetchFirst = !isGasScriptBridge_() &&
+    (RPC_FETCH_FIRST_METHODS_[method] || shouldUseRpcPost_(method, payloadLen));
+  if (useFetchFirst) {
+    return callServerRpcPost_(apiUrl, envelope, postMs).catch(function (err) {
+      if (shouldUseRpcPost_(method, payloadLen) || payloadLen > RPC_JSONP_MAX_PAYLOAD) throw err;
+      return callServerRpcJsonp_(apiUrl, envelope);
+    });
   }
   return callServerRpcJsonp_(apiUrl, envelope);
 }
@@ -1187,6 +1213,7 @@ function renderLogin(errMsg){
     if(p){
       p.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
     }
+    probeApiOnLogin_();
   },50);
 }
 
@@ -1199,8 +1226,8 @@ function openUserGuideFromLogin(){
 }
 
 async function doLogin(){
-  const u=document.getElementById("login-username")?.value||"";
-  const p=document.getElementById("login-password")?.value||"";
+  const u=(document.getElementById("login-username")?.value||"").trim();
+  const p=(document.getElementById("login-password")?.value||"").trim();
   const btn=document.getElementById("login-btn");
   const msg=document.getElementById("login-msg");
   if(!u||!p){if(msg)msg.innerHTML='<span style="color:#FCA5A5">กรอกชื่อผู้ใช้และรหัสผ่าน</span>';return}
