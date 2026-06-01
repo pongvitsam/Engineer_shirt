@@ -76,9 +76,39 @@ const NAV = [
 // ── Server bridge (GAS iframe OR GitHub Pages → JSONP RPC) ────────────
 const RPC_JSONP_MAX_PAYLOAD = 1800;
 const RPC_JSONP_TIMEOUT_MS = 120000;
+const RPC_POST_TIMEOUT_MS = 180000;
 const RPC_POST_METHODS_ = { uploadOrderImage: true, uploadShirtImage: true };
-const SLIP_IMAGE_MAX_EDGE = 1600;
-const SLIP_IMAGE_JPEG_QUALITY = 0.82;
+const UPLOAD_MAX_RAW_BYTES = 28 * 1024 * 1024;
+const UPLOAD_TARGET_B64_MAX = 2800000;
+const SLIP_IMAGE_MAX_EDGE = 2400;
+const SLIP_IMAGE_JPEG_QUALITY = 0.85;
+
+function hasOpenModal_() {
+  return !!document.querySelector(".login-overlay");
+}
+function showAppToast_(msg, type) {
+  let host = document.getElementById("app-toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "app-toast-host";
+    host.className = "app-toast-host";
+    host.setAttribute("role", "alert");
+    document.body.appendChild(host);
+  }
+  const isWarn = type === "warning";
+  const cls = type === "success" || isWarn ? "glass-msg-success" : "glass-msg-error";
+  const text = isWarn ? "⚠️ " + msg : msg;
+  host.innerHTML = "<div class=\"app-toast fade-in " + cls + "\">" + escHtml(text) + "</div>";
+  host.style.display = "block";
+  if (host._t) clearTimeout(host._t);
+  host._t = setTimeout(function () {
+    host.style.display = "none";
+    host.innerHTML = "";
+  }, type === "error" ? 9000 : 4500);
+}
+function notifyUser_(msg, type) {
+  if (hasOpenModal_()) showAppToast_(msg, type);
+}
 function isGasScriptBridge_() {
   return typeof google !== "undefined" && google.script && google.script.run;
 }
@@ -124,12 +154,19 @@ function shouldUseRpcPost_(method, payloadLen) {
   if (RPC_POST_METHODS_[method]) return true;
   return payloadLen > RPC_JSONP_MAX_PAYLOAD;
 }
-function callServerRpcPost_(apiUrl, envelope) {
+function callServerRpcPost_(apiUrl, envelope, timeoutMs) {
+  const ms = Math.max(30000, Number(timeoutMs) || RPC_POST_TIMEOUT_MS);
+  const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let tid = null;
+  if (ac) {
+    tid = setTimeout(function () { ac.abort(); }, ms);
+  }
   return fetch(apiUrl, {
     method: "POST",
     mode: "cors",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(envelope)
+    body: JSON.stringify(envelope),
+    signal: ac ? ac.signal : undefined
   }).then(function (res) {
     return res.text().then(function (text) {
       if (!res.ok) {
@@ -145,8 +182,13 @@ function callServerRpcPost_(apiUrl, envelope) {
       return data.result;
     });
   }).catch(function (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("อัปโหลดใช้เวลานานเกินไป — ลองย่อรูปหรือใช้ Wi-Fi ที่เสถียรกว่า");
+    }
     if (err && err.message) throw err;
     throw new Error("เชื่อมต่อ API ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่");
+  }).finally(function () {
+    if (tid) clearTimeout(tid);
   });
 }
 function callServerRpcJsonp_(apiUrl, envelope) {
@@ -204,7 +246,8 @@ function callServer(method) {
   if (isGasAdminOnlyHost_()) envelope.gasAdminOnly = true;
   const payloadLen = JSON.stringify(envelope).length;
   if (shouldUseRpcPost_(method, payloadLen)) {
-    return callServerRpcPost_(apiUrl, envelope);
+    const postMs = RPC_POST_METHODS_[method] ? RPC_POST_TIMEOUT_MS : RPC_JSONP_TIMEOUT_MS;
+    return callServerRpcPost_(apiUrl, envelope, postMs);
   }
   return callServerRpcJsonp_(apiUrl, envelope);
 }
@@ -235,7 +278,8 @@ function fileToBase64(file) {
   });
 }
 
-function compressDataUrlForUpload_(dataUrl, maxEdge, quality) {
+function compressDataUrlForUpload_(dataUrl, maxEdge, quality, targetMaxLen) {
+  const cap = targetMaxLen || UPLOAD_TARGET_B64_MAX;
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = function () {
@@ -248,28 +292,57 @@ function compressDataUrlForUpload_(dataUrl, maxEdge, quality) {
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
       let q = quality;
       let out = canvas.toDataURL("image/jpeg", q);
-      while (out.length > 1200000 && q > 0.5) {
-        q -= 0.08;
+      while (out.length > cap && q > 0.38) {
+        q -= 0.06;
         out = canvas.toDataURL("image/jpeg", q);
       }
       resolve(out);
     };
-    img.onerror = () => reject(new Error("อ่านรูปไม่สำเร็จ — ลองไฟล์ JPG/PNG อื่น"));
+    img.onerror = () => reject(new Error("อ่านรูปไม่สำเร็จ — ลองบันทึกเป็น JPG/PNG แล้วอัปโหลดใหม่"));
     img.src = dataUrl;
   });
 }
 
-async function prepareImageBase64ForUpload_(file) {
+function formatUploadSize_(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+async function prepareImageBase64ForUpload_(file, onProgress) {
   if (!file) throw new Error("ไม่พบไฟล์รูป");
-  const dataUrl = await fileToBase64(file);
-  if (!String(file.type || "").startsWith("image/")) return dataUrl;
-  if (file.size <= 400000 && !String(file.name || "").toLowerCase().includes(".png")) {
-    return dataUrl;
+  if (!String(file.type || "").startsWith("image/")) {
+    throw new Error("รองรับเฉพาะไฟล์รูปภาพ (JPG, PNG, WEBP ฯลฯ)");
   }
-  return compressDataUrlForUpload_(dataUrl, SLIP_IMAGE_MAX_EDGE, SLIP_IMAGE_JPEG_QUALITY);
+  if (file.size > UPLOAD_MAX_RAW_BYTES) {
+    throw new Error("ไฟล์ใหญ่เกินไป (สูงสุด ~28 MB) — ระบบจะย่อให้อัตโนมัติ แต่ไฟล์นี้ใหญ่เกินไป");
+  }
+  if (onProgress) onProgress("กำลังอ่านไฟล์ " + formatUploadSize_(file.size) + "…");
+  const dataUrl = await fileToBase64(file);
+  if (onProgress) onProgress("กำลังย่อรูปเพื่ออัปโหลด…");
+  let out = await compressDataUrlForUpload_(dataUrl, SLIP_IMAGE_MAX_EDGE, SLIP_IMAGE_JPEG_QUALITY);
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    out = await compressDataUrlForUpload_(dataUrl, 1800, 0.78);
+  }
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    out = await compressDataUrlForUpload_(dataUrl, 1400, 0.62);
+  }
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    out = await compressDataUrlForUpload_(dataUrl, 1100, 0.5);
+  }
+  if (out.length > UPLOAD_TARGET_B64_MAX) {
+    throw new Error("รูปใหญ่เกินไปแม้ย่อแล้ว — crop ให้เหลือเฉพาะสลิปแล้วลองใหม่");
+  }
+  if (onProgress) {
+    onProgress("ย่อแล้วเหลือประมาณ " + formatUploadSize_(Math.round(out.length * 0.75)) + " — กำลังส่ง…");
+  }
+  return out;
 }
 
 function invalidateClientCache() { appDataStale = true; }
@@ -1834,10 +1907,10 @@ const app = {
 
   // ── Per-order slip + transfer date/time ─────────────────────────────
   showSlipModalMsg(msg,type){
+    notifyUser_(msg,type);
     const el=document.getElementById("slip-modal-msg");
     if(!el){this.showMsg(msg,type);return;}
-    const isErr=type!=="success"&&type!=="warning";
-    el.className="text-xs text-center mt-2 font-semibold fade-in " +
+    el.className="text-sm text-center mt-2 font-semibold fade-in modal-inline-msg " +
       (type==="success"?"glass-msg-success":(type==="warning"?"glass-msg-success":"glass-msg-error"));
     el.style.display="block";
     el.textContent=type==="warning"?"⚠️ "+msg:msg;
@@ -1866,8 +1939,8 @@ const app = {
               <div><label class="glass-label">เวลาโอน *</label><input id="slip-pay-time-${safeOid}" type="time" value="${nowTimeStr()}" class="glass-input p-2 text-sm"></div>
             </div>
             <div><label class="glass-label">รูปสลิป *</label><input id="slip-file-${safeOid}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs"></div>
-            <p class="text-xs text-glass-dim">รูปใหญ่ระบบจะย่ออัตโนมัติ · แนะนำ JPG/PNG ชัดอ่านยอดได้</p>
-            <div id="slip-modal-msg" class="text-xs text-center mt-2 font-semibold" style="display:none"></div>
+            <p class="text-xs text-glass-dim">รองรับไฟล์ใหญ่ (สูงสุด ~28 MB) — ระบบย่อรูปอัตโนมัติก่อนส่ง · แนะนำ JPG/PNG</p>
+            <div id="slip-modal-msg" class="modal-inline-msg text-sm text-center mt-2 font-semibold" style="display:none" role="alert"></div>
             <div class="grid grid-cols-2 gap-2 mt-2">
               <button type="button" onclick="app.closeSlipUploadModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
               <button type="button" onclick="app.submitSlipUpload('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">บันทึกสลิป</button>
@@ -1899,9 +1972,12 @@ const app = {
     if(!file)return this.showSlipModalMsg("กรุณาเลือกรูปสลิป","error");
     if(!payDate||!payTime)return this.showSlipModalMsg("กรุณากรอกวันที่และเวลาโอน","error");
     try{
-      const base64=await prepareImageBase64ForUpload_(file);
+      const self=this;
+      const base64=await prepareImageBase64ForUpload_(file,function(status){
+        self.showSlipModalMsg(status,"warning");
+      });
       await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
-        await callAuthed("uploadOrderImage",orderId,base64,payDate,payTime,file.name);
+        await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",orderId,base64,payDate,payTime,file.name);
         invalidateClientCache();
         ensureAppData(true).catch(function(){});
       });
@@ -2941,8 +3017,10 @@ const app = {
   },
 
   showMsg(msg,type){
+    notifyUser_(msg,type);
     const box=document.getElementById("msg-box");
     if(!box)return;
+    if(hasOpenModal_())return;
     const isWarn=type==="warning";
     const color=type==="success"||isWarn?"glass-msg-success":"glass-msg-error";
     const text=isWarn?`⚠️ ${msg}`:msg;
