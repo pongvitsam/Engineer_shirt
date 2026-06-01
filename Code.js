@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v5";
-const APP_BUILD = "115";
+const APP_BUILD = "116";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -511,6 +511,12 @@ function login(username, password) {
       displayName: display
     };
   }
+  if (repairDefaultUserCredentials_(sheet, u, p)) {
+    return login(u, p);
+  }
+  if (findUserRowIndex_(u) >= 0) {
+    throw new Error("รหัสผ่านไม่ถูกต้อง");
+  }
   throw new Error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
 }
 
@@ -633,6 +639,23 @@ function ensureDefaultUserByUsername_(ss, username) {
   const def = DEFAULT_USERS.filter(function (u) { return String(u[0]) === uname; })[0];
   if (!def) return;
   sheet.appendRow([def[0], hashPassword_(def[1]), def[2], def[3], def[4], true, def[1]]);
+}
+
+/** ถ้ามีแถวผู้ใช้มาตรฐานแต่ hash/plain เพี้ยน — ซ่อมเมื่อกรอกรหัสตาม DEFAULT_USERS */
+function repairDefaultUserCredentials_(sheet, username, password) {
+  const uLower = String(username || "").trim().toLowerCase();
+  const p = String(password || "");
+  const def = DEFAULT_USERS.filter(function (u) {
+    return String(u[0] || "").trim().toLowerCase() === uLower;
+  })[0];
+  if (!def || String(def[1]) !== p) return false;
+  const idx = findUserRowIndex_(username);
+  if (idx < 0) return false;
+  sheet.getRange(idx + 2, 2).setValue(hashPassword_(p));
+  sheet.getRange(idx + 2, 7).setValue(p);
+  sheet.getRange(idx + 2, 3, 1, 3).setValues([[def[2], def[3], def[4]]]);
+  sheet.getRange(idx + 2, 6).setValue(true);
+  return true;
 }
 
 function migrateUsersPasswordPlainColumn_(ss) {
