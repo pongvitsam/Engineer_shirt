@@ -459,11 +459,35 @@ function applyLocalOrderPaymentStatus_(orderId, paymentStatus) {
   });
 }
 
+function applyLocalOrderNoteUpdate_(orderId, note) {
+  if (!appData || !orderId) return;
+  const safe = String(note == null ? "" : note).trim();
+  (appData.orders || []).forEach(function (o) {
+    if (String(o.orderId) === String(orderId)) o.note = safe;
+  });
+}
+
 async function refreshAfterMutation_(opts) {
   opts = opts || {};
+  const noteSnapshot={};
+  if(opts.keepLocal&&appData&&Array.isArray(appData.orders)){
+    appData.orders.forEach(function(o){
+      if(!o||!o.orderId)return;
+      const n=String(o.note||"").trim();
+      if(n)noteSnapshot[String(o.orderId)]=n;
+    });
+  }
   invalidateClientCache();
   try {
     await ensureAppData(true);
+    if(opts.keepLocal&&appData&&Array.isArray(appData.orders)){
+      Object.keys(noteSnapshot).forEach(function(oid){
+        const saved=noteSnapshot[oid];
+        appData.orders.forEach(function(o){
+          if(String(o.orderId)===oid&&!String(o.note||"").trim())o.note=saved;
+        });
+      });
+    }
   } catch (e) {
     if (!opts.keepLocal && !(await verifySessionAlive_())) throw e;
   }
@@ -770,7 +794,6 @@ function shouldCountInDashboard_(o){
   return !isCartStatus(o.status||o.orderStatus);
 }
 function canEditOrderNote_(g,ownsOrder){
-  if(isAdmin()&&isAdminHiddenNoteRegion(g&&g.region))return false;
   if(isViewer())return false;
   if(canViewAllRegions()&&!isAdmin()&&!ownsOrder)return false;
   if(isAdmin())return true;
@@ -785,11 +808,17 @@ function canEditNoteInModal_(g,ownsOrder){
   return !!ownsOrder;
 }
 function renderOrderNoteBlock_(g,ownsOrder){
-  if(isAdmin()&&isAdminHiddenNoteRegion(g&&g.region))return "";
   const canEdit=canEditOrderNote_(g,ownsOrder);
-  const note=String(g&&g.note||"");
+  const note=String(g&&g.note||"").trim();
+  const parts=[];
+  if(note){
+    parts.push(`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`);
+  }else if(!canEdit){
+    if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g))return "";
+    parts.push(`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`);
+  }
   if(canEdit){
-    return `<div class="order-note-wrap mt-2">
+    parts.push(`<div class="order-note-wrap mt-2">
       <label class="glass-label text-xs mb-1" for="${noteInputId(g.orderId)}">หมายเหตุ</label>
       <div class="flex gap-1 items-stretch flex-wrap">
         <input id="${noteInputId(g.orderId)}" type="text" class="glass-input text-xs flex-1 min-w-0" maxlength="120"
@@ -797,14 +826,9 @@ function renderOrderNoteBlock_(g,ownsOrder){
         <button type="button" class="glass-btn-secondary text-xs shrink-0" style="padding:.4rem .65rem"
           onclick="app.saveGroupNote('${escHtml(g.orderId)}',this)"><i class="fas fa-save mr-1"></i>บันทึก</button>
       </div>
-    </div>`;
+    </div>`);
   }
-  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)){
-    return note?`<div class="mt-1 text-xs text-glass-dim"><span class="opacity-70">หมายเหตุ:</span> ${escHtml(note)}</div>`:"";
-  }
-  return note
-    ?`<div class="mt-1 text-xs text-glass-dim"><span class="opacity-70">หมายเหตุ:</span> ${escHtml(note)}</div>`
-    :`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
+  return parts.join("");
 }
 function canUserEditOrderGroup(g,ownsOrder){
   if(isAdmin())return true;
@@ -1163,11 +1187,12 @@ function applyLocalOrderCreate_(result,payload,items){
   appDataStale=true;
 }
 
-function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup){
+function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote){
   if(!appData||!orderId||!Array.isArray(items)||items.length===0||!orderGroup)return;
   if(!Array.isArray(appData.orders))appData.orders=[];
   const unitPrice=Number(appData.unitPrice||0)||(orderGroup.totalQty?orderGroup.totalPrice/orderGroup.totalQty:0);
   const status=String(result&&result.status||orderGroup.status||"");
+  const note=savedNote!=null?String(savedNote).trim():String(orderGroup.note||"");
   appData.orders=appData.orders.filter(o=>o.orderId!==orderId);
   let nextNo=appData.orders.reduce((m,o)=>Math.max(m,Number(o.no)||0),0);
   items.forEach(it=>{
@@ -1183,7 +1208,7 @@ function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup){
       payTime:orderGroup.payTime||"",
       orderStatus:status,
       status:status,
-      note:orderGroup.note||"",
+      note:note,
       timestamp:orderGroup.timestamp||new Date().toISOString(),
       slipName:orderGroup.slipName||"",
       slipUrl:orderGroup.slipUrl||"",
@@ -2130,10 +2155,12 @@ const app = {
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
     const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
     const next=String(input.value||"").trim();
-    ordersInGroup.forEach(o=>{o.note=next});
+    applyLocalOrderNoteUpdate_(orderId,next);
     try{
       await runSaving({btn:btnEl,btnText:"บันทึก…",busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,next));
       this.showMsg("บันทึกหมายเหตุแล้ว","success");
+      this.fillOrderListBody();
+      this.applyListFilter();
       await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       ordersInGroup.forEach(o=>{o.note=prev});
@@ -2477,11 +2504,13 @@ const app = {
     if(!canEditOrder&&canEditNoteInModal){
       const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
       const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
-      ordersInGroup.forEach(o=>{o.note=note});
+      applyLocalOrderNoteUpdate_(orderId,note);
       try{
         await runSaving({btn:btn,busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,note));
         this.closeCartEditModal();
         this.showMsg("บันทึกหมายเหตุแล้ว","success");
+        this.fillOrderListBody();
+        this.applyListFilter();
         await refreshAfterMutation_({ keepLocal: true });
       }catch(e){
         ordersInGroup.forEach(o=>{o.note=prev});
@@ -2498,12 +2527,15 @@ const app = {
     try{
       await runSaving({btn:btn,busyText:inCart?"กำลังบันทึกตะกร้า…":"กำลังบันทึก…"},async()=>{
         const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note});
-        applyLocalOrderCartUpdate_(orderId,r,items,orderGroup);
+        applyLocalOrderNoteUpdate_(orderId,note);
+        applyLocalOrderCartUpdate_(orderId,r,items,orderGroup,note);
         appDataStale=false;
         return r;
       });
       this.closeCartEditModal();
       this.showMsg(inCart?"บันทึกตะกร้าแล้ว":"บันทึกจำนวนแล้ว","success");
+      this.fillOrderListBody();
+      this.applyListFilter();
       await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");

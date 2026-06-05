@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "122";
+const APP_BUILD = "123";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -2781,11 +2781,7 @@ function sanitizeOrderForClient_(order) {
 }
 
 function sanitizeOrderForViewer_(order, session) {
-  const out = sanitizeOrderForClient_(order);
-  if (session && session.role === "admin" && isAdminHiddenNoteRegion_(out.region)) {
-    out.note = "";
-  }
-  return out;
+  return sanitizeOrderForClient_(order);
 }
 
 function getOrders_(ss) {
