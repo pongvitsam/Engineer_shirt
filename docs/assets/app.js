@@ -55,15 +55,33 @@ const APP_BRAND_FULL = "สั่งซื้อเสื้อชมรมว�
 const APP_BRAND_SHORT = "สั่งซื้อเสื้อชมรม กฟภ.";
 const APP_PAGE_TITLE = "ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
 const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=Engineer+Club+Shirt";
-const SUPPORT_PHONE_DISPLAY = "02-009-6703";
-const SUPPORT_PHONE_TEL = "+6620096703";
+const DEFAULT_SUPPORT_CONTACT = "แจ้งปัญหาการใช้งาน โทร 02-009-6703";
 
+function supportContactText_(){
+  return String(appData&&appData.supportContact||DEFAULT_SUPPORT_CONTACT).trim()||DEFAULT_SUPPORT_CONTACT;
+}
+function formatSupportContactHtml_(text){
+  const raw=String(text||"").trim();
+  if(!raw)return "";
+  return escHtml(raw).replace(/(\d{2}-\d{3,4}-\d{4,})/g,function(m){
+    const digits=m.replace(/\D/g,"");
+    const tel=digits.startsWith("0")?"+66"+digits.slice(1):"+66"+digits;
+    return `<a href="tel:${tel}" style="color:#FDE68A;text-decoration:underline;font-weight:600">${escHtml(m)}</a>`;
+  });
+}
 function supportContactInlineHtml_(){
-  return `แจ้งปัญหาการใช้งาน โทร <a href="tel:${SUPPORT_PHONE_TEL}" style="color:#FDE68A;text-decoration:underline;font-weight:600">${escHtml(SUPPORT_PHONE_DISPLAY)}</a>`;
+  return formatSupportContactHtml_(supportContactText_());
+}
+function updateSupportFooter_(){
+  const el=document.getElementById("app-support-footer");
+  if(!el)return;
+  const wrap=el.querySelector("div");
+  if(wrap)wrap.innerHTML=formatSupportContactHtml_(supportContactText_());
 }
 function setSupportFooterVisible_(show){
   const el=document.getElementById("app-support-footer");
   if(el)el.classList.toggle("hidden",!show);
+  if(show)updateSupportFooter_();
 }
 
 function syncAppBranding_(){
@@ -842,6 +860,7 @@ function ensureAppData(force, opts) {
       else { me = normalizeMeClient_(data.me); }
     }
     syncWindowSession_();
+    try{updateSupportFooter_();}catch(_){}
     return appData;
   });
 }
@@ -2886,6 +2905,12 @@ const app = {
           <button onclick="app.saveTransferAccount(this)" class="w-full glass-btn-pea py-2 text-sm mt-2"><i class="fas fa-save mr-1"></i> บันทึกบัญชีโอนเงิน</button>
         </div>
         <div class="glass-card-inner p-4">
+          <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-headset mr-1"></i> แจ้งปัญหาการใช้งาน</h3>
+          <p class="text-xs text-glass-dim mb-2">แสดงด้านล่างทุกหน้าและหน้าเข้าสู่ระบบ (เช่น แจ้งปัญหาการใช้งาน โทร 02-009-6703)</p>
+          <input id="admin-support-contact" type="text" class="glass-input text-sm" maxlength="300" placeholder="แจ้งปัญหาการใช้งาน โทร 02-009-6703" value="${escAttr(String(appData.supportContact||DEFAULT_SUPPORT_CONTACT))}">
+          <button onclick="app.saveSupportContact(this)" class="w-full glass-btn-pea py-2 text-sm mt-2"><i class="fas fa-save mr-1"></i> บันทึกข้อความแจ้งปัญหา</button>
+        </div>
+        <div class="glass-card-inner p-4">
           <h3 class="font-bold text-sm mb-3 text-glass">จำนวนที่มาส่ง</h3>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">${stockInputs}</div>
           <button onclick="app.saveStock(this)" class="w-full glass-btn-primary py-2 text-sm">บันทึกสต็อก</button>
@@ -3285,6 +3310,19 @@ const app = {
       const r=await runSaving({btn:btn,busyText:"กำลังบันทึกบัญชี…"},()=>callAuthed("saveTransferAccount",text));
       if(appData&&r&&r.transferAccount)appData.transferAccount=r.transferAccount;
       this.showMsg("บันทึกบัญชีโอนเงินแล้ว","success");
+      invalidateClientCache();
+      scheduleBackgroundBootstrapSync_();
+    }catch(e){this.showMsg(e.message||"บันทึกไม่สำเร็จ","error")}
+  },
+
+  async saveSupportContact(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const text=String(document.getElementById("admin-support-contact")?.value||"").trim();
+      const r=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},()=>callAuthed("saveSupportContact",text));
+      if(appData&&r&&r.supportContact)appData.supportContact=r.supportContact;
+      updateSupportFooter_();
+      this.showMsg("บันทึกข้อความแจ้งปัญหาแล้ว","success");
       invalidateClientCache();
       scheduleBackgroundBootstrapSync_();
     }catch(e){this.showMsg(e.message||"บันทึกไม่สำเร็จ","error")}

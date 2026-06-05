@@ -166,6 +166,7 @@ function invokeRpc_(method, args, options) {
     uploadShirtImage: uploadShirtImage,
     saveRoundConfig: saveRoundConfig,
     saveTransferAccount: saveTransferAccount,
+    saveSupportContact: saveSupportContact,
     saveStockDelivered: saveStockDelivered,
     resetAllData: resetAllData,
     exportAllDataCsv: exportAllDataCsv,
@@ -225,10 +226,12 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v8";
-const APP_BUILD = "129";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v9";
+const APP_BUILD = "130";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
+const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
+const DEFAULT_SUPPORT_CONTACT = "แจ้งปัญหาการใช้งาน โทร 02-009-6703";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -612,6 +615,7 @@ function getGuestStockData() {
     orders: [],
     unitPrice: 0,
     pickupStatus: [],
+    supportContact: data.supportContact || DEFAULT_SUPPORT_CONTACT,
     generatedAt: data.generatedAt,
     me: {
       username: "guest",
@@ -886,6 +890,7 @@ function getBootstrapData(token) {
     pickupStatus: data.pickupStatus,
     cartStatus: ORDER_STATUS_CART,
     transferAccount: String(data.transferAccount || DEFAULT_TRANSFER_ACCOUNT),
+    supportContact: String(data.supportContact || DEFAULT_SUPPORT_CONTACT),
     generatedAt: data.generatedAt,
     me: {
       username: session.username,
@@ -931,6 +936,7 @@ function buildBootstrapData_() {
     pickupStatus: ADMIN_ORDER_STATUS,
     cartStatus: ORDER_STATUS_CART,
     transferAccount: getTransferAccount_(ss),
+    supportContact: getSupportContact_(ss),
     generatedAt: new Date().toISOString()
   };
 }
@@ -980,6 +986,26 @@ function saveTransferAccount(token, text) {
   setSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT, safe);
   invalidateDataCache_();
   return { ok: true, transferAccount: safe };
+}
+
+function getSupportContact_(ss) {
+  let text = String(getSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT) || "").trim();
+  if (!text) {
+    text = DEFAULT_SUPPORT_CONTACT;
+    setSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT, text);
+  }
+  return text;
+}
+
+function saveSupportContact(token, text) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const safe = String(text == null ? "" : text).trim().substring(0, 300);
+  if (!safe) throw new Error("กรุณากรอกข้อความแจ้งปัญหาการใช้งาน");
+  setSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT, safe);
+  invalidateDataCache_();
+  return { ok: true, supportContact: safe };
 }
 
 /** Bootstrap cache — ไม่เก็บ data URL ขนาดใหญ่ */
@@ -2279,6 +2305,9 @@ function initializeSheets_() {
 
   if (!String(getSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT) || "").trim()) {
     setSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT, DEFAULT_TRANSFER_ACCOUNT);
+  }
+  if (!String(getSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT) || "").trim()) {
+    setSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT, DEFAULT_SUPPORT_CONTACT);
   }
 
   const roundSheet = ss.getSheetByName(ROUND_SHEET);
