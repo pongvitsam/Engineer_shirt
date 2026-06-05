@@ -930,6 +930,17 @@ function canEditNoteInModal_(g,ownsOrder){
   if(isPaymentLocked(g&&g.paymentStatus))return false;
   return !!ownsOrder;
 }
+function renderTransferAccountBlock_(){
+  const raw=String(appData&&appData.transferAccount||"").trim();
+  if(!raw)return "";
+  const lines=raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(!lines.length)return "";
+  return `<div class="transfer-account-card">
+    <div class="transfer-account-title"><i class="fas fa-university"></i> บัญชีสำหรับการโอนเงิน</div>
+    <div class="transfer-account-body">${lines.map((l,i)=>`<div class="transfer-account-line${i===0?" transfer-account-no":""}">${escHtml(l)}</div>`).join("")}</div>
+  </div>`;
+}
+
 function renderOrderNoteBlock_(g,ownsOrder){
   const note=String(g&&g.note||"").trim();
   if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)&&!note)return "";
@@ -1957,6 +1968,7 @@ const app = {
     return `
       <div class="glass-card p-5">
         <h2 class="text-lg font-bold glass-section-title mb-4 border-b glass-divider pb-2"><i class="fas fa-plus-circle mr-1"></i>สั่งซื้อเสื้อ (สั่งหลายไซส์)</h2>
+        ${renderTransferAccountBlock_()}
         <div class="space-y-3">
           <div>
             <label class="glass-label">เขตที่สั่ง *</label>
@@ -2089,6 +2101,7 @@ const app = {
           <button onclick="app.navigate('orders')" class="text-xs glass-btn-primary"><i class="fas fa-plus"></i> เพิ่ม</button>
         </div>
         ${showFilter?`<div class="mb-3"><select id="list-filter" onchange="app.filterList()" class="glass-select p-2 text-sm w-full">${filterOpts}</select></div>`:""}
+        ${renderTransferAccountBlock_()}
         <div class="order-list-table-wrap overflow-x-auto glass-table-wrap">
           <table class="glass-table w-full text-xs" id="order-table">
             <thead><tr>
@@ -2834,6 +2847,12 @@ const app = {
           </div>
         </div>
         <div class="glass-card-inner p-4">
+          <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-university mr-1"></i> บัญชีสำหรับการโอนเงิน</h3>
+          <p class="text-xs text-glass-dim mb-2">แสดงในหน้าสั่งซื้อเสื้อและรายการสั่งซื้อ (1 บรรทัดต่อข้อมูล)</p>
+          <textarea id="admin-transfer-account" class="glass-input text-sm transfer-account-admin-input" rows="3" maxlength="500" placeholder="เลขบัญชี&#10;ธนาคาร&#10;ชื่อบัญชี">${escHtml(String(appData.transferAccount||""))}</textarea>
+          <button onclick="app.saveTransferAccount(this)" class="w-full glass-btn-pea py-2 text-sm mt-2"><i class="fas fa-save mr-1"></i> บันทึกบัญชีโอนเงิน</button>
+        </div>
+        <div class="glass-card-inner p-4">
           <h3 class="font-bold text-sm mb-3 text-glass">จำนวนที่มาส่ง</h3>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">${stockInputs}</div>
           <button onclick="app.saveStock(this)" class="w-full glass-btn-primary py-2 text-sm">บันทึกสต็อก</button>
@@ -3224,6 +3243,18 @@ const app = {
       const src=String(imgEl.currentSrc||imgEl.src||"");
       setImageDebug("image-loaded: "+src.slice(0,120));
     }
+  },
+
+  async saveTransferAccount(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    try{
+      const text=String(document.getElementById("admin-transfer-account")?.value||"").trim();
+      const r=await runSaving({btn:btn,busyText:"กำลังบันทึกบัญชี…"},()=>callAuthed("saveTransferAccount",text));
+      if(appData&&r&&r.transferAccount)appData.transferAccount=r.transferAccount;
+      this.showMsg("บันทึกบัญชีโอนเงินแล้ว","success");
+      invalidateClientCache();
+      scheduleBackgroundBootstrapSync_();
+    }catch(e){this.showMsg(e.message||"บันทึกไม่สำเร็จ","error")}
   },
 
   async saveRound(btn){

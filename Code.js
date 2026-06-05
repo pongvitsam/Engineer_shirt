@@ -165,6 +165,7 @@ function invokeRpc_(method, args, options) {
     deleteUser: deleteUser,
     uploadShirtImage: uploadShirtImage,
     saveRoundConfig: saveRoundConfig,
+    saveTransferAccount: saveTransferAccount,
     saveStockDelivered: saveStockDelivered,
     resetAllData: resetAllData,
     exportAllDataCsv: exportAllDataCsv,
@@ -224,8 +225,10 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "126";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v7";
+const APP_BUILD = "127";
+const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
+const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -882,6 +885,7 @@ function getBootstrapData(token) {
     unitPrice: data.unitPrice,
     pickupStatus: data.pickupStatus,
     cartStatus: ORDER_STATUS_CART,
+    transferAccount: String(data.transferAccount || DEFAULT_TRANSFER_ACCOUNT),
     generatedAt: data.generatedAt,
     me: {
       username: session.username,
@@ -926,8 +930,56 @@ function buildBootstrapData_() {
     unitPrice: round.unitPrice,
     pickupStatus: ADMIN_ORDER_STATUS,
     cartStatus: ORDER_STATUS_CART,
+    transferAccount: getTransferAccount_(ss),
     generatedAt: new Date().toISOString()
   };
+}
+
+function getSetting_(ss, key) {
+  const sheet = ss.getSheetByName(SETTINGS_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return "";
+  const vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  const k = String(key || "").trim();
+  for (let i = 0; i < vals.length; i++) {
+    if (String(vals[i][0] || "").trim() === k) return String(vals[i][1] || "");
+  }
+  return "";
+}
+
+function setSetting_(ss, key, value) {
+  const sheet = ss.getSheetByName(SETTINGS_SHEET);
+  const k = String(key || "").trim();
+  const last = sheet.getLastRow();
+  if (last >= 2) {
+    const vals = sheet.getRange(2, 1, last - 1, 2).getValues();
+    for (let i = 0; i < vals.length; i++) {
+      if (String(vals[i][0] || "").trim() === k) {
+        sheet.getRange(i + 2, 2).setValue(value);
+        return;
+      }
+    }
+  }
+  sheet.appendRow([k, value]);
+}
+
+function getTransferAccount_(ss) {
+  let text = String(getSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT) || "").trim();
+  if (!text) {
+    text = DEFAULT_TRANSFER_ACCOUNT;
+    setSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT, text);
+  }
+  return text;
+}
+
+function saveTransferAccount(token, text) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const safe = String(text == null ? "" : text).trim().substring(0, 500);
+  if (!safe) throw new Error("กรุณากรอกบัญชีสำหรับการโอนเงิน");
+  setSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT, safe);
+  invalidateDataCache_();
+  return { ok: true, transferAccount: safe };
 }
 
 /** Bootstrap cache — ไม่เก็บ data URL ขนาดใหญ่ */
@@ -2224,6 +2276,10 @@ function initializeSheets_() {
   // Migrate Orders sheet if it has the old schema (11 cols without OrderId)
   migrateOrdersSheet_(ss);
   migrateRoundSheet_(ss);
+
+  if (!String(getSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT) || "").trim()) {
+    setSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT, DEFAULT_TRANSFER_ACCOUNT);
+  }
 
   const roundSheet = ss.getSheetByName(ROUND_SHEET);
   if (roundSheet.getLastRow() < 2) {
