@@ -1990,7 +1990,7 @@ const app = {
               </table>
             </div>
           </div>
-          <p class="text-xs text-glass-dim">วันที่/เวลาสั่งซื้อบันทึกอัตโนมัติ · แนบสลิปและระบุวันที่โอนได้ที่รายการสั่งซื้อ</p>
+          <p class="text-xs text-glass-dim">วันที่/เวลาสั่งซื้อบันทึกอัตโนมัติ</p>
           <div>
             <label class="glass-label">สถานะ</label>
             ${isAdm
@@ -1998,6 +1998,14 @@ const app = {
               : `<input id="order-status-fixed" class="glass-input glass-input-readonly" value="${escHtml(orderCartStatus())}" readonly>`}
           </div>
           ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
+          <div>
+            <label class="glass-label">สลิปโอนเงิน (ไม่บังคับ)</label>
+            <input id="order-slip-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs">
+            <div id="order-slip-datetime-wrap" class="mt-2" style="display:none">
+              ${buildSlipDateTimeFieldsHtml_("new-order",todayStr(),nowTimeStr())}
+            </div>
+            <p class="text-xs text-glass-dim mt-1">แนบสลิปพร้อมวันที่/เวลาโอนได้เลย หรือแนบทีหลังที่รายการสั่งซื้อ</p>
+          </div>
           <div>
             <label class="glass-label">หมายเหตุ (ไม่บังคับ)</label>
             <input id="order-note" type="text" class="glass-input text-sm" maxlength="120" placeholder="เช่น ชื่อผู้รับ, รายละเอียดเพิ่มเติม">
@@ -2016,6 +2024,16 @@ const app = {
     this.multiQtys={};
     appData.stockSizes.forEach(s=>{this.multiQtys[s]=0});
     this.updateMultiTotals();
+    bindSlipDateTimePicker_("new-order");
+    const slipInput=document.getElementById("order-slip-file");
+    const dtWrap=document.getElementById("order-slip-datetime-wrap");
+    if(slipInput&&dtWrap){
+      const toggle=function(){
+        dtWrap.style.display=slipInput.files&&slipInput.files[0]?"block":"none";
+      };
+      slipInput.addEventListener("change",toggle);
+      toggle();
+    }
   },
 
   changeMultiQty(size,delta){
@@ -2059,16 +2077,31 @@ const app = {
       if(isAdmin()){
         payload.status=document.getElementById("order-status").value;
       }
+      const slipFile=document.getElementById("order-slip-file")?.files?.[0];
+      let payDate="",payTime="";
+      if(slipFile){
+        payDate=String(document.getElementById("slip-pay-date-new-order")?.value||"").trim();
+        payTime=String(document.getElementById("slip-pay-time-new-order")?.value||"").trim();
+        if(!payDate||!payTime)return this.showMsg("กรุณากรอกวันที่และเวลาโอน","error");
+      }
       const total=items.reduce((s,x)=>s+x.qty,0);
       const result=await runSaving({btn:btn,busyText:"กำลังบันทึกออเดอร์…"},async()=>{
         const r=await callAuthed("addMultiSizeOrder",payload);
         applyLocalOrderCreate_(r,payload,items);
         appDataStale=false;
+        if(slipFile){
+          showBusy("กำลังบันทึกสลิป…");
+          setBtnLoading(btn,true,"กำลังบันทึกสลิป…");
+          const base64=await prepareImageBase64ForUpload_(slipFile);
+          const slipRes=await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",r.orderId,base64,payDate,payTime,slipFile.name);
+          applyLocalOrderSlipUpdate_(r.orderId,slipRes);
+        }
         return r;
       });
-      const okMsg=isAdmin()
+      let okMsg=isAdmin()
         ?`บันทึกออเดอร์ ${total} ตัว (${items.length} ไซส์) เรียบร้อย`
         :`เพิ่มลงตะกร้า ${total} ตัว (${items.length} ไซส์) แล้ว — ไปรายการสั่งซื้อเพื่อแก้ไขหรือยืนยันส่งออเดอร์`;
+      if(slipFile)okMsg+=" · บันทึกสลิปแล้ว รอแอดมินตรวจสอบ";
       this.showMsg(okMsg,"success");
       if(result&&result.warning){
         setTimeout(()=>this.showMsg(result.warning,"warning"),900);

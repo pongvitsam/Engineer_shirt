@@ -225,8 +225,8 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v7";
-const APP_BUILD = "127";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v8";
+const APP_BUILD = "128";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const ROLE_ENGINEER = "engineer";
