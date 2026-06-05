@@ -466,29 +466,47 @@ function applyLocalOrderNoteUpdate_(orderId, note) {
   });
 }
 
+function applyLocalOrderStatusUpdate_(orderId, status) {
+  if (!appData || !orderId) return;
+  const st = String(status || "");
+  (appData.orders || []).forEach(function (o) {
+    if (String(o.orderId) === String(orderId)) {
+      o.status = st;
+      o.orderStatus = st;
+    }
+  });
+}
+
+let bootstrapSyncTimer = null;
+function scheduleBackgroundBootstrapSync_() {
+  appDataStale = true;
+  if (bootstrapSyncTimer) return;
+  bootstrapSyncTimer = setTimeout(function () {
+    bootstrapSyncTimer = null;
+    ensureAppData(true, { skipImageResolve: true }).then(function () {
+      appDataStale = false;
+      if (typeof app !== "undefined" && app && app.currentModule === "list" && document.getElementById("order-tbody")) {
+        app.fillOrderListBody();
+        app.applyListFilter();
+      }
+    }).catch(function () {});
+  }, 1200);
+}
+
 async function refreshAfterMutation_(opts) {
   opts = opts || {};
-  const noteSnapshot={};
-  if(opts.keepLocal&&appData&&Array.isArray(appData.orders)){
-    appData.orders.forEach(function(o){
-      if(!o||!o.orderId)return;
-      const n=String(o.note||"").trim();
-      if(n)noteSnapshot[String(o.orderId)]=n;
-    });
+  if (opts.keepLocal && appData) {
+    if (typeof app !== "undefined" && app && app.refreshCurrentView_) {
+      app.refreshCurrentView_(opts);
+    }
+    scheduleBackgroundBootstrapSync_();
+    return;
   }
   invalidateClientCache();
   try {
     await ensureAppData(true);
-    if(opts.keepLocal&&appData&&Array.isArray(appData.orders)){
-      Object.keys(noteSnapshot).forEach(function(oid){
-        const saved=noteSnapshot[oid];
-        appData.orders.forEach(function(o){
-          if(String(o.orderId)===oid&&!String(o.note||"").trim())o.note=saved;
-        });
-      });
-    }
   } catch (e) {
-    if (!opts.keepLocal && !(await verifySessionAlive_())) throw e;
+    if (!(await verifySessionAlive_())) throw e;
   }
   if (typeof app !== "undefined" && app && app.refreshCurrentView_) {
     await app.refreshCurrentView_(opts);
@@ -743,9 +761,10 @@ async function runSaving(opts, fn){
   }
 }
 
-function ensureAppData(force) {
+function ensureAppData(force, opts) {
+  opts = opts || {};
   if (!force && appData && !appDataStale) return Promise.resolve(appData);
-  const loader = guestMode ? callServer("getGuestStockData") : fetchBootstrapAuthed_(force ? 5 : 3);
+  const loader = guestMode ? callServer("getGuestStockData") : fetchBootstrapAuthed_(force ? 2 : 3);
   return Promise.resolve(loader).then(async data => {
     if (!data) {
       appDataStale = true;
@@ -769,7 +788,13 @@ function ensureAppData(force) {
       let displayUrl="";
       let sourceMode="";
       let warning="";
-      if(extractDriveFileId(imageRef)){
+      if(opts.skipImageResolve&&appData&&appData.round){
+        round.imageDisplayUrl=appData.round.imageDisplayUrl||SHIRT_PLACEHOLDER_URL;
+        round.imageDisplaySrc=appData.round.imageDisplaySrc||round.imageDisplayUrl;
+        round.imageSourceMode=appData.round.imageSourceMode||"cached";
+        round.imageWarning=appData.round.imageWarning||"";
+        round.imageDebug=appData.round.imageDebug||"";
+      }else if(extractDriveFileId(imageRef)){
         const resolved=await resolveRoundImageForDisplay(imageRef,!!force);
         if(resolved.url&&!isPlaceholderImage(resolved.url)){
           displayUrl=resolved.url;
@@ -2036,7 +2061,7 @@ const app = {
       if(result&&result.warning){
         setTimeout(()=>this.showMsg(result.warning,"warning"),900);
       }
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
       app.navigate("list");
     }catch(e){
       const msg=e&&e.message||"บันทึกไม่สำเร็จ";
@@ -2218,13 +2243,13 @@ const app = {
     }
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
     const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):status;
-    ordersInGroup.forEach(o=>{o.status=status;o.orderStatus=status});
+    applyLocalOrderStatusUpdate_(orderId,status);
     try{
-      await runSaving({busyText:"กำลังอัปเดตสถานะ…"},()=>callAuthed("updateOrderStatusByOrderId",orderId,status));
+      await runSaving({busyText:"กำลังอัปเดตสถานะ…",toast:false},()=>callAuthed("updateOrderStatusByOrderId",orderId,status));
       this.showMsg("อัปเดตสถานะออเดอร์แล้ว","success");
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
-      ordersInGroup.forEach(o=>{o.status=prev;o.orderStatus=prev});
+      applyLocalOrderStatusUpdate_(orderId,prev);
       this.fillOrderListBody();
       this.showMsg(e.message,"error");
     }
@@ -2327,7 +2352,7 @@ const app = {
       applyLocalOrderSlipUpdate_(orderId,res);
       this.closeSlipUploadModal();
       this.showMsg("บันทึกสลิปแล้ว รอแอดมินตรวจสอบ","success");
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showSlipModalMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
     }
@@ -2399,7 +2424,7 @@ const app = {
       applyLocalOrderPaymentStatus_(orderId,"ชำระเงินแล้ว");
       this.closePaymentReviewModal();
       this.showMsg("ยอมรับการชำระเงินแล้ว","success");
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
@@ -2418,7 +2443,7 @@ const app = {
       applyLocalOrderPaymentStatus_(orderId,PAYMENT_FREE_GIVEAWAY);
       this.closePaymentReviewModal();
       this.showMsg("บันทึกเป็นเสื้อแจกฟรีแล้ว (ไม่รวมยอดสั่งซื้อ)","success");
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
@@ -2433,7 +2458,7 @@ const app = {
       });
       applyLocalOrderSlipUpdate_(orderId,{slipUrl:"",slipName:"",payDate:"",payTime:"",paymentStatus:""});
       this.showMsg("ลบรูปแนบแล้ว","success");
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"ลบรูปไม่สำเร็จ","error");
     }
@@ -2570,11 +2595,10 @@ const app = {
         await runSaving({btn:btn,busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,note));
         this.closeCartEditModal();
         this.showMsg("บันทึกหมายเหตุแล้ว","success");
-        this.fillOrderListBody();
-        this.applyListFilter();
-        await refreshAfterMutation_({ keepLocal: true });
+        refreshAfterMutation_({ keepLocal: true });
       }catch(e){
-        ordersInGroup.forEach(o=>{o.note=prev});
+        applyLocalOrderNoteUpdate_(orderId,prev);
+        this.fillOrderListBody();
         this.showMsg(e.message||"บันทึกหมายเหตุไม่สำเร็จ","error");
       }
       return;
@@ -2595,12 +2619,10 @@ const app = {
       });
       this.closeCartEditModal();
       this.showMsg(inCart?"บันทึกตะกร้าแล้ว":"บันทึกจำนวนแล้ว","success");
-      this.fillOrderListBody();
-      this.applyListFilter();
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
-      await refreshAfterMutation_({ keepLocal: true });
+      refreshAfterMutation_({ keepLocal: true });
     }
   },
 
@@ -2608,11 +2630,13 @@ const app = {
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
     try{
+      const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||"สั่งออเดอร์แล้ว";
       await runSaving({btn:btn,busyText:"กำลังส่งออเดอร์…"},async()=>{
         await callAuthed("submitCartOrderToAdmin",orderId);
       });
+      applyLocalOrderStatusUpdate_(orderId,orderedStatus);
       this.showMsg("ส่งออเดอร์ไปยังแอดมินแล้ว","success");
-      await refreshAfterMutation_();
+      refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"ส่งออเดอร์ไม่สำเร็จ","error");
     }
