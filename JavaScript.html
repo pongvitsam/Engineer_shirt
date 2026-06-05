@@ -2000,7 +2000,7 @@ const app = {
           </div>
           ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
           <div>
-            <label class="glass-label">สลิปโอนเงิน (ไม่บังคับ)</label>
+            <label class="glass-label">สลิปโอนเงิน (อัพโหลดตามหลังได้ในหน้ารายการสั่งซื้อ)</label>
             <input id="order-slip-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs">
             <div id="order-slip-datetime-wrap" class="mt-2" style="display:none">
               ${buildSlipDateTimeFieldsHtml_("new-order",todayStr(),nowTimeStr())}
