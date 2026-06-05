@@ -700,6 +700,40 @@ function bindSlipDateTimePicker_(safeOid) {
   sync();
 }
 
+const slipPreviewUrls_ = {};
+function revokeSlipPreviewUrl_(key){
+  if(slipPreviewUrls_[key]){
+    URL.revokeObjectURL(slipPreviewUrls_[key]);
+    delete slipPreviewUrls_[key];
+  }
+}
+function bindSlipFilePreview_(fileInputId,previewWrapId,onFileChange){
+  const input=document.getElementById(fileInputId);
+  const wrap=document.getElementById(previewWrapId);
+  if(!input||!wrap)return;
+  const key=previewWrapId;
+  const handler=function(){
+    revokeSlipPreviewUrl_(key);
+    const file=input.files&&input.files[0];
+    if(!file||!String(file.type||"").startsWith("image/")){
+      wrap.style.display="none";
+      wrap.innerHTML="";
+      if(onFileChange)onFileChange(false);
+      return;
+    }
+    const url=URL.createObjectURL(file);
+    slipPreviewUrls_[key]=url;
+    wrap.innerHTML=`<div class="slip-upload-preview glass-image-wrap p-2">
+      <img src="${escAttr(url)}" alt="ตัวอย่างสลิป" class="slip-preview-img cursor-zoom-in" onclick="app.openImageLightbox(this.src)">
+      <p class="text-xs text-glass-dim text-center mt-2 mb-0"><i class="fas fa-search-plus mr-1"></i>ดูวันที่/เวลาบนสลิปแล้วกรอกด้านล่าง · แตะรูปเพื่อขยาย</p>
+    </div>`;
+    wrap.style.display="block";
+    if(onFileChange)onFileChange(true);
+  };
+  input.addEventListener("change",handler);
+  handler();
+}
+
 function syncWindowSession_() {
   try {
     window.me = me;
@@ -2078,6 +2112,7 @@ const app = {
           <div>
             <label class="glass-label">สลิปโอนเงิน (อัพโหลดตามหลังได้ในหน้ารายการสั่งซื้อ)</label>
             <input id="order-slip-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs">
+            <div id="order-slip-preview" class="mt-2" style="display:none"></div>
             <div id="order-slip-datetime-wrap" class="mt-2" style="display:none">
               ${buildSlipDateTimeFieldsHtml_("new-order",todayStr(),nowTimeStr())}
             </div>
@@ -2102,15 +2137,10 @@ const app = {
     appData.stockSizes.forEach(s=>{this.multiQtys[s]=0});
     this.updateMultiTotals();
     bindSlipDateTimePicker_("new-order");
-    const slipInput=document.getElementById("order-slip-file");
     const dtWrap=document.getElementById("order-slip-datetime-wrap");
-    if(slipInput&&dtWrap){
-      const toggle=function(){
-        dtWrap.style.display=slipInput.files&&slipInput.files[0]?"block":"none";
-      };
-      slipInput.addEventListener("change",toggle);
-      toggle();
-    }
+    bindSlipFilePreview_("order-slip-file","order-slip-preview",function(hasFile){
+      if(dtWrap)dtWrap.style.display=hasFile?"block":"none";
+    });
   },
 
   changeMultiQty(size,delta){
@@ -2437,9 +2467,10 @@ const app = {
           <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
           <p class="login-sub text-xs">วันที่สั่ง: ${formatOrderTimestampCell(orderGroup.timestamp)} · กรอกวันที่/เวลาที่โอนตามสลิป</p>
           <div class="space-y-2">
-            ${buildSlipDateTimeFieldsHtml_(safeOid,initDate,initTime)}
             <div><label class="glass-label">รูปสลิป *</label><input id="slip-file-${safeOid}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs"></div>
             <p class="text-xs text-glass-dim">รองรับไฟล์ใหญ่ (สูงสุด ~28 MB) — ระบบย่อรูปอัตโนมัติก่อนส่ง · แนะนำ JPG/PNG</p>
+            <div id="slip-preview-${safeOid}" style="display:none"></div>
+            ${buildSlipDateTimeFieldsHtml_(safeOid,initDate,initTime)}
             <div id="slip-modal-msg" class="modal-inline-msg text-sm text-center mt-2 font-semibold" style="display:none" role="alert"></div>
             <div class="grid grid-cols-2 gap-2 mt-2">
               <button type="button" onclick="app.closeSlipUploadModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
@@ -2454,12 +2485,17 @@ const app = {
     const escHandler=function(e){if(e.key==="Escape")app.closeSlipUploadModal();};
     document.addEventListener("keydown",escHandler);
     const m=document.getElementById("slip-upload-modal");
-    if(m)m._escHandler=escHandler;
+    if(m){
+      m._escHandler=escHandler;
+      m._previewKey="slip-preview-"+safeOid;
+    }
     bindSlipDateTimePicker_(safeOid);
+    bindSlipFilePreview_("slip-file-"+safeOid,"slip-preview-"+safeOid);
   },
 
   closeSlipUploadModal(){
     const m=document.getElementById("slip-upload-modal");
+    if(m&&m._previewKey)revokeSlipPreviewUrl_(m._previewKey);
     if(m&&m._escHandler)document.removeEventListener("keydown",m._escHandler);
     if(m)m.remove();
   },
