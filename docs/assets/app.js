@@ -439,6 +439,77 @@ async function prepareImageBase64ForUpload_(file, onProgress) {
 
 function invalidateClientCache() { appDataStale = true; }
 
+function applyLocalOrderSlipUpdate_(orderId, result) {
+  if (!appData || !result || !orderId) return;
+  (appData.orders || []).forEach(function (o) {
+    if (String(o.orderId) !== String(orderId)) return;
+    if (result.payDate != null) o.payDate = result.payDate;
+    if (result.payTime != null) o.payTime = result.payTime;
+    if (result.slipUrl != null) o.slipUrl = result.slipUrl;
+    if (result.slipName != null) o.slipName = result.slipName;
+    if (result.paymentStatus != null) o.paymentStatus = result.paymentStatus;
+  });
+}
+
+function applyLocalOrderPaymentStatus_(orderId, paymentStatus) {
+  if (!appData || !orderId) return;
+  (appData.orders || []).forEach(function (o) {
+    if (String(o.orderId) === String(orderId)) o.paymentStatus = paymentStatus;
+  });
+}
+
+async function refreshAfterMutation_(opts) {
+  opts = opts || {};
+  invalidateClientCache();
+  try {
+    await ensureAppData(true);
+  } catch (e) {
+    if (!opts.keepLocal && !(await verifySessionAlive_())) throw e;
+  }
+  if (typeof app !== "undefined" && app && app.refreshCurrentView_) {
+    await app.refreshCurrentView_(opts);
+  }
+}
+
+function buildSlipDateTimeFieldsHtml_(safeOid, initDate, initTime) {
+  const d = initDate || todayStr();
+  const t = initTime || nowTimeStr();
+  return `<div class="glass-datetime-panel">
+    <div class="glass-datetime-section">
+      <div class="glass-datetime-label"><i class="fas fa-calendar-day"></i> วันที่โอน *</div>
+      <input type="date" id="slip-pay-date-${safeOid}" class="glass-datetime-input" value="${escAttr(d)}">
+      <div id="slip-pay-date-preview-${safeOid}" class="glass-datetime-preview"></div>
+    </div>
+    <div class="glass-datetime-section">
+      <div class="glass-datetime-label"><i class="fas fa-clock"></i> เวลาโอน *</div>
+      <input type="time" id="slip-pay-time-${safeOid}" class="glass-datetime-input" value="${escAttr(t)}" step="60">
+      <div id="slip-pay-time-preview-${safeOid}" class="glass-datetime-preview"></div>
+    </div>
+  </div>`;
+}
+
+function bindSlipDateTimePreview_(safeOid) {
+  const dateEl = document.getElementById("slip-pay-date-" + safeOid);
+  const timeEl = document.getElementById("slip-pay-time-" + safeOid);
+  const datePrev = document.getElementById("slip-pay-date-preview-" + safeOid);
+  const timePrev = document.getElementById("slip-pay-time-preview-" + safeOid);
+  function sync() {
+    if (datePrev) {
+      const dv = dateEl ? dateEl.value : "";
+      datePrev.textContent = dv ? ("📅 " + formatThaiDate(dv)) : "";
+    }
+    if (timePrev) {
+      const tv = timeEl ? timeEl.value : "";
+      timePrev.textContent = tv ? ("🕐 " + formatThaiTime(tv)) : "";
+    }
+  }
+  if (dateEl) dateEl.addEventListener("input", sync);
+  if (dateEl) dateEl.addEventListener("change", sync);
+  if (timeEl) timeEl.addEventListener("input", sync);
+  if (timeEl) timeEl.addEventListener("change", sync);
+  sync();
+}
+
 function syncWindowSession_() {
   try {
     window.me = me;
@@ -703,12 +774,27 @@ function canEditOrderNote_(g,ownsOrder){
   if(isAdmin())return true;
   return canUserEditOrderGroup(g,ownsOrder);
 }
-function renderOrderNoteBlock_(g){
+function renderOrderNoteBlock_(g,ownsOrder){
   if(isAdmin()&&isAdminHiddenNoteRegion(g&&g.region))return "";
-  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)){
-    return g.note?`<div class="mt-1 text-xs text-glass-dim"><span class="opacity-70">หมายเหตุ:</span> ${escHtml(g.note)}</div>`:"";
+  const canEdit=canEditOrderNote_(g,ownsOrder);
+  const note=String(g&&g.note||"");
+  if(canEdit){
+    return `<div class="order-note-wrap mt-2">
+      <label class="glass-label text-xs mb-1" for="${noteInputId(g.orderId)}">หมายเหตุ</label>
+      <div class="flex gap-1 items-stretch flex-wrap">
+        <input id="${noteInputId(g.orderId)}" type="text" class="glass-input text-xs flex-1 min-w-0" maxlength="120"
+          placeholder="เพิ่มหมายเหตุ (ถ้ามี)" value="${escAttr(note)}">
+        <button type="button" class="glass-btn-secondary text-xs shrink-0" style="padding:.4rem .65rem"
+          onclick="app.saveGroupNote('${escHtml(g.orderId)}',this)"><i class="fas fa-save mr-1"></i>บันทึก</button>
+      </div>
+    </div>`;
   }
-  return g.note?`<div class="mt-1 text-xs text-glass-dim"><span class="opacity-70">หมายเหตุ:</span> ${escHtml(g.note)}</div>`:"";
+  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)){
+    return note?`<div class="mt-1 text-xs text-glass-dim"><span class="opacity-70">หมายเหตุ:</span> ${escHtml(note)}</div>`:"";
+  }
+  return note
+    ?`<div class="mt-1 text-xs text-glass-dim"><span class="opacity-70">หมายเหตุ:</span> ${escHtml(note)}</div>`
+    :`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
 }
 function canUserEditOrderGroup(g,ownsOrder){
   if(isAdmin())return true;
@@ -729,8 +815,32 @@ function statusClass(s){
 }
 function regionShort(r){return String(r||"").trim()}
 function fmtMoney(n){return Number(n||0).toLocaleString()}
-function todayStr(){return new Date().toISOString().split("T")[0]}
-function nowTimeStr(){return new Date().toTimeString().split(" ")[0].substring(0,5)}
+function localTodayStr_(){
+  const d=new Date();
+  return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+}
+function localNowTimeStr_(){
+  const d=new Date();
+  return pad2(d.getHours())+":"+pad2(d.getMinutes());
+}
+function todayStr(){return localTodayStr_()}
+function nowTimeStr(){return localNowTimeStr_()}
+
+function normalizePayDateForInput_(v){
+  const s=String(v||"").trim();
+  let m=s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if(m)return m[1];
+  m=s.match(/^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})/);
+  if(m){
+    const mo=EN_MONTHS_ABBR.indexOf(m[1]);
+    if(mo>=0)return (+m[3])+"-"+pad2(mo+1)+"-"+pad2(+m[2]);
+  }
+  return "";
+}
+function normalizePayTimeForInput_(v){
+  const m=String(v||"").trim().match(/(\d{1,2}):(\d{2})/);
+  return m?pad2(+m[1])+":"+m[2]:"";
+}
 
 // ── Thai date/time formatting (Buddhist year = CE+543) ────────────────
 // Backend sends payDate/payTime as raw String(cell): a date cell becomes a
@@ -1801,8 +1911,6 @@ const app = {
         const r=await callAuthed("addMultiSizeOrder",payload);
         applyLocalOrderCreate_(r,payload,items);
         appDataStale=false;
-        invalidateClientCache();
-        ensureAppData(true).catch(function(){});
         return r;
       });
       const okMsg=isAdmin()
@@ -1812,7 +1920,8 @@ const app = {
       if(result&&result.warning){
         setTimeout(()=>this.showMsg(result.warning,"warning"),900);
       }
-      setTimeout(()=>app.navigate("list"),400);
+      await refreshAfterMutation_({ keepLocal: true });
+      app.navigate("list");
     }catch(e){
       const msg=e&&e.message||"บันทึกไม่สำเร็จ";
       if(isSessionReloginMessage(msg) && await verifySessionAlive_()){
@@ -1859,12 +1968,42 @@ const app = {
       <div id="msg-box"></div>`;
   },
 
+  async refreshCurrentView_(opts){
+    opts=opts||{};
+    const m=this.currentModule;
+    if(m==="list"){
+      if(!document.getElementById("order-tbody")){
+        this.paintModule("list");
+      }
+      this.fillOrderListBody();
+      this.applyListFilter();
+      return;
+    }
+    if(m==="stock"||m==="orders"||m==="admin"||m==="guide"){
+      this.paintModule(m);
+      if(m==="orders")this.initOrderForm();
+      return;
+    }
+    if(m==="dashboard"){
+      this.paintModule("dashboard");
+      await this.initDashboard();
+      return;
+    }
+    if(m==="report"){
+      this.paintModule("report");
+      await this.initReport();
+    }
+  },
+
   fillOrderListBody(){
     const tbody=document.getElementById("order-tbody");
     if(!tbody)return;
     const orders=(appData&&Array.isArray(appData.orders))?appData.orders:[];
     const grouped=groupOrdersByOrderId(orders).reverse();
-    if(grouped.length===0)return;
+    if(grouped.length===0){
+      tbody.innerHTML='<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
+      return;
+    }
     // Render each order group independently so one malformed order can never
     // blank the entire list (a single thrown row would otherwise empty it).
     tbody.innerHTML=grouped.map(g=>{
@@ -1910,7 +2049,7 @@ const app = {
         <button class="glass-btn text-xs" style="padding:.3rem .55rem;background:rgba(109,40,217,.45)" onclick="app.markOrderFreeGiveaway('${escHtml(g.orderId)}',this)" title="ผู้บริหาร/แจกฟรี — ไม่รวมยอดสั่งซื้อ"><i class="fas fa-gift"></i> เสื้อแจกฟรี</button>
       </div>`;
     }
-    const noteBlock=renderOrderNoteBlock_(g);
+    const noteBlock=renderOrderNoteBlock_(g,ownsOrder);
     const orderEditActions=showEditBtn
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
           <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-edit"></i> แก้ไข</button>
@@ -1967,6 +2106,7 @@ const app = {
     try{
       await runSaving({busyText:"กำลังอัปเดตสถานะ…"},()=>callAuthed("updateOrderStatusByOrderId",orderId,status));
       this.showMsg("อัปเดตสถานะออเดอร์แล้ว","success");
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       ordersInGroup.forEach(o=>{o.status=prev;o.orderStatus=prev});
       this.fillOrderListBody();
@@ -1984,6 +2124,7 @@ const app = {
     try{
       await runSaving({btn:btnEl,btnText:"บันทึก…",busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,next));
       this.showMsg("บันทึกหมายเหตุแล้ว","success");
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       ordersInGroup.forEach(o=>{o.note=prev});
       input.value=prev;
@@ -2033,16 +2174,15 @@ const app = {
     if(!canUserEditOrderGroup(orderGroup,ownsOrder))return this.showMsg("ออเดอร์ชำระเงินแล้ว แก้ไขสลิปได้เฉพาะแอดมิน","warning");
     this.closeSlipUploadModal();
     const safeOid=ddSafeId(orderId);
+    const initDate=normalizePayDateForInput_(orderGroup.payDate)||todayStr();
+    const initTime=normalizePayTimeForInput_(orderGroup.payTime)||nowTimeStr();
     const html=`
       <div class="login-overlay" id="slip-upload-modal" onclick="if(event.target===this)app.closeSlipUploadModal()">
         <div class="login-card" style="max-width:480px" onclick="event.stopPropagation()">
           <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
           <p class="login-sub text-xs">วันที่สั่ง: ${formatOrderTimestampCell(orderGroup.timestamp)} · กรอกวันที่/เวลาที่โอนตามสลิป</p>
           <div class="space-y-2">
-            <div class="grid grid-cols-2 gap-2">
-              <div><label class="glass-label">วันที่โอน *</label><input id="slip-pay-date-${safeOid}" type="date" value="${todayStr()}" class="glass-input p-2 text-sm"></div>
-              <div><label class="glass-label">เวลาโอน *</label><input id="slip-pay-time-${safeOid}" type="time" value="${nowTimeStr()}" class="glass-input p-2 text-sm"></div>
-            </div>
+            ${buildSlipDateTimeFieldsHtml_(safeOid,initDate,initTime)}
             <div><label class="glass-label">รูปสลิป *</label><input id="slip-file-${safeOid}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs"></div>
             <p class="text-xs text-glass-dim">รองรับไฟล์ใหญ่ (สูงสุด ~28 MB) — ระบบย่อรูปอัตโนมัติก่อนส่ง · แนะนำ JPG/PNG</p>
             <div id="slip-modal-msg" class="modal-inline-msg text-sm text-center mt-2 font-semibold" style="display:none" role="alert"></div>
@@ -2060,6 +2200,7 @@ const app = {
     document.addEventListener("keydown",escHandler);
     const m=document.getElementById("slip-upload-modal");
     if(m)m._escHandler=escHandler;
+    bindSlipDateTimePreview_(safeOid);
   },
 
   closeSlipUploadModal(){
@@ -2082,14 +2223,13 @@ const app = {
       const base64=await prepareImageBase64ForUpload_(file,function(status){
         self.showSlipModalMsg(status,"warning");
       });
-      await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
-        await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",orderId,base64,payDate,payTime,file.name);
-        invalidateClientCache();
-        ensureAppData(true).catch(function(){});
+      const res=await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
+        return await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",orderId,base64,payDate,payTime,file.name);
       });
+      applyLocalOrderSlipUpdate_(orderId,res);
       this.closeSlipUploadModal();
       this.showMsg("บันทึกสลิปแล้ว รอแอดมินตรวจสอบ","success");
-      this.fillOrderListBody();
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showSlipModalMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
     }
@@ -2157,12 +2297,11 @@ const app = {
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("acceptOrderPayment",orderId);
-        invalidateClientCache();
-        ensureAppData(true).catch(function(){});
       });
+      applyLocalOrderPaymentStatus_(orderId,"ชำระเงินแล้ว");
       this.closePaymentReviewModal();
       this.showMsg("ยอมรับการชำระเงินแล้ว","success");
-      this.fillOrderListBody();
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
@@ -2177,12 +2316,11 @@ const app = {
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("markOrderFreeGiveaway",orderId);
-        invalidateClientCache();
-        ensureAppData(true).catch(function(){});
       });
+      applyLocalOrderPaymentStatus_(orderId,PAYMENT_FREE_GIVEAWAY);
       this.closePaymentReviewModal();
       this.showMsg("บันทึกเป็นเสื้อแจกฟรีแล้ว (ไม่รวมยอดสั่งซื้อ)","success");
-      this.fillOrderListBody();
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
@@ -2194,15 +2332,10 @@ const app = {
     try{
       await runSaving({btn:btn,btnText:"",busyText:"กำลังลบรูป…"},async()=>{
         await callAuthed("deleteOrderImage",orderId);
-        invalidateClientCache();
-        try {
-          await ensureAppData(true);
-        } catch (refreshErr) {
-          if (!await verifySessionAlive_()) throw refreshErr;
-        }
       });
+      applyLocalOrderSlipUpdate_(orderId,{slipUrl:"",slipName:"",payDate:"",payTime:"",paymentStatus:""});
       this.showMsg("ลบรูปแนบแล้ว","success");
-      this.fillOrderListBody();
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"ลบรูปไม่สำเร็จ","error");
     }
@@ -2331,16 +2464,14 @@ const app = {
         const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note});
         applyLocalOrderCartUpdate_(orderId,r,items,orderGroup);
         appDataStale=false;
-        invalidateClientCache();
-        ensureAppData(true).catch(function(){});
         return r;
       });
       this.closeCartEditModal();
       this.showMsg(inCart?"บันทึกตะกร้าแล้ว":"บันทึกจำนวนแล้ว","success");
-      this.fillOrderListBody();
+      await refreshAfterMutation_({ keepLocal: true });
     }catch(e){
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
-      ensureAppData(true).catch(function(){});
+      await refreshAfterMutation_({ keepLocal: true });
     }
   },
 
@@ -2350,11 +2481,9 @@ const app = {
     try{
       await runSaving({btn:btn,busyText:"กำลังส่งออเดอร์…"},async()=>{
         await callAuthed("submitCartOrderToAdmin",orderId);
-        invalidateClientCache();
-        await ensureAppData(true);
       });
       this.showMsg("ส่งออเดอร์ไปยังแอดมินแล้ว","success");
-      this.fillOrderListBody();
+      await refreshAfterMutation_();
     }catch(e){
       this.showMsg(e.message||"ส่งออเดอร์ไม่สำเร็จ","error");
     }

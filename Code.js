@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "119";
+const APP_BUILD = "120";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -1382,19 +1382,21 @@ function uploadOrderImage(token, orderId, base64, payDate, payTime, filename) {
       throw new Error("อัปโหลดรูปไม่สำเร็จ: สิทธิ์ Google Drive ยังไม่พร้อม");
     }
     ctx.targetRows.forEach(row => {
-      orderSheet.getRange(row, 7, 1, 2).setValues([[transferDate, transferTime]]);
+      writeOrderPayDateTime_(orderSheet, row, transferDate, transferTime);
       orderSheet.getRange(row, 12).setValue(slipName);
       orderSheet.getRange(row, 13).setValue(slipUrl);
       orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.PENDING_REVIEW);
     });
     invalidateDataCache_();
+    const savedPayDate = formatPayDateFromSheet_(transferDate) || transferDate;
+    const savedPayTime = formatPayTimeFromSheet_(transferTime) || transferTime;
     return {
       ok: true,
       orderId: targetOrderId,
       slipName: slipName,
       slipUrl: slipUrl,
-      payDate: transferDate,
-      payTime: transferTime,
+      payDate: savedPayDate,
+      payTime: savedPayTime,
       paymentStatus: PAYMENT_STATUS.PENDING_REVIEW,
       fileId: extractDriveFileId_(slipUrl),
       rows: ctx.targetRows.length,
@@ -2689,12 +2691,61 @@ function getSizeChart_(ss) {
   })).filter(r => r.size);
 }
 
+const SHEET_TZ_ = "Asia/Bangkok";
+
 function serializeSheetValue_(value) {
   if (value == null || value === "") return "";
   if (Object.prototype.toString.call(value) === "[object Date]") {
     return isNaN(value.getTime()) ? "" : value.toISOString();
   }
   return value;
+}
+
+/** อ่านวันที่โอนจากชีต — ไม่ใช้ toISOString (กันคลาดเคลื่อน timezone) */
+function formatPayDateFromSheet_(value) {
+  if (value == null || value === "") return "";
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    if (isNaN(value.getTime()) || value.getFullYear() < 1900) return "";
+    return Utilities.formatDate(value, SHEET_TZ_, "yyyy-MM-dd");
+  }
+  const s = String(value).trim();
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const js = s.match(/^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})/);
+  if (js) {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mo = months.indexOf(js[1]);
+    if (mo >= 0) {
+      const d = new Date(+js[3], mo, +js[2], 12, 0, 0);
+      return Utilities.formatDate(d, SHEET_TZ_, "yyyy-MM-dd");
+    }
+  }
+  return s;
+}
+
+/** อ่านเวลาโอนจากชีต */
+function formatPayTimeFromSheet_(value) {
+  if (value == null || value === "") return "";
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    if (isNaN(value.getTime())) return "";
+    return Utilities.formatDate(value, SHEET_TZ_, "HH:mm");
+  }
+  const s = String(value).trim();
+  const m = s.match(/(\d{1,2}):(\d{2})/);
+  if (m) {
+    const hh = ("0" + String(parseInt(m[1], 10))).slice(-2);
+    return hh + ":" + m[2];
+  }
+  return s;
+}
+
+/** บันทึกวันที่/เวลาโอนเป็นข้อความตรงตามที่ผู้ใช้เลือก */
+function writeOrderPayDateTime_(sheet, row, payDate, payTime) {
+  const dateStr = formatPayDateFromSheet_(payDate) || String(payDate || "").trim();
+  const timeStr = formatPayTimeFromSheet_(payTime) || String(payTime || "").trim();
+  sheet.getRange(row, 7).setNumberFormat("@");
+  sheet.getRange(row, 8).setNumberFormat("@");
+  sheet.getRange(row, 7, 1, 2).setValues([[dateStr, timeStr]]);
 }
 
 function sanitizeOrderForClient_(order) {
@@ -2706,8 +2757,8 @@ function sanitizeOrderForClient_(order) {
     size: String(order.size || ""),
     qty: Number(order.qty) || 0,
     price: Number(order.price) || 0,
-    payDate: String(serializeSheetValue_(order.payDate) || ""),
-    payTime: String(serializeSheetValue_(order.payTime) || ""),
+    payDate: formatPayDateFromSheet_(order.payDate),
+    payTime: formatPayTimeFromSheet_(order.payTime),
     orderStatus: String(order.orderStatus || order.status || ORDER_STATUS_ORDERED),
     status: String(order.status || order.orderStatus || ORDER_STATUS_ORDERED),
     note: String(order.note || ""),
