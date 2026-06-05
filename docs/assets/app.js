@@ -770,9 +770,11 @@ function shouldCountInDashboard_(o){
 }
 function canEditOrderNote_(g,ownsOrder){
   if(isAdmin()&&isAdminHiddenNoteRegion(g&&g.region))return false;
-  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g))return false;
+  if(isViewer())return false;
+  if(canViewAllRegions()&&!isAdmin()&&!ownsOrder)return false;
   if(isAdmin())return true;
-  return canUserEditOrderGroup(g,ownsOrder);
+  if(isPaymentLocked(g&&g.paymentStatus))return false;
+  return !!ownsOrder;
 }
 function renderOrderNoteBlock_(g,ownsOrder){
   if(isAdmin()&&isAdminHiddenNoteRegion(g&&g.region))return "";
@@ -2403,23 +2405,29 @@ const app = {
       const maxQty=maxEditableQtyForOrder(orderId,size);
       const cur=it?it.qty:0;
       const remainLabel=remainQty<=0?'<span class="text-red-glass">หมด</span>':remainQty;
+      const qtyCell=canEditOrder
+        ?`<input id="cart-${safeId}-${size}" type="number" min="0" max="${maxQty}" class="glass-input p-1 text-xs" value="${cur}">`
+        :`<span class="font-bold">${cur}</span>`;
+      if(!canEditOrder&&cur<=0)return "";
       return `<tr>
         <td><span class="size-badge ${sizeClass(size)}">${size}</span></td>
         <td>${remainLabel}</td>
-        <td><input id="cart-${safeId}-${size}" type="number" min="0" max="${maxQty}" class="glass-input p-1 text-xs" value="${cur}"></td>
+        <td>${qtyCell}</td>
       </tr>`;
-    }).join("");
+    }).filter(Boolean).join("");
     const noteField=canEditNote
-      ?`<div>
-          <label class="glass-label text-xs">หมายเหตุ</label>
-          <input id="cart-edit-note-${safeId}" type="text" class="glass-input text-sm" maxlength="120" placeholder="เช่น ชื่อผู้รับ, รายละเอียดเพิ่มเติม" value="${escHtml(orderGroup.note||"")}">
+      ?`<div class="cart-edit-note-block">
+          <label class="glass-label text-xs" for="cart-edit-note-${safeId}">หมายเหตุ</label>
+          <input id="cart-edit-note-${safeId}" type="text" class="glass-input text-sm" maxlength="120" placeholder="เพิ่มหมายเหตุ (ถ้ามี)" value="${escAttr(String(orderGroup.note||""))}">
         </div>`
       :"";
     const html=`
       <div class="login-overlay" id="cart-edit-modal">
         <div class="login-card" style="max-width:560px">
           <div class="login-title">${inCart?"แก้ไขตะกร้า":"แก้ไขออเดอร์"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
-          <p class="login-sub text-xs">${inCart?"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าจะยืนยันส่งออเดอร์":"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าแอดมินจะล็อกสถานะ"}<br><span class="opacity-80">คอลัมน์ «คงเหลือ» = ตามหน้าสต็อก · ช่องจำนวนปรับได้สูงสุด = คงเหลือ + จำนวนเดิมในออเดอร์นี้</span></p>
+          <p class="login-sub text-xs">${canEditOrder
+            ?(inCart?"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าจะยืนยันส่งออเดอร์":"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าแอดมินจะล็อกสถานะ")
+            :"เพิ่มหมายเหตุได้จนกว่าจะชำระเงินแล้ว (ไซส์/จำนวนล็อกแล้ว)"}<br><span class="opacity-80">${canEditOrder?"คอลัมน์ «คงเหลือ» = ตามหน้าสต็อก · ช่องจำนวนปรับได้สูงสุด = คงเหลือ + จำนวนเดิมในออเดอร์นี้":""}</span></p>
           <div class="space-y-2">
             ${noteField}
             <div class="glass-table-wrap">
@@ -2449,16 +2457,34 @@ const app = {
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
     if(!orderGroup){this.showMsg("ไม่พบออเดอร์","error");return;}
+    const ownsOrder=ownsOrderRegion(orderGroup);
+    const canEditOrder=canUserEditOrderGroup(orderGroup,ownsOrder);
+    const canEditNote=canEditOrderNote_(orderGroup,ownsOrder);
     const safeId=ddSafeId(orderId);
     const noteEl=document.getElementById("cart-edit-note-"+safeId);
     const note=noteEl?String(noteEl.value||"").trim():String(orderGroup.note||"");
+    const inCart=isCartStatus(orderGroup.status);
+    if(!canEditOrder&&canEditNote){
+      const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
+      const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
+      ordersInGroup.forEach(o=>{o.note=note});
+      try{
+        await runSaving({btn:btn,busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,note));
+        this.closeCartEditModal();
+        this.showMsg("บันทึกหมายเหตุแล้ว","success");
+        await refreshAfterMutation_({ keepLocal: true });
+      }catch(e){
+        ordersInGroup.forEach(o=>{o.note=prev});
+        this.showMsg(e.message||"บันทึกหมายเหตุไม่สำเร็จ","error");
+      }
+      return;
+    }
     const sizes=appData?.stockSizes||[];
     const items=sizes.map(size=>{
       const val=Number(document.getElementById("cart-"+safeId+"-"+size)?.value||0);
       return {size:size,qty:Math.max(0,Math.floor(val))};
     }).filter(it=>it.qty>0);
     if(items.length===0){this.showMsg("กรุณาเลือกอย่างน้อย 1 ไซส์","warning");return;}
-    const inCart=isCartStatus(orderGroup.status);
     try{
       await runSaving({btn:btn,busyText:inCart?"กำลังบันทึกตะกร้า…":"กำลังบันทึก…"},async()=>{
         const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note});

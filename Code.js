@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "120";
+const APP_BUILD = "121";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -1211,6 +1211,16 @@ function assertUserCanModifyOwnOrder_(session, groupStatus, paymentStatus) {
   }
 }
 
+function assertUserCanModifyOrderNote_(session, paymentStatus) {
+  if (!session || session.role === "admin") return;
+  if (isViewerRole_(session)) {
+    throw new Error("บัญชีผู้ดูข้อมูลแก้ไขหมายเหตุไม่ได้");
+  }
+  if (isPaymentLocked_(paymentStatus)) {
+    throw new Error("ออเดอร์ถูกปิดแล้ว แก้ไขหมายเหตุได้เฉพาะแอดมิน");
+  }
+}
+
 function assertUserCanDeleteOwnOrder_(session, groupStatus, paymentStatus) {
   assertUserCanModifyOwnOrder_(session, groupStatus, paymentStatus);
 }
@@ -1324,7 +1334,7 @@ function updateOrderNoteByOrderId(token, orderId, note) {
   if (session.role === "admin" && isAdminHiddenNoteRegion_(meta.region)) {
     throw new Error("ไม่มีสิทธิ์ดู/แก้หมายเหตุเขตสำนักงานใหญ่");
   }
-  assertUserCanModifyOwnOrder_(session, meta.status, meta.paymentStatus);
+  assertUserCanModifyOrderNote_(session, meta.paymentStatus);
   const values = getOrderSheetValues_(orderSheet);
   const safeNote = String(note == null ? "" : note).trim();
   let changed = 0;
