@@ -776,6 +776,13 @@ function canEditOrderNote_(g,ownsOrder){
   if(isPaymentLocked(g&&g.paymentStatus))return false;
   return !!ownsOrder;
 }
+function canEditNoteInModal_(g,ownsOrder){
+  if(isViewer())return false;
+  if(isAdmin())return true;
+  if(canViewAllRegions()&&!ownsOrder)return false;
+  if(isPaymentLocked(g&&g.paymentStatus))return false;
+  return !!ownsOrder;
+}
 function renderOrderNoteBlock_(g,ownsOrder){
   if(isAdmin()&&isAdminHiddenNoteRegion(g&&g.region))return "";
   const canEdit=canEditOrderNote_(g,ownsOrder);
@@ -2395,7 +2402,8 @@ const app = {
     const ownsOrder=ownsOrderRegion(orderGroup);
     const canEditOrder=canUserEditOrderGroup(orderGroup,ownsOrder);
     const canEditNote=canEditOrderNote_(orderGroup,ownsOrder);
-    if(!canEditOrder&&!canEditNote)return this.showMsg("ออเดอร์ถูกล็อกแล้ว แก้ไขได้เฉพาะแอดมิน","warning");
+    const canEditNoteInModal=canEditNoteInModal_(orderGroup,ownsOrder);
+    if(!canEditOrder&&!canEditNote&&!canEditNoteInModal)return this.showMsg("ออเดอร์ถูกล็อกแล้ว แก้ไขได้เฉพาะแอดมิน","warning");
     const inCart=isCartStatus(orderGroup.status);
     const safeId=ddSafeId(orderId);
     const sizes=appData?.stockSizes||[];
@@ -2415,12 +2423,12 @@ const app = {
         <td>${qtyCell}</td>
       </tr>`;
     }).filter(Boolean).join("");
-    const noteField=canEditNote
-      ?`<div class="cart-edit-note-block">
-          <label class="glass-label text-xs" for="cart-edit-note-${safeId}">หมายเหตุ</label>
-          <input id="cart-edit-note-${safeId}" type="text" class="glass-input text-sm" maxlength="120" placeholder="เพิ่มหมายเหตุ (ถ้ามี)" value="${escAttr(String(orderGroup.note||""))}">
-        </div>`
-      :"";
+    const noteValue=escHtml(String(orderGroup.note||""));
+    const noteField=`<div class="cart-edit-note-block">
+          <label class="glass-label text-sm font-bold" for="cart-edit-note-${safeId}"><i class="fas fa-sticky-note mr-1"></i>หมายเหตุ</label>
+          <textarea id="cart-edit-note-${safeId}" class="glass-input text-sm cart-edit-note-input" maxlength="120" rows="2"
+            placeholder="เพิ่มหมายเหตุ เช่น ชื่อผู้รับ, รายละเอียดเพิ่มเติม" ${canEditNoteInModal?"":"readonly"}>${noteValue}</textarea>
+        </div>`;
     const html=`
       <div class="login-overlay" id="cart-edit-modal">
         <div class="login-card" style="max-width:560px">
@@ -2460,11 +2468,12 @@ const app = {
     const ownsOrder=ownsOrderRegion(orderGroup);
     const canEditOrder=canUserEditOrderGroup(orderGroup,ownsOrder);
     const canEditNote=canEditOrderNote_(orderGroup,ownsOrder);
+    const canEditNoteInModal=canEditNoteInModal_(orderGroup,ownsOrder);
     const safeId=ddSafeId(orderId);
     const noteEl=document.getElementById("cart-edit-note-"+safeId);
     const note=noteEl?String(noteEl.value||"").trim():String(orderGroup.note||"");
     const inCart=isCartStatus(orderGroup.status);
-    if(!canEditOrder&&canEditNote){
+    if(!canEditOrder&&canEditNoteInModal){
       const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
       const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
       ordersInGroup.forEach(o=>{o.note=note});

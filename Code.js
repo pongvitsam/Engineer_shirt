@@ -225,7 +225,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v6";
-const APP_BUILD = "121";
+const APP_BUILD = "122";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
@@ -1331,9 +1331,6 @@ function updateOrderNoteByOrderId(token, orderId, note) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
   const meta = getOrderGroupMeta_(orderSheet, orderId, session);
-  if (session.role === "admin" && isAdminHiddenNoteRegion_(meta.region)) {
-    throw new Error("ไม่มีสิทธิ์ดู/แก้หมายเหตุเขตสำนักงานใหญ่");
-  }
   assertUserCanModifyOrderNote_(session, meta.paymentStatus);
   const values = getOrderSheetValues_(orderSheet);
   const safeNote = String(note == null ? "" : note).trim();
