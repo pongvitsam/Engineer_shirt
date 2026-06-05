@@ -47,11 +47,30 @@ let chartJsLoading = null;
 let listFilterTimer = null;
 let pendingImageBase64 = "";
 const imageProxyCache = {};
+const imageProxyCacheOrder = [];
+const IMAGE_PROXY_CACHE_MAX = 20;
 let activeDropdown = null;
 const dropdownRegistry = {};
 
 const FILTER_DEBOUNCE_MS = 200;
 const TOKEN_KEY = "peace_token_v1";
+function persistAuthToken_(token){
+  try{
+    if(token)sessionStorage.setItem(TOKEN_KEY,token);
+    else sessionStorage.removeItem(TOKEN_KEY);
+    try{localStorage.removeItem(TOKEN_KEY);}catch(_){}
+  }catch(_){}
+}
+function readAuthToken_(){
+  try{
+    let t=sessionStorage.getItem(TOKEN_KEY);
+    if(!t){t=localStorage.getItem(TOKEN_KEY);if(t)persistAuthToken_(t);}
+    return t||null;
+  }catch(_){return null;}
+}
+function clearAuthToken_(){
+  persistAuthToken_(null);
+}
 const APP_BRAND_FULL = "สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
 const APP_BRAND_SHORT = "สั่งซื้อเสื้อชมรม กฟภ.";
 const APP_PAGE_TITLE = "ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
@@ -470,6 +489,13 @@ function applyLocalOrderSlipUpdate_(orderId, result) {
   });
 }
 
+function applyLocalOrderDelete_(orderId) {
+  if (!appData || !orderId) return;
+  appData.orders = (appData.orders || []).filter(function (o) {
+    return String(o.orderId) !== String(orderId);
+  });
+}
+
 function applyLocalOrderPaymentStatus_(orderId, paymentStatus) {
   if (!appData || !orderId) return;
   (appData.orders || []).forEach(function (o) {
@@ -508,7 +534,12 @@ function scheduleBackgroundBootstrapSync_() {
         app.fillOrderListBody();
         app.applyListFilter();
       }
-    }).catch(function () {});
+    }).catch(function () {
+      appDataStale = true;
+      if (typeof app !== "undefined" && app && typeof app.showMsg === "function") {
+        app.showMsg("ซิงค์ข้อมูลพื้นหลังไม่สำเร็จ — กรุณารีเฟรชหน้า", "warning");
+      }
+    });
   }, 1200);
 }
 
@@ -961,7 +992,11 @@ function renderTransferAccountBlock_(){
   </div>`;
 }
 
+function shouldHideOrderNoteForViewer_(g){
+  return canViewAllRegions()&&!isAdmin()&&isAdminHiddenNoteRegion(g&&g.region);
+}
 function renderOrderNoteBlock_(g,ownsOrder){
+  if(shouldHideOrderNoteForViewer_(g))return `<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
   const note=String(g&&g.note||"").trim();
   if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)&&!note)return "";
   return note
@@ -1148,9 +1183,25 @@ function extractDriveFileId(ref){
   return "";
 }
 
+function imageProxyCacheSet_(fileId,dataUrl){
+  if(!fileId)return;
+  if(imageProxyCache[fileId]){
+    const idx=imageProxyCacheOrder.indexOf(fileId);
+    if(idx>=0)imageProxyCacheOrder.splice(idx,1);
+  }
+  imageProxyCache[fileId]=dataUrl;
+  imageProxyCacheOrder.push(fileId);
+  while(imageProxyCacheOrder.length>IMAGE_PROXY_CACHE_MAX){
+    const old=imageProxyCacheOrder.shift();
+    delete imageProxyCache[old];
+  }
+}
 function clearRoundImageProxyCache(imageRef){
   const id=extractDriveFileId(imageRef);
-  if(id)delete imageProxyCache[id];
+  if(!id)return;
+  delete imageProxyCache[id];
+  const idx=imageProxyCacheOrder.indexOf(id);
+  if(idx>=0)imageProxyCacheOrder.splice(idx,1);
 }
 
 async function resolveRoundImageForDisplay(imageRef, bustCache){
@@ -1165,7 +1216,7 @@ async function resolveRoundImageForDisplay(imageRef, bustCache){
       ? await callServer("getImageProxy",fileId)
       : await callAuthed("getImageProxy",fileId);
     if(res&&res.ok&&res.dataUrl){
-      imageProxyCache[fileId]=res.dataUrl;
+      imageProxyCacheSet_(fileId,res.dataUrl);
       return {url:res.dataUrl,cached:!!res.cached};
     }
     if(res&&res.ok&&res.thumbnailUrl){
@@ -1232,8 +1283,10 @@ function updateRoundImageElements(displayUrl, sourceRef, bustStamp){
   return src||SHIRT_PLACEHOLDER_URL;
 }
 
+const PICKUP_STATUS_OPTS=["รอโอน","รอส่ง","จัดส่งแล้ว","รอรับ","รับแล้ว"];
+const ADMIN_ORDER_STATUS_OPTS=["สั่งออเดอร์แล้ว"].concat(PICKUP_STATUS_OPTS);
 function statusOptions(selected){
-  return (appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"]).map(s=>
+  return (appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS).map(s=>
     `<option value="${s}" ${selected===s?"selected":""}>${s}</option>`).join("");
 }
 
@@ -1434,8 +1487,11 @@ function computeDashboard(regionFilter){
       byRegion[o.region].qty+=qty;
       byRegion[o.region].amount+=price;
       if(bySize[o.size]!==undefined)bySize[o.size]+=qty;
-      if(o.status==="รอโอน")pendingPayment+=qty;
-      else if(o.status==="รอรับ")pendingPickup+=qty;
+      const cartSt=String(appData?.cartStatus||"อยู่ในตะกร้า");
+      const st=String(o.status||"").trim();
+      const ps=String(o.paymentStatus||"").trim();
+      if(st!==cartSt&&!isPaymentVerified(ps))pendingPayment+=qty;
+      if(o.status==="รอรับ")pendingPickup+=qty;
       else if(o.status==="รับแล้ว")pickedUp+=qty;
     }
   }
@@ -1595,7 +1651,7 @@ async function doLogin(){
     authToken=res.token;
     me=normalizeMeClient_({username:res.username,role:res.role,region:res.region,displayName:res.displayName});
     syncWindowSession_();
-    try{localStorage.setItem(TOKEN_KEY,authToken)}catch(_){}
+    persistAuthToken_(authToken);
     bootApp();
   }catch(e){
     if(msg)msg.innerHTML=`<span style="color:#FCA5A5">${escHtml(e.message||"เข้าสู่ระบบไม่สำเร็จ")}</span>`;
@@ -1607,7 +1663,7 @@ function doGuestLogin(){
   guestMode=true;
   authToken=null;
   me={username:"guest",role:"guest",region:"",displayName:"Guest"};
-  try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+  clearAuthToken_();
   bootApp();
 }
 
@@ -1685,7 +1741,7 @@ async function doLogout(){
   const t=authToken;
   guestMode=false;
   authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
-  try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+  clearAuthToken_();
   try{await callServer("logout",t)}catch(_){}
   renderLogin();
 }
@@ -1709,7 +1765,7 @@ function bootApp(){
         }
         authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
         syncWindowSession_();
-        try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+        clearAuthToken_();
         renderLogin("กรุณาเข้าสู่ระบบใหม่");
         return;
       }
@@ -1747,6 +1803,7 @@ const app = {
     if(!nav)return;
     nav.innerHTML=NAV.filter(n=>{
       if(isGuest())return n.id==="stock"||n.guestOk;
+      if(isViewer()&&n.id==="orders")return false;
       return !n.adminOnly||isAdmin();
     }).map(n=>
       `<button class="nav-tab ${this.currentModule===n.id?"active":""}" onclick="app.navigate('${n.id}')"><i class="fas ${n.icon} mr-1"></i>${n.label}</button>`).join("");
@@ -1754,6 +1811,7 @@ const app = {
 
   async navigate(module, forceRefresh){
     if(isGuest()&&module!=="stock"&&module!=="guide")module="stock";
+    if(isViewer()&&module==="orders")module="list";
     if(module==="admin"&&!isAdmin())module="stock";
     if(module==="guide"){
       this.currentModule=module;
@@ -1775,7 +1833,7 @@ const app = {
         }
         authToken=null;me=null;
         syncWindowSession_();
-        try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+        clearAuthToken_();
         renderLogin("กรุณาเข้าสู่ระบบใหม่");
         return;
       }
@@ -2014,7 +2072,7 @@ const app = {
           <div>
             <label class="glass-label">สถานะ</label>
             ${isAdm
-              ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"])})
+              ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS)})
               : `<input id="order-status-fixed" class="glass-input glass-input-readonly" value="${escHtml(orderCartStatus())}" readonly>`}
           </div>
           ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
@@ -2107,15 +2165,24 @@ const app = {
       const total=items.reduce((s,x)=>s+x.qty,0);
       const result=await runSaving({btn:btn,busyText:"กำลังบันทึกออเดอร์…"},async()=>{
         const r=await callAuthed("addMultiSizeOrder",payload);
-        applyLocalOrderCreate_(r,payload,items);
-        appDataStale=false;
         if(slipFile){
           showBusy("กำลังบันทึกสลิป…");
           setBtnLoading(btn,true,"กำลังบันทึกสลิป…");
-          const base64=await prepareImageBase64ForUpload_(slipFile);
-          const slipRes=await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",r.orderId,base64,payDate,payTime,slipFile.name);
-          applyLocalOrderSlipUpdate_(r.orderId,slipRes);
+          try{
+            const base64=await prepareImageBase64ForUpload_(slipFile);
+            const slipRes=await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",r.orderId,base64,payDate,payTime,slipFile.name);
+            applyLocalOrderCreate_(r,payload,items);
+            applyLocalOrderSlipUpdate_(r.orderId,slipRes);
+            appDataStale=false;
+            return Object.assign({},r,slipRes);
+          }catch(slipErr){
+            try{await callAuthed("deleteOrderByOrderId",r.orderId);}catch(_){}
+            applyLocalOrderDelete_(r.orderId);
+            throw slipErr;
+          }
         }
+        applyLocalOrderCreate_(r,payload,items);
+        appDataStale=false;
         return r;
       });
       let okMsg=isAdmin()
@@ -2277,7 +2344,7 @@ const app = {
         <td data-label="วันที่สั่ง" class="py-2 px-2 text-center text-xs">${formatOrderTimestampCell(g.timestamp)}</td>
         <td data-label="สถานะ" class="py-2 px-2 text-center">
           ${canEditStatus
-            ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:g.status||"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||["สั่งออเดอร์แล้ว","รอโอน","รอรับ","รับแล้ว"]),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
+            ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:g.status||"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
             : `<span class="inline-block px-2 py-1 rounded-lg text-xs ${statusCls}" style="border:1px solid rgba(255,255,255,.25)">${escHtml(g.status||orderCartStatus())}</span>`}
           ${noteBlock}
           ${orderEditActions}
@@ -3545,7 +3612,7 @@ function bootEntry(){
   syncAppBranding_();
   try{
     app.container=document.getElementById("app-container");
-    try{authToken=localStorage.getItem(TOKEN_KEY)||null}catch(_){authToken=null}
+    authToken=readAuthToken_();
     if(!authToken){renderLogin();return}
     // Guard verifySession so a hung/failed call still lands on the login screen.
     let settled=false;
@@ -3557,7 +3624,7 @@ function bootEntry(){
         syncWindowSession_();
         bootApp();
       }else{
-        authToken=null;try{localStorage.removeItem(TOKEN_KEY)}catch(_){}
+        authToken=null;clearAuthToken_();
         renderLogin();
       }
     }).catch(()=>{

@@ -133,10 +133,7 @@ function handleRpcPost_(e) {
 function invokeRpc_(method, args, options) {
   options = options || {};
   if (!RPC_PUBLIC_METHODS_[method]) {
-    const token = args[0];
-    if (!readSession_(token)) {
-      throw new Error("กรุณาเข้าสู่ระบบใหม่");
-    }
+    verifySession_(args[0]);
   }
   const fn = {
     login: login,
@@ -167,6 +164,11 @@ function invokeRpc_(method, args, options) {
     saveRoundConfig: saveRoundConfig,
     saveTransferAccount: saveTransferAccount,
     saveSupportContact: saveSupportContact,
+    updateUser: updateUser,
+    requestOrderChange: requestOrderChange,
+    listPendingChangeRequests: listPendingChangeRequests,
+    reviewOrderChangeRequest: reviewOrderChangeRequest,
+    getMyOrderStatus: getMyOrderStatus,
     saveStockDelivered: saveStockDelivered,
     resetAllData: resetAllData,
     exportAllDataCsv: exportAllDataCsv,
@@ -226,8 +228,8 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v9";
-const APP_BUILD = "130";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v10";
+const APP_BUILD = "131";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -905,9 +907,8 @@ function getBootstrapData(token) {
       ? data.orders.filter(o => o.region === session.region)
       : [];
   }
-  // Hide free-giveaway orders from non-admin users so giveaway data never
-  // reaches the client (only main admin1/admin2 can see those rows).
-  if (session.role !== "admin") {
+  // Hide free-giveaway orders from region users/viewers; engineers need full visibility.
+  if (session.role === "user" || isViewerRole_(session)) {
     out.orders = out.orders.filter(function (o) {
       return !isFreeGiveawayPayment_(o.paymentStatus);
     });
@@ -1514,7 +1515,7 @@ function acceptOrderPayment(token, orderId) {
         throw new Error("ออเดอร์นี้เป็นเสื้อแจกฟรีแล้ว");
       }
       targetRows.push(i + 2);
-      if (String(values[i][12] || "").trim() || String(values[i][13] || "").trim()) hasSlip = true;
+      if (String(values[i][11] || "").trim() || String(values[i][12] || "").trim()) hasSlip = true;
     }
     if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
     if (!hasSlip) throw new Error("ยังไม่มีสลิปแนบ ไม่สามารถยอมรับการชำระได้");
@@ -2866,7 +2867,12 @@ function sanitizeOrderForClient_(order) {
 }
 
 function sanitizeOrderForViewer_(order, session) {
-  return sanitizeOrderForClient_(order);
+  const out = sanitizeOrderForClient_(order);
+  if (!session || session.role === "admin") return out;
+  if ((isEngineerRole_(session) || isViewerRole_(session)) && isAdminHiddenNoteRegion_(out.region)) {
+    out.note = "";
+  }
+  return out;
 }
 
 function getOrders_(ss) {
