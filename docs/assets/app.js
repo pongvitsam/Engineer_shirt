@@ -495,42 +495,141 @@ async function refreshAfterMutation_(opts) {
   }
 }
 
+const TH_MONTHS_FULL=["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+const TH_DAYS_FULL=["วันอาทิตย์","วันจันทร์","วันอังคาร","วันพุธ","วันพฤหัสบดี","วันศุกร์","วันเสาร์"];
+
+function parseIsoDateParts_(s){
+  const m=String(s||"").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m)return null;
+  return{y:+m[1],m:+m[2],d:+m[3]};
+}
+function daysInMonthCe_(y,m){return new Date(y,m,0).getDate()}
+function buildIsoDateFromParts_(y,m,d){return y+"-"+pad2(m)+"-"+pad2(d)}
+function parseTimeParts_(t){
+  const m=String(t||"").trim().match(/^(\d{1,2}):(\d{2})/);
+  return m?{h:+m[1],min:+m[2]}:{h:0,min:0};
+}
+function formatThaiDateLong(isoDate){
+  const p=parseIsoDateParts_(isoDate);
+  if(!p||p.y<1900)return "—";
+  const dt=new Date(p.y,p.m-1,p.d);
+  if(isNaN(dt.getTime()))return "—";
+  return TH_DAYS_FULL[dt.getDay()]+"ที่ "+p.d+" "+TH_MONTHS_FULL[p.m-1]+" "+(p.y+543);
+}
+function slipDtDayOptions_(y,m,selDay){
+  const max=daysInMonthCe_(y,m);
+  let h="";
+  for(let d=1;d<=max;d++)h+=`<option value="${d}"${d===selDay?" selected":""}>${d}</option>`;
+  return h;
+}
+function slipDtMonthOptions_(selMonth){
+  let h="";
+  for(let i=0;i<12;i++)h+=`<option value="${i+1}"${i+1===selMonth?" selected":""}>${TH_MONTHS_FULL[i]}</option>`;
+  return h;
+}
+function slipDtYearOptions_(selYear){
+  const now=new Date().getFullYear();
+  let h="";
+  for(let y=now-1;y<=now+1;y++)h+=`<option value="${y}"${y===selYear?" selected":""}>${y+543}</option>`;
+  return h;
+}
+function slipDtHourOptions_(selHour){
+  let h="";
+  for(let i=0;i<24;i++)h+=`<option value="${pad2(i)}"${i===selHour?" selected":""}>${pad2(i)}</option>`;
+  return h;
+}
+function slipDtMinuteOptions_(selMinute){
+  let h="";
+  for(let i=0;i<60;i++)h+=`<option value="${pad2(i)}"${i===selMinute?" selected":""}>${pad2(i)}</option>`;
+  return h;
+}
+
 function buildSlipDateTimeFieldsHtml_(safeOid, initDate, initTime) {
-  const d = initDate || todayStr();
-  const t = initTime || nowTimeStr();
+  const iso=initDate||todayStr();
+  const tp=parseTimeParts_(initTime||nowTimeStr());
+  const dp=parseIsoDateParts_(iso)||parseIsoDateParts_(todayStr());
+  const y=dp.y,m=dp.m,d=Math.min(dp.d,daysInMonthCe_(dp.y,dp.m));
+  const isoVal=buildIsoDateFromParts_(y,m,d);
+  const timeVal=pad2(tp.h)+":"+pad2(tp.min);
+  const heroDate=formatThaiDateLong(isoVal);
+  const heroTime=timeVal+" น.";
   return `<div class="glass-datetime-panel">
-    <div class="glass-datetime-section">
-      <div class="glass-datetime-label"><i class="fas fa-calendar-day"></i> วันที่โอน *</div>
-      <input type="date" id="slip-pay-date-${safeOid}" class="glass-datetime-input" value="${escAttr(d)}">
-      <div id="slip-pay-date-preview-${safeOid}" class="glass-datetime-preview"></div>
+    <div class="glass-datetime-hero">
+      <div class="glass-datetime-hero-icon"><i class="fas fa-receipt"></i></div>
+      <div id="slip-dt-preview-date-${safeOid}" class="glass-datetime-hero-date">${escHtml(heroDate)}</div>
+      <div id="slip-dt-preview-time-${safeOid}" class="glass-datetime-hero-time">${escHtml(heroTime)}</div>
     </div>
     <div class="glass-datetime-section">
-      <div class="glass-datetime-label"><i class="fas fa-clock"></i> เวลาโอน *</div>
-      <input type="time" id="slip-pay-time-${safeOid}" class="glass-datetime-input" value="${escAttr(t)}" step="60">
-      <div id="slip-pay-time-preview-${safeOid}" class="glass-datetime-preview"></div>
+      <div class="glass-datetime-label"><i class="fas fa-calendar-day"></i> เลือกวันที่โอน *</div>
+      <div class="glass-datetime-selects">
+        <div class="glass-datetime-select-wrap">
+          <span class="glass-datetime-select-hint">วัน</span>
+          <select id="slip-dt-day-${safeOid}" class="glass-select glass-datetime-select" aria-label="วัน">${slipDtDayOptions_(y,m,d)}</select>
+        </div>
+        <div class="glass-datetime-select-wrap glass-datetime-select-month">
+          <span class="glass-datetime-select-hint">เดือน</span>
+          <select id="slip-dt-month-${safeOid}" class="glass-select glass-datetime-select" aria-label="เดือน">${slipDtMonthOptions_(m)}</select>
+        </div>
+        <div class="glass-datetime-select-wrap">
+          <span class="glass-datetime-select-hint">ปี พ.ศ.</span>
+          <select id="slip-dt-year-${safeOid}" class="glass-select glass-datetime-select" aria-label="ปี พ.ศ.">${slipDtYearOptions_(y)}</select>
+        </div>
+      </div>
     </div>
+    <div class="glass-datetime-section">
+      <div class="glass-datetime-label"><i class="fas fa-clock"></i> เลือกเวลาโอน *</div>
+      <div class="glass-datetime-selects glass-datetime-time-selects">
+        <div class="glass-datetime-select-wrap">
+          <span class="glass-datetime-select-hint">ชั่วโมง</span>
+          <select id="slip-dt-hour-${safeOid}" class="glass-select glass-datetime-select" aria-label="ชั่วโมง">${slipDtHourOptions_(tp.h)}</select>
+        </div>
+        <span class="glass-datetime-colon" aria-hidden="true">:</span>
+        <div class="glass-datetime-select-wrap">
+          <span class="glass-datetime-select-hint">นาที</span>
+          <select id="slip-dt-minute-${safeOid}" class="glass-select glass-datetime-select" aria-label="นาที">${slipDtMinuteOptions_(tp.min)}</select>
+        </div>
+      </div>
+    </div>
+    <input type="hidden" id="slip-pay-date-${safeOid}" value="${escAttr(isoVal)}">
+    <input type="hidden" id="slip-pay-time-${safeOid}" value="${escAttr(timeVal)}">
   </div>`;
 }
 
-function bindSlipDateTimePreview_(safeOid) {
-  const dateEl = document.getElementById("slip-pay-date-" + safeOid);
-  const timeEl = document.getElementById("slip-pay-time-" + safeOid);
-  const datePrev = document.getElementById("slip-pay-date-preview-" + safeOid);
-  const timePrev = document.getElementById("slip-pay-time-preview-" + safeOid);
-  function sync() {
-    if (datePrev) {
-      const dv = dateEl ? dateEl.value : "";
-      datePrev.textContent = dv ? ("📅 " + formatThaiDate(dv)) : "";
-    }
-    if (timePrev) {
-      const tv = timeEl ? timeEl.value : "";
-      timePrev.textContent = tv ? ("🕐 " + formatThaiTime(tv)) : "";
-    }
+function bindSlipDateTimePicker_(safeOid) {
+  const dayEl=document.getElementById("slip-dt-day-"+safeOid);
+  const monthEl=document.getElementById("slip-dt-month-"+safeOid);
+  const yearEl=document.getElementById("slip-dt-year-"+safeOid);
+  const hourEl=document.getElementById("slip-dt-hour-"+safeOid);
+  const minEl=document.getElementById("slip-dt-minute-"+safeOid);
+  const hidDate=document.getElementById("slip-pay-date-"+safeOid);
+  const hidTime=document.getElementById("slip-pay-time-"+safeOid);
+  const prevDate=document.getElementById("slip-dt-preview-date-"+safeOid);
+  const prevTime=document.getElementById("slip-dt-preview-time-"+safeOid);
+  if(!dayEl||!monthEl||!yearEl)return;
+  function rebuildDays(){
+    const y=+yearEl.value,m=+monthEl.value;
+    let sel=+dayEl.value;
+    const max=daysInMonthCe_(y,m);
+    if(sel>max)sel=max;
+    const cur=dayEl.value;
+    dayEl.innerHTML=slipDtDayOptions_(y,m,sel);
+    if(cur&&+cur<=max)dayEl.value=cur;
   }
-  if (dateEl) dateEl.addEventListener("input", sync);
-  if (dateEl) dateEl.addEventListener("change", sync);
-  if (timeEl) timeEl.addEventListener("input", sync);
-  if (timeEl) timeEl.addEventListener("change", sync);
+  function sync(){
+    rebuildDays();
+    const y=+yearEl.value,m=+monthEl.value,d=+dayEl.value;
+    const iso=buildIsoDateFromParts_(y,m,d);
+    const h=hourEl?hourEl.value:"00";
+    const mi=minEl?minEl.value:"00";
+    const time=h+":"+mi;
+    if(hidDate)hidDate.value=iso;
+    if(hidTime)hidTime.value=time;
+    if(prevDate)prevDate.textContent=formatThaiDateLong(iso);
+    if(prevTime)prevTime.textContent=time+" น.";
+  }
+  [dayEl,monthEl,yearEl,hourEl,minEl].forEach(function(el){
+    if(el)el.addEventListener("change",sync);
+  });
   sync();
 }
 
@@ -809,25 +908,25 @@ function canEditNoteInModal_(g,ownsOrder){
 function renderOrderNoteBlock_(g,ownsOrder){
   const canEdit=canEditOrderNote_(g,ownsOrder);
   const note=String(g&&g.note||"").trim();
-  const parts=[];
-  if(note){
-    parts.push(`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`);
-  }else if(!canEdit){
-    if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g))return "";
-    parts.push(`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`);
-  }
+  const oid=escHtml(g.orderId);
   if(canEdit){
-    parts.push(`<div class="order-note-wrap mt-2">
+    return `<div class="order-note-wrap mt-2">
       <label class="glass-label text-xs mb-1" for="${noteInputId(g.orderId)}">หมายเหตุ</label>
       <div class="flex gap-1 items-stretch flex-wrap">
-        <input id="${noteInputId(g.orderId)}" type="text" class="glass-input text-xs flex-1 min-w-0" maxlength="120"
-          placeholder="เพิ่มหมายเหตุ (ถ้ามี)" value="${escAttr(note)}">
-        <button type="button" class="glass-btn-secondary text-xs shrink-0" style="padding:.4rem .65rem"
-          onclick="app.saveGroupNote('${escHtml(g.orderId)}',this)"><i class="fas fa-save mr-1"></i>บันทึก</button>
+        <input id="${noteInputId(g.orderId)}" type="text" class="glass-input text-xs flex-1 min-w-0 order-note-input" maxlength="120"
+          placeholder="พิมพ์หมายเหตุแล้วกดบันทึก" value="${escAttr(note)}"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();const b=this.parentElement&&this.parentElement.querySelector('.order-note-save-btn');if(b)app.saveGroupNote('${oid}',b);}">
+        <button type="button" class="glass-btn-secondary text-xs shrink-0 order-note-save-btn" style="padding:.4rem .65rem"
+          onclick="app.saveGroupNote('${oid}',this)"><i class="fas fa-save mr-1"></i>บันทึก</button>
       </div>
-    </div>`);
+    </div>`;
   }
-  return parts.join("");
+  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)){
+    return note?`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`:"";
+  }
+  return note
+    ?`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`
+    :`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
 }
 function canUserEditOrderGroup(g,ownsOrder){
   if(isAdmin())return true;
@@ -2056,8 +2155,7 @@ const app = {
     const ownsOrder=ownsOrderRegion(g);
     const canEditOrder=canUserEditOrderGroup(g,ownsOrder);
     const canDeleteOrder=canUserDeleteOrderGroup(g,ownsOrder);
-    const canEditNote=canEditOrderNote_(g,ownsOrder);
-    const showEditBtn=canEditOrder||canEditNote;
+    const showEditBtn=canEditOrder;
     const itemsLabel=`<div class="order-items">${g.items.map(it=>`<span class="order-item"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span><span class="order-item-qty">×${it.qty}</span></span>`).join("")}</div>`;
     const canManageSlip=!isFreeGiveawayPayment(g.paymentStatus)&&(isAdmin()||(ownsOrder&&!isPaymentLocked(g.paymentStatus)));
     const slipSafeId=ddSafeId(g.orderId);
@@ -2086,7 +2184,7 @@ const app = {
     const noteBlock=renderOrderNoteBlock_(g,ownsOrder);
     const orderEditActions=showEditBtn
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
-          <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-edit"></i> แก้ไข</button>
+          <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-ruler-combined"></i> แก้ไขไซส์</button>
           ${inCart&&canEditOrder?`<button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>`:""}
         </div>`
       :(isPaymentLocked(g.paymentStatus)?`<div class="mt-1 text-xs text-glass-dim">${isFreeGiveawayPayment(g.paymentStatus)?"เสื้อแจกฟรี — แก้ไข/ลบได้เฉพาะแอดมิน":"ชำระเงินแล้ว — แก้ไข/ลบได้เฉพาะแอดมิน"}</div>`
@@ -2214,7 +2312,7 @@ const app = {
     const initTime=normalizePayTimeForInput_(orderGroup.payTime)||nowTimeStr();
     const html=`
       <div class="login-overlay" id="slip-upload-modal" onclick="if(event.target===this)app.closeSlipUploadModal()">
-        <div class="login-card" style="max-width:480px" onclick="event.stopPropagation()">
+        <div class="login-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
           <p class="login-sub text-xs">วันที่สั่ง: ${formatOrderTimestampCell(orderGroup.timestamp)} · กรอกวันที่/เวลาที่โอนตามสลิป</p>
           <div class="space-y-2">
@@ -2236,7 +2334,7 @@ const app = {
     document.addEventListener("keydown",escHandler);
     const m=document.getElementById("slip-upload-modal");
     if(m)m._escHandler=escHandler;
-    bindSlipDateTimePreview_(safeOid);
+    bindSlipDateTimePicker_(safeOid);
   },
 
   closeSlipUploadModal(){

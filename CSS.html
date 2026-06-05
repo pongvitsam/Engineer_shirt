@@ -12,15 +12,25 @@
 .glass-busy{z-index:10140}
 .role-badge-engineer{background:rgba(109,40,217,.85);color:#fff}
 .status-แจกฟรี{background:rgba(109,40,217,.55);color:#EDE9FE;border:1px solid rgba(196,181,253,.5)}
-.glass-datetime-panel{display:grid;grid-template-columns:1fr;gap:.75rem;margin:.25rem 0 .5rem}
-@media (min-width:400px){.glass-datetime-panel{grid-template-columns:1fr 1fr}}
+.glass-datetime-panel{display:flex;flex-direction:column;gap:.85rem;margin:.25rem 0 .5rem}
+.glass-datetime-hero{background:linear-gradient(135deg,rgba(109,40,217,.5) 0%,rgba(127,29,29,.42) 100%);border:1px solid rgba(255,255,255,.32);border-radius:1.15rem;padding:1rem 1.1rem;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+.glass-datetime-hero-icon{font-size:1.35rem;color:#FDE68A;margin-bottom:.35rem;opacity:.9}
+.glass-datetime-hero-date{font-size:clamp(1rem,3.6vw,1.2rem);font-weight:700;color:#fff;line-height:1.5;text-shadow:0 1px 8px rgba(0,0,0,.22)}
+.glass-datetime-hero-time{font-size:clamp(1.4rem,4.8vw,1.75rem);font-weight:800;color:#FDE68A;margin-top:.3rem;letter-spacing:.03em}
 .glass-datetime-section{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:1rem;padding:.75rem .85rem}
-.glass-datetime-label{font-size:var(--fs-sm);font-weight:700;color:#FDE68A;margin-bottom:.45rem;display:flex;align-items:center;gap:.4rem}
-.glass-datetime-input{width:100%;min-height:3rem;font-size:1.05rem!important;font-weight:600;background:rgba(127,29,29,.35);border:1px solid rgba(255,255,255,.35);border-radius:.75rem;padding:.65rem .75rem;color:#fff;cursor:pointer}
-.glass-datetime-input::-webkit-calendar-picker-indicator{filter:invert(1) brightness(1.2);cursor:pointer;opacity:.9;transform:scale(1.15)}
-.glass-datetime-preview{margin-top:.4rem;font-size:var(--fs-xs);color:rgba(255,255,255,.85);min-height:1.1rem;font-weight:600}
+.glass-datetime-label{font-size:var(--fs-sm);font-weight:700;color:#FDE68A;margin-bottom:.5rem;display:flex;align-items:center;gap:.4rem}
+.glass-datetime-selects{display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end}
+.glass-datetime-time-selects{align-items:center}
+.glass-datetime-select-wrap{flex:1;min-width:4.25rem}
+.glass-datetime-select-month{flex:1.5;min-width:6.75rem}
+.glass-datetime-select-hint{display:block;font-size:.65rem;font-weight:600;color:rgba(255,255,255,.55);margin-bottom:.22rem}
+.glass-datetime-select{min-height:2.85rem;padding:.5rem .45rem;font-size:.92rem!important;font-weight:700;text-align:center;background:rgba(127,29,29,.38);border-color:rgba(255,255,255,.35)}
+.glass-datetime-colon{font-size:1.55rem;font-weight:800;color:#FDE68A;padding-bottom:.4rem;flex-shrink:0;line-height:1}
+.order-note-wrap{margin-top:.5rem}
 .order-note-wrap .glass-input{min-height:38px}
-.order-note-wrap .glass-label{margin-bottom:.2rem}
+.order-note-wrap .glass-label{margin-bottom:.2rem;color:#FDE68A}
+.order-note-input{font-size:16px}
+.order-note-save-btn{min-height:38px}
 .order-note-display{background:rgba(253,224,71,.14);border:1px solid rgba(253,224,71,.32);border-radius:.55rem;padding:.35rem .5rem;line-height:1.35;word-break:break-word}
 .cart-edit-note-block{margin-bottom:.75rem;padding:.65rem .75rem;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);border-radius:.85rem}
 .cart-edit-note-block .glass-label{color:#FDE68A;margin-bottom:.4rem}
