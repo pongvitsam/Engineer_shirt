@@ -2454,6 +2454,7 @@ const app = {
     setTimeout(function(){self._openSlipUploadModalNow_(orderId,isReplace);},0);
   },
   _openSlipUploadModalNow_(orderId,isReplace){
+    if(typeof app!=="undefined"&&app&&typeof app.closeDropdownPanel==="function")app.closeDropdownPanel();
     const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     const ownsOrder=ownsOrderRegion(orderGroup);
@@ -2463,20 +2464,20 @@ const app = {
     const initDate=normalizePayDateForInput_(orderGroup.payDate)||todayStr();
     const initTime=normalizePayTimeForInput_(orderGroup.payTime)||nowTimeStr();
     const html=`
-      <div class="login-overlay" id="slip-upload-modal" onclick="if(event.target===this)app.closeSlipUploadModal()">
-        <div class="login-card" style="max-width:520px" onclick="event.stopPropagation()">
+      <div class="login-overlay slip-upload-overlay" id="slip-upload-modal" onclick="if(event.target===this)app.closeSlipUploadModal()">
+        <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
           <p class="login-sub text-xs">วันที่สั่ง: ${formatOrderTimestampCell(orderGroup.timestamp)} · กรอกวันที่/เวลาที่โอนตามสลิป</p>
-          <div class="space-y-2">
+          <div class="slip-upload-body space-y-2">
             <div><label class="glass-label">รูปสลิป *</label><input id="slip-file-${safeOid}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs"></div>
             <p class="text-xs text-glass-dim">รองรับไฟล์ใหญ่ (สูงสุด ~28 MB) — ระบบย่อรูปอัตโนมัติก่อนส่ง · แนะนำ JPG/PNG</p>
             <div id="slip-preview-${safeOid}" style="display:none"></div>
             ${buildSlipDateTimeFieldsHtml_(safeOid,initDate,initTime)}
             <div id="slip-modal-msg" class="modal-inline-msg text-sm text-center mt-2 font-semibold" style="display:none" role="alert"></div>
-            <div class="grid grid-cols-2 gap-2 mt-2">
-              <button type="button" onclick="app.closeSlipUploadModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
-              <button type="button" onclick="app.submitSlipUpload('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">บันทึกสลิป</button>
-            </div>
+          </div>
+          <div class="slip-modal-actions grid grid-cols-2 gap-2">
+            <button type="button" onclick="app.closeSlipUploadModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
+            <button type="button" onclick="app.submitSlipUpload('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">บันทึกสลิป</button>
           </div>
         </div>
       </div>`;

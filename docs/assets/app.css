@@ -37,3 +37,10 @@
 .cart-edit-note-input{width:100%;min-height:3.25rem;resize:vertical;line-height:1.35}
 .slip-upload-preview{margin:.35rem 0}
 .slip-preview-img{width:100%;max-height:min(52vh,22rem);object-fit:contain;border-radius:.75rem;background:rgba(0,0,0,.12)}
+.slip-upload-overlay{align-items:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:max(.75rem,env(safe-area-inset-top,0px)) 1rem max(1.25rem,env(safe-area-inset-bottom,0px))}
+.slip-upload-card{display:flex;flex-direction:column;max-height:calc(100dvh - 1.5rem);overflow:hidden;margin:0 auto;flex-shrink:0}
+.slip-upload-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-right:.1rem}
+.slip-modal-actions{flex-shrink:0;padding-top:.75rem;margin-top:.5rem;border-top:1px solid rgba(255,255,255,.25);position:relative;z-index:5;background:rgba(76,29,149,.98)}
+.slip-modal-actions .glass-btn-primary,.slip-modal-actions .glass-btn-secondary{min-height:var(--touch-min);touch-action:manipulation}
+#slip-upload-modal .slip-preview-img{max-height:min(28vh,11rem)}
+#slip-upload-modal .glass-datetime-select,#slip-upload-modal .glass-select{touch-action:manipulation;position:relative;z-index:2}
