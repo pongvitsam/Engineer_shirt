@@ -907,24 +907,8 @@ function canEditNoteInModal_(g,ownsOrder){
   return !!ownsOrder;
 }
 function renderOrderNoteBlock_(g,ownsOrder){
-  const canEdit=canEditOrderNote_(g,ownsOrder);
   const note=String(g&&g.note||"").trim();
-  const oid=escHtml(g.orderId);
-  if(canEdit){
-    return `<div class="order-note-wrap mt-2">
-      <label class="glass-label text-xs mb-1" for="${noteInputId(g.orderId)}">หมายเหตุ</label>
-      <div class="flex gap-1 items-stretch flex-wrap">
-        <input id="${noteInputId(g.orderId)}" type="text" class="glass-input text-xs flex-1 min-w-0 order-note-input" maxlength="120"
-          placeholder="พิมพ์หมายเหตุแล้วกดบันทึก" value="${escAttr(note)}"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();const b=this.parentElement&&this.parentElement.querySelector('.order-note-save-btn');if(b)app.saveGroupNote('${oid}',b);}">
-        <button type="button" class="glass-btn-secondary text-xs shrink-0 order-note-save-btn" style="padding:.4rem .65rem"
-          onclick="app.saveGroupNote('${oid}',this)"><i class="fas fa-save mr-1"></i>บันทึก</button>
-      </div>
-    </div>`;
-  }
-  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)){
-    return note?`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`:"";
-  }
+  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)&&!note)return "";
   return note
     ?`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`
     :`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
@@ -1096,7 +1080,6 @@ function ownsOrderRegion(g){
 function isGuest(){return me&&me.role==="guest"}
 function escHtml(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function escAttr(s){return escHtml(s).replace(/`/g,"&#96;")}
-function noteInputId(orderId){return "order-note-"+String(orderId||"").replace(/[^a-zA-Z0-9_-]/g,"_")}
 
 function extractDriveFileId(ref){
   const s=String(ref||"").trim();
@@ -2155,8 +2138,9 @@ const app = {
     const canEditStatus=isAdmin();
     const ownsOrder=ownsOrderRegion(g);
     const canEditOrder=canUserEditOrderGroup(g,ownsOrder);
+    const canEditNote=canEditOrderNote_(g,ownsOrder);
     const canDeleteOrder=canUserDeleteOrderGroup(g,ownsOrder);
-    const showEditBtn=canEditOrder;
+    const showEditBtn=canEditOrder||canEditNote;
     const itemsLabel=`<div class="order-items">${g.items.map(it=>`<span class="order-item"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span><span class="order-item-qty">×${it.qty}</span></span>`).join("")}</div>`;
     const canManageSlip=!isFreeGiveawayPayment(g.paymentStatus)&&(isAdmin()||(ownsOrder&&!isPaymentLocked(g.paymentStatus)));
     const slipSafeId=ddSafeId(g.orderId);
@@ -2185,7 +2169,7 @@ const app = {
     const noteBlock=renderOrderNoteBlock_(g,ownsOrder);
     const orderEditActions=showEditBtn
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
-          <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-ruler-combined"></i> แก้ไขไซส์</button>
+          <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-edit"></i> แก้ไข</button>
           ${inCart&&canEditOrder?`<button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>`:""}
         </div>`
       :(isPaymentLocked(g.paymentStatus)?`<div class="mt-1 text-xs text-glass-dim">${isFreeGiveawayPayment(g.paymentStatus)?"เสื้อแจกฟรี — แก้ไข/ลบได้เฉพาะแอดมิน":"ชำระเงินแล้ว — แก้ไข/ลบได้เฉพาะแอดมิน"}</div>`
@@ -2244,26 +2228,6 @@ const app = {
       ordersInGroup.forEach(o=>{o.status=prev;o.orderStatus=prev});
       this.fillOrderListBody();
       this.showMsg(e.message,"error");
-    }
-  },
-
-  async saveGroupNote(orderId,btnEl){
-    const input=document.getElementById(noteInputId(orderId));
-    if(!input)return;
-    const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
-    const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
-    const next=String(input.value||"").trim();
-    applyLocalOrderNoteUpdate_(orderId,next);
-    try{
-      await runSaving({btn:btnEl,btnText:"บันทึก…",busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,next));
-      this.showMsg("บันทึกหมายเหตุแล้ว","success");
-      this.fillOrderListBody();
-      this.applyListFilter();
-      await refreshAfterMutation_({ keepLocal: true });
-    }catch(e){
-      ordersInGroup.forEach(o=>{o.note=prev});
-      input.value=prev;
-      this.showMsg(e.message||"บันทึกหมายเหตุไม่สำเร็จ","error");
     }
   },
 
