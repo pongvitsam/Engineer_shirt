@@ -229,7 +229,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "137";
+const APP_BUILD = "138";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1454,6 +1454,9 @@ function uploadOrderImage(token, orderId, base64, payDate, payTime, filename) {
     const ctx = getOrderSlipContext_(orderSheet, targetOrderId, session);
     if (!ctx.targetRows.length) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
     assertUserCanModifyOwnOrder_(session, ctx.orderStatus, ctx.paymentStatus);
+    if (ctx.hadSlip) {
+      trashSlipDriveFilesBestEffort_(collectSlipFileIdsForOrderId_(getOrderSheetValues_(orderSheet), targetOrderId));
+    }
 
     const saved = saveSlipFileForOrder_(base64, {
       region: ctx.region,
@@ -1600,14 +1603,7 @@ function deleteOrderImage(token, orderId) {
     const orderStatus = String(values[targetRows[0] - 1][8] || ORDER_STATUS_ORDERED);
     assertUserCanModifyOwnOrder_(session, orderStatus, payStatus);
 
-    // Best-effort: trash the Drive file(s). Tolerate permission errors so the
-    // sheet reference is always cleared even if Drive cleanup fails.
-    Object.keys(fileIds).forEach(id => {
-      try {
-        DriveApp.getFileById(id).setTrashed(true);
-        CacheService.getScriptCache().remove("img_proxy_" + id);
-      } catch (e) {}
-    });
+    trashSlipDriveFilesBestEffort_(fileIds);
     targetRows.forEach(row => {
       orderSheet.getRange(row, 12).setValue("");
       orderSheet.getRange(row, 13).setValue("");
@@ -1690,6 +1686,7 @@ function deleteOrder(token, no) {
       if (!sessionCanModifyRegion_(session, values[i][2])) {
         throw new Error("ไม่มีสิทธิ์ลบออเดอร์นี้");
       }
+      trashSlipFilesIfUnreferenced_(values, [i + 1]);
       orderSheet.deleteRow(i + 1);
       renumberOrders_(orderSheet);
       invalidateDataCache_();
@@ -1728,6 +1725,7 @@ function deleteOrderByOrderId(token, orderId) {
     throw new Error(session.role === "admin" ? "ไม่พบออเดอร์ " + targetOrderId : "ไม่มีสิทธิ์ลบออเดอร์นี้");
   }
   assertUserCanDeleteOwnOrder_(session, groupStatus, paymentStatus);
+  trashSlipDriveFilesBestEffort_(collectSlipFileIdsForOrderId_(values, targetOrderId));
   // delete from bottom up to keep indices stable
   for (let i = rowsToDelete.length - 1; i >= 0; i--) {
     orderSheet.deleteRow(rowsToDelete[i]);
@@ -1952,6 +1950,7 @@ function reviewOrderChangeRequest(token, orderId, action, note) {
       orderSheet.getRange(meta.row, 15).setValue("");
     });
     if (rowsToDelete.length > 0) {
+      trashSlipFilesIfUnreferenced_(values, rowsToDelete);
       rowsToDelete.sort((a, b) => b - a).forEach(rowNo => orderSheet.deleteRow(rowNo));
     }
     renumberOrders_(orderSheet);
@@ -2247,6 +2246,13 @@ function resetAllData(token) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
 
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
+  const orderValues = getOrderSheetValues_(orderSheet);
+  const slipIds = {};
+  for (let i = 1; i < orderValues.length; i++) {
+    const id = slipFileIdFromOrderRow_(orderValues[i]);
+    if (id) slipIds[id] = true;
+  }
+  trashSlipDriveFilesBestEffort_(slipIds);
   clearSheetData_(orderSheet, ORDERS_HEADERS);
 
   const stockSheet = ss.getSheetByName(STOCK_SHEET);
@@ -3009,6 +3015,52 @@ function getSlipSubfolderForRegion_(region) {
   const it = root.getFoldersByName(folderName);
   if (it.hasNext()) return it.next();
   return root.createFolder(folderName);
+}
+
+function slipFileIdFromOrderRow_(row) {
+  const ref = String((row && row[12]) || "").trim();
+  return extractDriveFileId_(ref);
+}
+
+function trashSlipDriveFilesBestEffort_(fileIdMap) {
+  if (!fileIdMap) return;
+  Object.keys(fileIdMap).forEach(function (id) {
+    if (!id) return;
+    try {
+      DriveApp.getFileById(id).setTrashed(true);
+      CacheService.getScriptCache().remove("img_proxy_" + id);
+    } catch (e) {}
+  });
+}
+
+function collectSlipFileIdsForOrderId_(values, orderId) {
+  const ids = {};
+  const targetOrderId = String(orderId || "").trim();
+  for (let i = 1; i < values.length; i++) {
+    const rowOrderId = String(values[i][1] || values[i][0]);
+    if (rowOrderId !== targetOrderId) continue;
+    const id = slipFileIdFromOrderRow_(values[i]);
+    if (id) ids[id] = true;
+  }
+  return ids;
+}
+
+function trashSlipFilesIfUnreferenced_(values, deletedRowIndices1Based) {
+  const refCount = {};
+  for (let i = 1; i < values.length; i++) {
+    const id = slipFileIdFromOrderRow_(values[i]);
+    if (id) refCount[id] = (refCount[id] || 0) + 1;
+  }
+  const toTrash = {};
+  (deletedRowIndices1Based || []).forEach(function (row1) {
+    const i = row1 - 1;
+    if (i < 1 || i >= values.length) return;
+    const id = slipFileIdFromOrderRow_(values[i]);
+    if (!id) return;
+    refCount[id] = (refCount[id] || 0) - 1;
+    if (refCount[id] <= 0) toTrash[id] = true;
+  });
+  trashSlipDriveFilesBestEffort_(toTrash);
 }
 
 function getOrderSlipContext_(orderSheet, orderId, session) {
