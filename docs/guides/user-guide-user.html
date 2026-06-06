@@ -13,7 +13,12 @@
       color: #1e1b4b;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      line-break: strict;
+      word-break: keep-all;
+      overflow-wrap: normal;
+      hyphens: none;
     }
+    .nw { white-space: nowrap; }
     .page {
       width: 297mm;
       height: 210mm;
@@ -136,8 +141,8 @@
       border: 2px solid #fff;
     }
     .step-icon { font-size: 1.5rem; margin: 3mm 0 1.5mm; }
-    .step h3 { font-size: .78rem; font-weight: 800; color: #1c1917; line-height: 1.2; margin-bottom: 1.5mm; }
-    .step p { font-size: .68rem; color: #57534e; line-height: 1.35; flex: 1; }
+    .step h3 { font-size: .78rem; font-weight: 800; color: #1c1917; line-height: 1.2; margin-bottom: 1.5mm; line-break: strict; word-break: keep-all; }
+    .step p { font-size: .68rem; color: #57534e; line-height: 1.35; flex: 1; line-break: strict; word-break: keep-all; }
     .step-connector {
       display: flex;
       align-items: center;
@@ -186,7 +191,7 @@
     .pay-step.hl { border-color: #7f1d1d; background: linear-gradient(180deg, #fff, #fef2f2); }
     .pay-step .ico { font-size: 1.4rem; margin-bottom: 1.5mm; }
     .pay-step h3 { font-size: .75rem; font-weight: 800; color: #7f1d1d; margin-bottom: 1mm; }
-    .pay-step p { font-size: .65rem; color: #44403c; line-height: 1.3; }
+    .pay-step p { font-size: .65rem; color: #44403c; line-height: 1.35; line-break: strict; word-break: keep-all; }
     .pay-arrow { display: flex; align-items: center; font-size: 1.1rem; color: #a78bfa; font-weight: 800; flex-shrink: 0; }
 
     .status-stack {
@@ -223,15 +228,17 @@
       list-style: none;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1.5mm 4mm;
+      gap: 2mm 3mm;
       height: 100%;
       align-content: start;
     }
     .checklist li {
-      font-size: .68rem;
+      font-size: .66rem;
       padding: 1.5mm 0 1.5mm 5mm;
       position: relative;
-      line-height: 1.35;
+      line-height: 1.4;
+      line-break: strict;
+      word-break: keep-all;
     }
     .checklist li::before {
       content: '✓';
@@ -299,7 +306,7 @@
           <div class="step"><span class="step-num">3</span><div class="step-icon">➕</div><h3>สั่งซื้อเสื้อ</h3><p>เลือกไซส์และจำนวน · หมายเหตุ (ถ้ามี)</p></div>
           <div class="step"><span class="step-num">4</span><div class="step-icon">🛒</div><h3>ตะกร้า</h3><p>เพิ่มลงตะกร้า — แก้ไขได้ก่อนส่งออเดอร์</p></div>
           <div class="step"><span class="step-num">5</span><div class="step-icon">✏️</div><h3>ยืนยันส่ง</h3><p>รายการสั่งซื้อ → กดยืนยันส่งออเดอร์</p></div>
-          <div class="step"><span class="step-num">6</span><div class="step-icon">💸</div><h3>โอนเงิน</h3><p>โอนตามยอดรวมของออเดอร์</p></div>
+          <div class="step"><span class="step-num">6</span><div class="step-icon">💸</div><h3>โอนเงิน</h3><p>โอนตามยอดรวม<br>ของ<span class="nw">ออเดอร์</span></p></div>
           <div class="step"><span class="step-num">7</span><div class="step-icon">📎</div><h3>แนบสลิป</h3><p>ระบุวันที่/เวลาโอน และแนบรูปสลิป</p></div>
           <div class="step"><span class="step-num">8</span><div class="step-icon">✅</div><h3>รอตรวจสลิป</h3><p>แอดมินยอมรับการชำระ → ชำระเงินแล้ว</p></div>
         </div>
@@ -310,9 +317,9 @@
         <div class="panel">
           <div class="section-title">🔄 ชำระเงิน (หลังยืนยันส่งออเดอร์)</div>
           <div class="pay-flow">
-            <div class="pay-step"><div class="ico">📤</div><h3>ยืนยันส่ง</h3><p>ส่งให้แอดมินรับทราบ</p></div>
+            <div class="pay-step"><div class="ico">📤</div><h3>ยืนยันส่ง</h3><p>ส่งให้<span class="nw">แอดมิน</span><br>รับทราบ</p></div>
             <span class="pay-arrow">→</span>
-            <div class="pay-step hl"><div class="ico">🏦</div><h3>โอนจริง</h3><p>ยอดรวมตามออเดอร์</p></div>
+            <div class="pay-step hl"><div class="ico">🏦</div><h3>โอนจริง</h3><p>ตามยอด<br><span class="nw">ออเดอร์</span></p></div>
             <span class="pay-arrow">→</span>
             <div class="pay-step hl"><div class="ico">📷</div><h3>อัปโหลดสลิป</h3><p>วันที่ เวลา และรูปให้ตรงสลิป</p></div>
             <span class="pay-arrow">→</span>
@@ -341,13 +348,13 @@
           <div class="checklist">
             <ul>
               <li>ตรวจไซส์และยอดรวม (฿) ก่อนโอน</li>
-              <li>ยืนยันส่งออเดอร์ก่อนโอน (ถ้ายังอยู่ในตะกร้า)</li>
+              <li>ยืนยันส่ง<span class="nw">ออเดอร์</span>ก่อนโอน<br>(ถ้ายังอยู่ในตะกร้า)</li>
               <li>รูปสลิปชัดเจน — PNG/JPG/WEBP</li>
-              <li>สลิปผิด → กดเปลี่ยนสลิปก่อนแอดมินยอมรับ</li>
+              <li>สลิปผิด → เปลี่ยนสลิป<br>ก่อน<span class="nw">แอดมิน</span>ยอมรับ</li>
               <li>เขตล็อกอัตโนมัติ · ไซส์หมดจะสั่งไม่ได้</li>
               <li>โหมด Guest ดูอย่างเดียว</li>
               <li>เมนู: สั่งซื้อเสื้อ · รายการสั่งซื้อ · แดชบอร์ด · รายงาน</li>
-              <li>เปลี่ยนรหัสผ่าน — ปุ่ม 🔑 มุมขวาบน</li>
+              <li>เปลี่ยนรหัสผ่าน — ปุ่ม 🔑<br>มุมขวาบน</li>
               <li>แจ้งปัญหา โทร 02-009-6703</li>
             </ul>
           </div>
@@ -360,7 +367,7 @@
 
       <footer class="footer">
         <span class="brand">สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</span>
-        <span>คู่มือผู้ใช้ · Build 119 · A4 แนวนอน</span>
+        <span>คู่มือผู้ใช้ · Build 137 · A4 แนวนอน</span>
       </footer>
     </div>
   </section>
