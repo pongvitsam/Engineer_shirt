@@ -1673,7 +1673,7 @@ function renderLogin(errMsg){
   const ghUrl=getGithubPagesUrl_();
   const c=document.getElementById("app-container");
   c.innerHTML=`
-    <div class="login-overlay">
+    <div class="login-overlay login-screen-overlay">
       <div class="login-card">
         <div class="login-title"><i class="fas fa-tshirt mr-2" style="color:#F59E0B"></i>${escHtml(APP_BRAND_FULL)}</div>
         <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":escHtml(APP_BRAND_FULL)}</div>
@@ -1681,7 +1681,7 @@ function renderLogin(errMsg){
         <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
           <div>
             <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
-            <input id="login-username" name="username" class="glass-input" autocomplete="username" placeholder="${gasOnly?"admin1":"เช่น admin1, user_n1 หรือ viewer"}">
+            <input id="login-username" name="username" class="glass-input login-username-input" autocomplete="username" spellcheck="false" autocapitalize="off" placeholder="${gasOnly?"admin1":"เช่น admin1, user_n1 หรือ viewer"}">
           </div>
           <div>
             <label class="glass-label" for="login-password">รหัสผ่าน</label>
@@ -2251,8 +2251,6 @@ const app = {
       const result=await runSaving({btn:btn,busyText:"กำลังบันทึกออเดอร์…"},async()=>{
         const r=await callAuthed("addMultiSizeOrder",payload);
         if(slipFile){
-          showBusy("กำลังบันทึกสลิป…");
-          setBtnLoading(btn,true,"กำลังบันทึกสลิป…");
           try{
             const base64=await prepareImageBase64ForUpload_(slipFile);
             const slipRes=await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",r.orderId,base64,payDate,payTime,slipFile.name);
@@ -2578,12 +2576,10 @@ const app = {
     refreshAfterMutation_({ keepLocal: true });
     await new Promise(function(r){setTimeout(r,0);});
     try{
-      const self=this;
-      showBusy("กำลังบันทึกสลิป…");
-      const base64=await prepareImageBase64ForUpload_(file,function(status){
-        if(typeof app!=="undefined"&&app&&app.showMsg)app.showMsg(status,"warning");
-      });
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
+        const base64=await prepareImageBase64ForUpload_(file,function(status){
+          if(typeof app!=="undefined"&&app&&app.showMsg)app.showMsg(status,"warning");
+        });
         return await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",orderId,base64,payDate,payTime,file.name);
       });
       applyLocalOrderSlipUpdate_(orderId,res);
