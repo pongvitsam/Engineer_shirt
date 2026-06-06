@@ -1270,6 +1270,17 @@ function extractDriveFileId(ref){
   if(d&&d[1])return d[1];
   return "";
 }
+function slipDriveThumbUrl_(fileId,sz){
+  if(!fileId)return "";
+  const w=Math.max(400,Number(sz)||1200);
+  return "https://drive.google.com/thumbnail?id="+encodeURIComponent(fileId)+"&sz=w"+w;
+}
+function slipDriveViewUrl_(slipUrl,fileId){
+  const s=String(slipUrl||"").trim();
+  if(s&&/^https?:\/\//i.test(s))return s;
+  if(fileId)return "https://drive.google.com/uc?export=view&id="+encodeURIComponent(fileId);
+  return s;
+}
 
 function imageProxyCacheSet_(fileId,dataUrl){
   if(!fileId)return;
@@ -2710,11 +2721,25 @@ const app = {
   },
 
   async viewOrderImage(orderId,btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const g=groupOrdersByOrderId(appData?.orders||[]).find(x=>x.orderId===orderId);
+    const slipUrl=g?String(g.slipUrl||"").trim():"";
+    const fileId=slipUrl?extractDriveFileId(slipUrl):"";
+    if(fileId){
+      const preview=imageProxyCache[fileId]||slipDriveThumbUrl_(fileId,1200);
+      this.openImageLightbox(preview,slipDriveViewUrl_(slipUrl,fileId));
+      if(!imageProxyCache[fileId])this.upgradeOrderImagePreview_(orderId,fileId);
+      return;
+    }
     try{
-      const res=await runSaving({btn:btn,btnText:"",busyText:"กำลังโหลดรูป…"},()=>callAuthed("getOrderImage",orderId));
+      const res=await runSaving({btn:btn,btnText:"",busyText:"กำลังโหลดรูป…",toast:false},()=>
+        callAuthedWithTimeout(90000,"getOrderImage",orderId)
+      );
       const src=orderImageDisplaySrc(res);
       if(res&&res.ok&&src){
-        this.openImageLightbox(src);
+        const rid=extractDriveFileId(res.slipUrl||slipUrl);
+        if(res.dataUrl&&rid)imageProxyCacheSet_(rid,res.dataUrl);
+        this.openImageLightbox(src,res.slipUrl||src);
         return;
       }
       if(res&&res.slipUrl){
@@ -2727,15 +2752,31 @@ const app = {
     }
   },
 
-  openImageLightbox(src){
+  async upgradeOrderImagePreview_(orderId,fileId){
+    try{
+      const res=await callAuthedWithTimeout(90000,"getOrderImage",orderId);
+      const src=orderImageDisplaySrc(res);
+      if(!res||!res.ok||!src)return;
+      if(res.dataUrl)imageProxyCacheSet_(fileId,res.dataUrl);
+      const box=document.getElementById("image-lightbox");
+      if(!box)return;
+      const img=box.querySelector(".image-lightbox-img");
+      if(img)img.src=src;
+      const link=box.querySelector(".image-lightbox-open");
+      if(link&&res.slipUrl)link.href=res.slipUrl;
+    }catch(_){}
+  },
+
+  openImageLightbox(src,fullHref){
     this.closeImageLightbox();
+    const href=fullHref||src;
     const wrap=document.createElement("div");
     wrap.id="image-lightbox";
     wrap.className="image-lightbox-overlay fade-in";
     wrap.innerHTML=`<div class="image-lightbox-card">
       <button class="image-lightbox-close" onclick="app.closeImageLightbox()" aria-label="ปิด"><i class="fas fa-times"></i></button>
-      <img src="${src}" alt="รูปแนบออเดอร์" class="image-lightbox-img">
-      <a href="${src}" target="_blank" rel="noopener" class="image-lightbox-open"><i class="fas fa-external-link-alt mr-1"></i> เปิดในแท็บใหม่</a>
+      <img src="${escAttr(src)}" alt="รูปแนบออเดอร์" class="image-lightbox-img">
+      <a href="${escAttr(href)}" target="_blank" rel="noopener" class="image-lightbox-open"><i class="fas fa-external-link-alt mr-1"></i> เปิดในแท็บใหม่</a>
     </div>`;
     wrap.addEventListener("click",e=>{if(e.target===wrap)app.closeImageLightbox()});
     document.body.appendChild(wrap);
