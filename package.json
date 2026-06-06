@@ -9,7 +9,8 @@
     "test:stock": "node __test_stock_consistency.cjs",
     "test:audit": "node __test_system_audit.cjs",
     "test:pages": "node __test_github_pages.cjs",
-    "test": "npm run test:stock && npm run test:audit && npm run build:pages && npm run test:pages",
+    "test:realtime": "node __test_realtime_client.cjs",
+    "test": "npm run test:stock && npm run test:audit && npm run test:realtime && npm run build:pages && npm run test:pages",
     "build:user-guide-pdf": "node scripts/generate-user-guide-pdf.cjs"
   }
 }

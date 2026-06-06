@@ -4,7 +4,7 @@ window.PEACE_CONFIG = {
   githubPagesUrl: "https://pongvitsam.github.io/Engineer_shirt/",
   userGuideHtml: "https://pongvitsam.github.io/Engineer_shirt/guides/user-guide-user.html",
   userGuidePdf: "https://pongvitsam.github.io/Engineer_shirt/guides/user-guide.pdf",
-  build: "133",
-  deployStamp: "1780678460669"
+  build: "134",
+  deployStamp: "1780715547781"
 };
 window.PEACE_GAS_ADMIN_ONLY = false;

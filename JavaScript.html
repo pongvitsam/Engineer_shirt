@@ -53,6 +53,9 @@ let activeDropdown = null;
 const dropdownRegistry = {};
 
 const FILTER_DEBOUNCE_MS = 200;
+const BOOTSTRAP_SYNC_DEBOUNCE_MS = 50;
+const REALTIME_POLL_MS = 20000;
+const REALTIME_POLL_MODULES_ = { list: true, dashboard: true, admin: true, stock: true };
 const TOKEN_KEY = "peace_token_v1";
 function persistAuthToken_(token){
   try{
@@ -522,33 +525,85 @@ function applyLocalOrderStatusUpdate_(orderId, status) {
   });
 }
 
+function snapshotOrderGroup_(orderId) {
+  return (appData && appData.orders ? appData.orders : [])
+    .filter(function (o) { return String(o.orderId) === String(orderId); })
+    .map(function (o) { return Object.assign({}, o); });
+}
+
+function restoreOrderGroupSnapshot_(orderId, snap) {
+  if (!appData || !snap || !snap.length) return;
+  appData.orders = (appData.orders || [])
+    .filter(function (o) { return String(o.orderId) !== String(orderId); })
+    .concat(snap.map(function (o) { return Object.assign({}, o); }));
+}
+
+function getOrderGroupPaymentStatus_(orderId) {
+  const o = (appData && appData.orders ? appData.orders : []).find(function (x) {
+    return String(x.orderId) === String(orderId);
+  });
+  return o ? String(o.paymentStatus || "") : "";
+}
+
+function applyLocalMutationRefresh_() {
+  recalcStockFromOrders();
+  if (typeof app !== "undefined" && app && typeof app.refreshCurrentView_ === "function") {
+    Promise.resolve(app.refreshCurrentView_({ keepLocal: true })).catch(function () {});
+  }
+}
+
 let bootstrapSyncTimer = null;
+let bootstrapSyncInFlight = false;
+let realtimePollTimer = null;
+
+function runBackgroundBootstrapSync_() {
+  if (bootstrapSyncInFlight) return Promise.resolve();
+  bootstrapSyncInFlight = true;
+  return ensureAppData(true, { skipImageResolve: true }).then(function () {
+    appDataStale = false;
+    if (typeof app !== "undefined" && app && typeof app.refreshCurrentView_ === "function") {
+      return app.refreshCurrentView_({ keepLocal: true });
+    }
+  }).catch(function () {
+    appDataStale = true;
+    if (typeof app !== "undefined" && app && typeof app.showMsg === "function") {
+      app.showMsg("ซิงค์ข้อมูลพื้นหลังไม่สำเร็จ — กรุณารีเฟรชหน้า", "warning");
+    }
+  }).finally(function () {
+    bootstrapSyncInFlight = false;
+  });
+}
+
 function scheduleBackgroundBootstrapSync_() {
   appDataStale = true;
-  if (bootstrapSyncTimer) return;
+  if (bootstrapSyncTimer) clearTimeout(bootstrapSyncTimer);
   bootstrapSyncTimer = setTimeout(function () {
     bootstrapSyncTimer = null;
-    ensureAppData(true, { skipImageResolve: true }).then(function () {
-      appDataStale = false;
-      if (typeof app !== "undefined" && app && app.currentModule === "list" && document.getElementById("order-tbody")) {
-        app.fillOrderListBody();
-        app.applyListFilter();
-      }
-    }).catch(function () {
-      appDataStale = true;
-      if (typeof app !== "undefined" && app && typeof app.showMsg === "function") {
-        app.showMsg("ซิงค์ข้อมูลพื้นหลังไม่สำเร็จ — กรุณารีเฟรชหน้า", "warning");
-      }
-    });
-  }, 1200);
+    runBackgroundBootstrapSync_();
+  }, BOOTSTRAP_SYNC_DEBOUNCE_MS);
+}
+
+function startRealtimePoll_() {
+  stopRealtimePoll_();
+  realtimePollTimer = setInterval(function () {
+    if (document.hidden || guestMode || !authToken) return;
+    if (typeof app === "undefined" || !app || !REALTIME_POLL_MODULES_[app.currentModule]) return;
+    if (bootstrapSyncInFlight || bootstrapSyncTimer) return;
+    runBackgroundBootstrapSync_();
+  }, REALTIME_POLL_MS);
+}
+
+function stopRealtimePoll_() {
+  if (realtimePollTimer) {
+    clearInterval(realtimePollTimer);
+    realtimePollTimer = null;
+  }
 }
 
 async function refreshAfterMutation_(opts) {
   opts = opts || {};
   if (opts.keepLocal && appData) {
-    if (typeof app !== "undefined" && app && app.refreshCurrentView_) {
-      app.refreshCurrentView_(opts);
-    }
+    applyLocalMutationRefresh_();
     scheduleBackgroundBootstrapSync_();
     return;
   }
@@ -1408,7 +1463,6 @@ function applyLocalOrderCreate_(result,payload,items){
     });
   });
   recalcStockFromOrders();
-  appDataStale=true;
 }
 
 function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote){
@@ -1444,7 +1498,6 @@ function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote){
     });
   });
   recalcStockFromOrders();
-  appDataStale=true;
 }
 
 function groupOrdersByOrderId(orders){
@@ -1773,6 +1826,7 @@ async function submitChangePassword(btn){
 async function doLogout(){
   if(!confirm("ออกจากระบบ?"))return;
   const t=authToken;
+  stopRealtimePoll_();
   guestMode=false;
   authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
   clearAuthToken_();
@@ -1790,6 +1844,7 @@ function bootApp(){
   app.renderNav();
   app.container.innerHTML=skeletonHtml("stock");
   appDataStale=true;prefetchPromise=null;
+  startRealtimePoll_();
   prefetchAppData().then(()=>app.navigate("stock"))
     .catch(async e=>{
       if(isSessionReloginMessage(e&&e.message)){
@@ -2424,13 +2479,20 @@ const app = {
       ?"ลบออเดอร์ในตะกร้านี้ทั้งหมด?"
       :"ลบออเดอร์นี้ทั้งหมด? (ไม่สามารถกู้คืนได้)";
     if(!confirm(msg))return;
+    const snap=snapshotOrderGroup_(orderId);
+    applyLocalOrderDelete_(orderId);
+    recalcStockFromOrders();
+    refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,btnText:"",busyText:"กำลังลบออเดอร์…"},()=>callAuthed("deleteOrderByOrderId",orderId));
-      if(appData?.orders){appData.orders=appData.orders.filter(o=>o.orderId!==orderId)}
-      recalcStockFromOrders();
       this.showMsg("ลบออเดอร์แล้ว","success");
-      app.navigate("list");
-    }catch(e){this.showMsg(e.message,"error")}
+      scheduleBackgroundBootstrapSync_();
+    }catch(e){
+      restoreOrderGroupSnapshot_(orderId,snap);
+      recalcStockFromOrders();
+      refreshAfterMutation_({ keepLocal: true });
+      this.showMsg(e.message,"error");
+    }
   },
 
   // ── Per-order slip + transfer date/time ─────────────────────────────
@@ -2510,21 +2572,27 @@ const app = {
     this.clearSlipModalMsg();
     if(!file)return this.showSlipModalMsg("กรุณาเลือกรูปสลิป","error");
     if(!payDate||!payTime)return this.showSlipModalMsg("กรุณากรอกวันที่และเวลาโอน","error");
+    const snap=snapshotOrderGroup_(orderId);
+    applyLocalOrderSlipUpdate_(orderId,{payDate:payDate,payTime:payTime,paymentStatus:"รอตรวจสลิป"});
+    this.closeSlipUploadModal();
+    refreshAfterMutation_({ keepLocal: true });
     await new Promise(function(r){setTimeout(r,0);});
     try{
       const self=this;
+      showBusy("กำลังบันทึกสลิป…");
       const base64=await prepareImageBase64ForUpload_(file,function(status){
-        self.showSlipModalMsg(status,"warning");
+        if(typeof app!=="undefined"&&app&&app.showMsg)app.showMsg(status,"warning");
       });
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
         return await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",orderId,base64,payDate,payTime,file.name);
       });
       applyLocalOrderSlipUpdate_(orderId,res);
-      this.closeSlipUploadModal();
       this.showMsg("บันทึกสลิปแล้ว รอแอดมินตรวจสอบ","success");
-      refreshAfterMutation_({ keepLocal: true });
+      scheduleBackgroundBootstrapSync_();
     }catch(e){
-      this.showSlipModalMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
+      restoreOrderGroupSnapshot_(orderId,snap);
+      refreshAfterMutation_({ keepLocal: true });
+      this.showMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
     }
   },
 
@@ -2587,15 +2655,19 @@ const app = {
 
   async acceptOrderPayment(orderId,btn){
     if(!confirm("ยอมรับว่าชำระเงินถูกต้องแล้ว?"))return;
+    const prevPay=getOrderGroupPaymentStatus_(orderId);
+    applyLocalOrderPaymentStatus_(orderId,"ชำระเงินแล้ว");
+    this.closePaymentReviewModal();
+    refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("acceptOrderPayment",orderId);
       });
-      applyLocalOrderPaymentStatus_(orderId,"ชำระเงินแล้ว");
-      this.closePaymentReviewModal();
       this.showMsg("ยอมรับการชำระเงินแล้ว","success");
-      refreshAfterMutation_({ keepLocal: true });
+      scheduleBackgroundBootstrapSync_();
     }catch(e){
+      applyLocalOrderPaymentStatus_(orderId,prevPay);
+      refreshAfterMutation_({ keepLocal: true });
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
@@ -2606,15 +2678,19 @@ const app = {
     if(g&&isFreeGiveawayPayment(g.paymentStatus))return this.showMsg("ออเดอร์นี้เป็นเสื้อแจกฟรีแล้ว","warning");
     if(g&&isPaymentVerified(g.paymentStatus))return this.showMsg("ออเดอร์ชำระเงินแล้ว ไม่สามารถเปลี่ยนเป็นแจกฟรีได้","warning");
     if(!confirm("บันทึกเป็นเสื้อแจกฟรี (ผู้บริหาร)?\nยอดนี้จะไม่รวมกับเสื้อที่สั่งซื้อ และแสดงเป็นขาดทุนในแดชบอร์ด"))return;
+    const prevPay=getOrderGroupPaymentStatus_(orderId);
+    applyLocalOrderPaymentStatus_(orderId,PAYMENT_FREE_GIVEAWAY);
+    this.closePaymentReviewModal();
+    refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("markOrderFreeGiveaway",orderId);
       });
-      applyLocalOrderPaymentStatus_(orderId,PAYMENT_FREE_GIVEAWAY);
-      this.closePaymentReviewModal();
       this.showMsg("บันทึกเป็นเสื้อแจกฟรีแล้ว (ไม่รวมยอดสั่งซื้อ)","success");
-      refreshAfterMutation_({ keepLocal: true });
+      scheduleBackgroundBootstrapSync_();
     }catch(e){
+      applyLocalOrderPaymentStatus_(orderId,prevPay);
+      refreshAfterMutation_({ keepLocal: true });
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
@@ -2622,14 +2698,18 @@ const app = {
   async deleteOrderImage(orderId,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!confirm("ลบรูปแนบของออเดอร์นี้? (ต้องลบก่อนจึงจะแนบรูปใหม่ได้)"))return;
+    const snap=snapshotOrderGroup_(orderId);
+    applyLocalOrderSlipUpdate_(orderId,{slipUrl:"",slipName:"",payDate:"",payTime:"",paymentStatus:""});
+    refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,btnText:"",busyText:"กำลังลบรูป…"},async()=>{
         await callAuthed("deleteOrderImage",orderId);
       });
-      applyLocalOrderSlipUpdate_(orderId,{slipUrl:"",slipName:"",payDate:"",payTime:"",paymentStatus:""});
       this.showMsg("ลบรูปแนบแล้ว","success");
-      refreshAfterMutation_({ keepLocal: true });
+      scheduleBackgroundBootstrapSync_();
     }catch(e){
+      restoreOrderGroupSnapshot_(orderId,snap);
+      refreshAfterMutation_({ keepLocal: true });
       this.showMsg(e.message||"ลบรูปไม่สำเร็จ","error");
     }
   },
@@ -2779,35 +2859,44 @@ const app = {
       return {size:size,qty:Math.max(0,Math.floor(val))};
     }).filter(it=>it.qty>0);
     if(items.length===0){this.showMsg("กรุณาเลือกอย่างน้อย 1 ไซส์","warning");return;}
+    const snap=snapshotOrderGroup_(orderId);
+    applyLocalOrderNoteUpdate_(orderId,note);
+    applyLocalOrderCartUpdate_(orderId,{status:orderGroup.status},items,orderGroup,note);
+    this.closeCartEditModal();
+    refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,busyText:inCart?"กำลังบันทึกตะกร้า…":"กำลังบันทึก…"},async()=>{
         const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note});
         applyLocalOrderNoteUpdate_(orderId,note);
         applyLocalOrderCartUpdate_(orderId,r,items,orderGroup,note);
-        appDataStale=false;
         return r;
       });
-      this.closeCartEditModal();
       this.showMsg(inCart?"บันทึกตะกร้าแล้ว":"บันทึกจำนวนแล้ว","success");
-      refreshAfterMutation_({ keepLocal: true });
+      scheduleBackgroundBootstrapSync_();
     }catch(e){
-      this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
+      restoreOrderGroupSnapshot_(orderId,snap);
       refreshAfterMutation_({ keepLocal: true });
+      this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
 
   async submitCartToAdmin(orderId,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
+    const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||"สั่งออเดอร์แล้ว";
+    const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
+    const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):"";
+    applyLocalOrderStatusUpdate_(orderId,orderedStatus);
+    refreshAfterMutation_({ keepLocal: true });
     try{
-      const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||"สั่งออเดอร์แล้ว";
       await runSaving({btn:btn,busyText:"กำลังส่งออเดอร์…"},async()=>{
         await callAuthed("submitCartOrderToAdmin",orderId);
       });
-      applyLocalOrderStatusUpdate_(orderId,orderedStatus);
       this.showMsg("ส่งออเดอร์ไปยังแอดมินแล้ว","success");
-      refreshAfterMutation_({ keepLocal: true });
+      scheduleBackgroundBootstrapSync_();
     }catch(e){
+      applyLocalOrderStatusUpdate_(orderId,prev);
+      refreshAfterMutation_({ keepLocal: true });
       this.showMsg(e.message||"ส่งออเดอร์ไม่สำเร็จ","error");
     }
   },
