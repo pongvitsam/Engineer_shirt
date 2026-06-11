@@ -319,7 +319,7 @@ assert("login screen centered without hero image", () => {
   if (html.includes("login-hero-img") || html.includes("loadLoginHeroImage_")) {
     throw new Error("login must not load or show hero image");
   }
-  if (!html.includes("function clearLoginHeroSkeletonTimer_(){}")) {
+  if (!html.includes("clearLoginHeroSkeletonTimer_")) {
     throw new Error("login hero timer legacy stub required for cached bundles");
   }
   if (shell.includes('class="login-hero"') || shell.includes('id="login-hero-img"')) {

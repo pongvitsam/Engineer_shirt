@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>var clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_||function(){};window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;</script>
   <meta name="peace-build" content="<?= assetVersion ?>">
   <title>ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
@@ -83,10 +84,28 @@
   </footer>
 
   <script>window.PEACE_GAS_ADMIN_ONLY=true;</script>
-  <script>window.clearLoginHeroSkeletonTimer_=function(){};</script>
+  <script>var clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_||function(){};window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;</script>
   <script src="<?= assetBaseUrl ?>?asset=js&amp;v=<?= assetVersion ?>"></script>
   <script>
     (function () {
+      function ensureLegacyLoginHeroStubs_() {
+        if (typeof clearLoginHeroSkeletonTimer_ !== "function") {
+          clearLoginHeroSkeletonTimer_ = function () {};
+        }
+        window.clearLoginHeroSkeletonTimer_ = clearLoginHeroSkeletonTimer_;
+      }
+      function patchBootAppLegacy_() {
+        ensureLegacyLoginHeroStubs_();
+        var raw = window.bootApp;
+        if (typeof raw !== "function" || raw.__peaceHeroStubPatched__) return;
+        window.bootApp = function () {
+          ensureLegacyLoginHeroStubs_();
+          return raw.apply(this, arguments);
+        };
+        window.bootApp.__peaceHeroStubPatched__ = true;
+      }
+      ensureLegacyLoginHeroStubs_();
+
       var DEFAULT_ADMIN_RE = /^(admin1|admin2)$/;
       var MOJIBAKE_RE = /(?:à¸|à¹|Ã)/;
 
@@ -204,6 +223,7 @@
       }
 
       function patchAppHooks() {
+        patchBootAppLegacy_();
         if (!window.app || typeof window.app !== "object") return false;
         if (!window.app.__adminNavPatched__) {
           var rawRenderNav = window.app.renderNav;
@@ -259,15 +279,35 @@
         return true;
       }
 
-      var rawDoLogin = window.doLogin;
-      if (typeof rawDoLogin === "function") {
-        window.doLogin = async function () {
-          var out = await rawDoLogin.apply(this, arguments);
+      function wrapLoginEntry_(name) {
+        var raw = window[name];
+        if (typeof raw !== "function" || raw.__peaceHeroStubPatched__) return;
+        window[name] = async function () {
+          ensureLegacyLoginHeroStubs_();
+          patchBootAppLegacy_();
+          return raw.apply(this, arguments);
+        };
+        window[name].__peaceHeroStubPatched__ = true;
+      }
+
+      function wrapDoLoginNav_(name) {
+        var raw = window[name];
+        if (typeof raw !== "function" || raw.__peaceNavPatched__) return;
+        var inner = raw;
+        window[name] = async function () {
+          ensureLegacyLoginHeroStubs_();
+          patchBootAppLegacy_();
+          var out = await inner.apply(this, arguments);
           safeRerenderNav("login");
           setTimeout(function () { safeRerenderNav("login-delay"); }, 900);
           return out;
         };
+        window[name].__peaceNavPatched__ = true;
+        window[name].__peaceHeroStubPatched__ = true;
       }
+
+      wrapDoLoginNav_("doLogin");
+      wrapLoginEntry_("doGuestLogin");
 
       var rawBootEntry = window.bootEntry;
       if (typeof rawBootEntry === "function") {
@@ -280,13 +320,23 @@
         };
       }
 
+      function postAppLegacyPatches_() {
+        ensureLegacyLoginHeroStubs_();
+        patchBootAppLegacy_();
+        wrapDoLoginNav_("doLogin");
+        wrapLoginEntry_("doGuestLogin");
+        patchAppHooks();
+      }
+
       patchEscHtml();
-      patchAppHooks();
+      postAppLegacyPatches_();
       if (document.readyState === "complete") {
-        setTimeout(function () { patchAppHooks(); safeRerenderNav("load-complete"); }, 500);
+        setTimeout(function () { postAppLegacyPatches_(); safeRerenderNav("load-complete"); }, 0);
+        setTimeout(function () { postAppLegacyPatches_(); safeRerenderNav("load-complete"); }, 500);
       } else {
         window.addEventListener("load", function () {
-          setTimeout(function () { patchAppHooks(); safeRerenderNav("load"); }, 500);
+          setTimeout(function () { postAppLegacyPatches_(); safeRerenderNav("load"); }, 0);
+          setTimeout(function () { postAppLegacyPatches_(); safeRerenderNav("load"); }, 500);
         }, { once: true });
       }
     })();

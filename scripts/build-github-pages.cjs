@@ -50,6 +50,7 @@ function extractIndexHeadExtras(indexHtml) {
   head = head.replace(/<meta[^>]*name=["']peace-build["'][^>]*>\s*/gi, "");
   head = head.replace(/<meta charset="UTF-8">\s*/gi, "");
   head = head.replace(/<meta name="viewport"[^>]*>\s*/gi, "");
+  head = head.replace(/<script>[\s\S]*?clearLoginHeroSkeletonTimer_[\s\S]*?<\/script>\s*/gi, "");
   return head.trim();
 }
 
@@ -62,14 +63,24 @@ function expandHtmlIncludes_(html) {
   });
 }
 
+const LEGACY_HERO_STUB =
+  "<script>var clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_||function(){};window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;</script>";
+
+const INDEX_PATCH_SCRIPT_RE =
+  /<script>\s*\(function \(\) \{[\s\S]*?ensureLegacyLoginHeroStubs_[\s\S]*?\}\)\(\);\s*<\/script>/i;
+
+function extractIndexPatchScript(indexHtml) {
+  const body = expandHtmlIncludes_(extractIndexBody(indexHtml));
+  const m = body.match(INDEX_PATCH_SCRIPT_RE);
+  return m ? m[0] : "";
+}
+
 function patchIndexPatches(html) {
-  return expandHtmlIncludes_(html).replace(
-    /<script src="[^"]*\?asset=js[^"]*"><\/script>\s*/i,
-    ""
-  ).replace(
-    /<script>\s*window\.PEACE_GAS_ADMIN_ONLY[\s\S]*?<\/script>\s*/i,
-    ""
-  );
+  return String(html || "")
+    .replace(/<script src="[^"]*\?asset=js[^"]*"><\/script>\s*/gi, "")
+    .replace(/<script>\s*window\.PEACE_GAS_ADMIN_ONLY[\s\S]*?<\/script>\s*/gi, "")
+    .replace(/<script>[\s\S]*?clearLoginHeroSkeletonTimer_[\s\S]*?<\/script>\s*/gi, "")
+    .replace(INDEX_PATCH_SCRIPT_RE, "");
 }
 
 function buildConfigJs(deployStamp) {
@@ -119,14 +130,16 @@ function readBuildFromCodeJs() {
   return m ? m[1] : "0";
 }
 
-function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss) {
+function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss, patchScript) {
   const v = build || readBuildFromCodeJs();
   const crit = criticalCss ? "<style>\n" + criticalCss + "\n</style>\n  " : "";
+  const patch = patchScript ? "\n  " + patchScript + "\n" : "";
   return `<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${LEGACY_HERO_STUB}
   <meta name="peace-build" content="${v}">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
@@ -144,9 +157,9 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss) 
 </head>
 <body class="peace-login-active">
 ${bodyInner}
-  <script>window.clearLoginHeroSkeletonTimer_=function(){};</script>
+  ${LEGACY_HERO_STUB}
   <script src="config.b${v}.js"></script>
-  <script src="assets/app.b${v}.js"></script>
+  <script src="assets/app.b${v}.js"></script>${patch}
 </body>
 </html>
 `;
@@ -168,11 +181,16 @@ function main() {
   fs.writeFileSync(path.join(DOCS, "config.js"), cfg, "utf8");
   fs.writeFileSync(path.join(DOCS, "config.b" + build + ".js"), cfg, "utf8");
 
-  let indexSrc = read("Index.html");
-  let body = patchIndexPatches(extractIndexBody(indexSrc));
+  const indexSrc = read("Index.html");
+  const patchScript = extractIndexPatchScript(indexSrc);
+  const body = patchIndexPatches(expandHtmlIncludes_(extractIndexBody(indexSrc)));
   const headExtras = extractIndexHeadExtras(indexSrc);
   const criticalCss = extractCriticalLoginCss_(indexSrc);
-  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build, stamp, criticalCss), "utf8");
+  fs.writeFileSync(
+    path.join(DOCS, "index.html"),
+    buildIndexHtml(body, headExtras, build, stamp, criticalCss, patchScript),
+    "utf8"
+  );
 
   const nojekyll = path.join(DOCS, ".nojekyll");
   if (!fs.existsSync(nojekyll)) fs.writeFileSync(nojekyll, "", "utf8");

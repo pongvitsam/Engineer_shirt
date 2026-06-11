@@ -1971,7 +1971,8 @@ function computeSalesReport(){
 }
 
 // ── Login screen ─────────────────────────────────────────────────────
-function clearLoginHeroSkeletonTimer_(){}
+var clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_||function(){};
+window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;
 function hideBootShell_(){
   const ph=document.getElementById("pre-header");
   const ps=document.getElementById("pre-skeleton");
@@ -2213,6 +2214,10 @@ async function doLogout(){
 }
 
 function bootApp(){
+  if(typeof clearLoginHeroSkeletonTimer_!=="function"){
+    clearLoginHeroSkeletonTimer_=function(){};
+    window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;
+  }
   if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
   hideBootShell_();
   document.body.classList.remove("peace-login-active");
