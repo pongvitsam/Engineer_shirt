@@ -2461,7 +2461,7 @@ const app = {
         <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${s.remaining}</span></div>
       </div>`;
     }).join("");
-    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="stock-image-upload glass-btn-primary text-xs cursor-pointer"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
+    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="stock-header-upload glass-btn-primary text-xs cursor-pointer"><i class="fas fa-camera"></i> <span class="hidden sm:inline">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
     const guestNote=isGuest()?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-info-circle mr-1"></i> โหมด Guest: ดูจำนวนเสื้อคงเหลือได้เท่านั้น</div></div>`:"";
     const guestActions=isGuest()?"":`<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> สั่งซื้อเสื้อ</button>
@@ -2481,7 +2481,10 @@ const app = {
       <div class="glass-card">
         <div class="glass-card-header stock-card-header">
           <div class="stock-card-title"><div class="text-xs opacity-80">รอบปี ${round.year}</div><h1 class="text-lg font-bold">${escHtml(round.name)}</h1></div>
-          <div class="stock-card-price"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(round.unitPrice)} ฿</div></div>
+          <div class="stock-card-meta">
+            <div class="stock-card-price"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(round.unitPrice)} ฿</div></div>
+            ${adminUpload}
+          </div>
         </div>
         <div class="p-4">
           <div class="stock-image-section">
@@ -2490,7 +2493,6 @@ const app = {
                 ? `<div class="stock-image-placeholder flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
                 : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="stock-shirt-img">`}
             </div>
-            ${adminUpload}
           </div>
         </div>
       </div>
