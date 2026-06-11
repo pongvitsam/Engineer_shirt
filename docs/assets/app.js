@@ -54,7 +54,15 @@ const dropdownRegistry = {};
 const FILTER_DEBOUNCE_MS = 200;
 const BOOTSTRAP_SYNC_DEBOUNCE_MS = 50;
 const REALTIME_POLL_MS = 20000;
-const REALTIME_POLL_MODULES_ = { list: true, dashboard: true, admin: true, stock: true };
+const REALTIME_POLL_MODULES_ = { list: true, dashboard: true, admin: true, stock: true, orders: true, report: true };
+const NOTIFY_STORE_KEY = "peace_notif_v1";
+const NOTIFY_READ_KEY = "peace_notif_read_v1";
+const NOTIFY_MAX = 80;
+let orderNotifySnapshot_ = null;
+let notifyBaselineReady_ = false;
+let notifyItems_ = [];
+let notifyPanelOpen_ = false;
+const notifyMuteUntil_ = {};
 const TOKEN_KEY = "peace_token_v1";
 function persistAuthToken_(token){
   try{
@@ -586,7 +594,6 @@ function startRealtimePoll_() {
   stopRealtimePoll_();
   realtimePollTimer = setInterval(function () {
     if (document.hidden || guestMode || !authToken) return;
-    if (typeof app === "undefined" || !app || !REALTIME_POLL_MODULES_[app.currentModule]) return;
     if (bootstrapSyncInFlight || bootstrapSyncTimer) return;
     runBackgroundBootstrapSync_();
   }, REALTIME_POLL_MS);
@@ -981,7 +988,234 @@ function ensureAppData(force, opts) {
     }
     syncWindowSession_();
     try{updateSupportFooter_();}catch(_){}
+    try{processOrderNotifications_(data.orders);}catch(_){}
     return appData;
+  });
+}
+
+function shortOrderLabel_(orderId){
+  return String(orderId||"").replace(/^ORD-?/i,"").substring(0,8)||"?";
+}
+function muteNotifyForOrder_(orderId,ms,scope){
+  if(!orderId)return;
+  const key=String(scope||"all")+":"+String(orderId);
+  notifyMuteUntil_[key]=Date.now()+(ms||90000);
+}
+function isNotifyMuted_(orderId,scope){
+  const keys=["all:"+String(orderId)];
+  if(scope)keys.push(String(scope)+":"+String(orderId));
+  for(let i=0;i<keys.length;i++){
+    const t=notifyMuteUntil_[keys[i]];
+    if(t&&Date.now()<t)return true;
+    if(t)delete notifyMuteUntil_[keys[i]];
+  }
+  return false;
+}
+function notifyIsAdminReceiver_(){
+  return isAdmin()||isEngineer();
+}
+function notifyIsUserReceiver_(g){
+  if(isGuest()||isViewer()||isAdmin())return false;
+  return ownsOrderRegion(g);
+}
+function loadNotifyList_(){
+  try{
+    const raw=sessionStorage.getItem(NOTIFY_STORE_KEY);
+    if(raw)notifyItems_=JSON.parse(raw)||[];
+  }catch(_){notifyItems_=[];}
+}
+function saveNotifyList_(){
+  try{sessionStorage.setItem(NOTIFY_STORE_KEY,JSON.stringify(notifyItems_.slice(0,NOTIFY_MAX)));}catch(_){}
+}
+function getNotifyReadSet_(){
+  try{return new Set(JSON.parse(sessionStorage.getItem(NOTIFY_READ_KEY)||"[]"));}catch(_){return new Set();}
+}
+function saveNotifyReadSet_(set){
+  try{sessionStorage.setItem(NOTIFY_READ_KEY,JSON.stringify([...set].slice(-300)));}catch(_){}
+}
+function resetNotifyState_(){
+  orderNotifySnapshot_=null;
+  notifyBaselineReady_=false;
+  notifyItems_=[];
+  notifyPanelOpen_=false;
+  try{sessionStorage.removeItem(NOTIFY_STORE_KEY);sessionStorage.removeItem(NOTIFY_READ_KEY);}catch(_){}
+  renderNotifyBell_();
+}
+function buildOrderNotifySnapshot_(orders){
+  const snap={};
+  groupOrdersByOrderId(orders).forEach(function(g){
+    snap[g.orderId]={
+      status:String(g.status||"").trim(),
+      paymentStatus:String(g.paymentStatus||"").trim(),
+      totalQty:Number(g.totalQty)||0,
+      totalPrice:Number(g.totalPrice)||0,
+      region:String(g.region||"").trim()
+    };
+  });
+  return snap;
+}
+function makeOrderNotifyItem_(type,orderId,g,title,body){
+  return{
+    id:type+":"+orderId+":"+Date.now()+":"+Math.floor(Math.random()*1e5),
+    type:type,
+    orderId:orderId,
+    title:title,
+    body:body,
+    at:Date.now(),
+    read:false
+  };
+}
+function orderNotifySummary_(g){
+  const oid=shortOrderLabel_(g.orderId);
+  const qty=Number(g.totalQty)||0;
+  const amt=fmtMoney(g.totalPrice);
+  return "เขต "+String(g.region||"-")+" · #"+oid+" · "+qty+" ตัว · "+amt+" ฿";
+}
+function detectOrderNotifications_(prev,next){
+  const out=[];
+  Object.keys(next).forEach(function(orderId){
+    const g=Object.assign({orderId:orderId},next[orderId]);
+    const p=prev[orderId];
+    if(notifyIsAdminReceiver_()&&!isNotifyMuted_(orderId,"admin")){
+      if(!p){
+        if(!isCartStatus(g.status)){
+          out.push(makeOrderNotifyItem_("order_new",orderId,g,"ออเดอร์ใหม่",orderNotifySummary_(g)));
+        }
+      }else if(isCartStatus(p.status)&&!isCartStatus(g.status)){
+        out.push(makeOrderNotifyItem_("order_submit",orderId,g,"ยืนยันส่งออเดอร์",orderNotifySummary_(g)));
+      }
+    }
+    if(notifyIsUserReceiver_(g)&&p&&!isNotifyMuted_(orderId,"user")){
+      if(p.status!==g.status){
+        out.push(makeOrderNotifyItem_("status_change",orderId,g,"อัปเดตสถานะออเดอร์","#"+shortOrderLabel_(orderId)+" → "+String(g.status||"-")));
+      }
+      if(p.paymentStatus!==g.paymentStatus&&String(g.paymentStatus||"").trim()){
+        out.push(makeOrderNotifyItem_("payment_change",orderId,g,"อัปเดตการชำระเงิน","#"+shortOrderLabel_(orderId)+" → "+paymentStatusLabel(g.paymentStatus)));
+      }
+    }
+  });
+  return out;
+}
+function pushNotification_(item){
+  if(!item)return;
+  notifyItems_.unshift(item);
+  if(notifyItems_.length>NOTIFY_MAX)notifyItems_.length=NOTIFY_MAX;
+  saveNotifyList_();
+}
+function processOrderNotifications_(orders){
+  if(guestMode||!authToken||!me)return;
+  const snap=buildOrderNotifySnapshot_(orders);
+  if(!notifyBaselineReady_){
+    orderNotifySnapshot_=snap;
+    notifyBaselineReady_=true;
+    renderNotifyBell_();
+    return;
+  }
+  const prev=orderNotifySnapshot_||{};
+  orderNotifySnapshot_=snap;
+  const added=detectOrderNotifications_(prev,snap);
+  if(!added.length)return;
+  added.forEach(pushNotification_);
+  renderNotifyBell_();
+  const latest=added[added.length-1];
+  const toastText=latest.title+(latest.body?(" — "+latest.body):"");
+  showAppToast_(toastText,"success");
+}
+function notifyUnreadCount_(){
+  const read=getNotifyReadSet_();
+  return notifyItems_.filter(function(n){return n&&n.id&&!read.has(n.id);}).length;
+}
+function renderNotifyBell_(){
+  const wrap=document.getElementById("notify-wrap");
+  const badge=document.getElementById("notify-badge");
+  const panel=document.getElementById("notify-panel");
+  if(!wrap||!badge)return;
+  if(isGuest()||!authToken){
+    wrap.classList.add("hidden");
+    if(panel)panel.classList.add("hidden");
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const unread=notifyUnreadCount_();
+  if(unread>0){
+    badge.textContent=unread>99?"99+":String(unread);
+    badge.classList.remove("hidden");
+  }else{
+    badge.classList.add("hidden");
+  }
+  if(panel&&notifyPanelOpen_)renderNotifyPanel_();
+}
+function renderNotifyPanel_(){
+  const panel=document.getElementById("notify-panel");
+  if(!panel)return;
+  const read=getNotifyReadSet_();
+  const items=notifyItems_.slice(0,NOTIFY_MAX);
+  let listHtml;
+  if(!items.length){
+    listHtml='<div class="notify-empty">ยังไม่มีการแจ้งเตือน</div>';
+  }else{
+    listHtml=items.map(function(n){
+      const isRead=read.has(n.id);
+      const when=new Date(n.at||Date.now());
+      const timeStr=isNaN(when.getTime())?"":when.toLocaleString("th-TH",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"});
+      return '<button type="button" class="notify-item'+(isRead?"":" unread")+'" data-notify-id="'+escAttr(n.id)+'" onclick="openNotifyItem_(this.getAttribute(\'data-notify-id\'))">'
+        +'<div class="notify-item-title">'+escHtml(n.title||"แจ้งเตือน")+'</div>'
+        +'<div class="notify-item-body">'+escHtml(n.body||"")+'</div>'
+        +(timeStr?'<div class="notify-item-time">'+escHtml(timeStr)+'</div>':"")
+        +'</button>';
+    }).join("");
+  }
+  panel.innerHTML='<div class="notify-panel-head"><span><i class="fas fa-bell mr-1"></i> แจ้งเตือน</span>'
+    +'<button type="button" onclick="markAllNotificationsRead_()">อ่านทั้งหมด</button></div>'
+    +'<div class="notify-panel-list">'+listHtml+'</div>';
+}
+function toggleNotifyPanel_(){
+  const panel=document.getElementById("notify-panel");
+  const btn=document.getElementById("notify-bell-btn");
+  if(!panel)return;
+  notifyPanelOpen_=!notifyPanelOpen_;
+  if(notifyPanelOpen_){
+    panel.classList.remove("hidden");
+    renderNotifyPanel_();
+    if(btn)btn.setAttribute("aria-expanded","true");
+  }else{
+    panel.classList.add("hidden");
+    if(btn)btn.setAttribute("aria-expanded","false");
+  }
+}
+function markAllNotificationsRead_(){
+  const read=getNotifyReadSet_();
+  notifyItems_.forEach(function(n){if(n&&n.id)read.add(n.id);});
+  saveNotifyReadSet_(read);
+  renderNotifyBell_();
+}
+function openNotifyItem_(id){
+  const read=getNotifyReadSet_();
+  read.add(id);
+  saveNotifyReadSet_(read);
+  const item=notifyItems_.find(function(n){return n.id===id;});
+  notifyPanelOpen_=false;
+  const panel=document.getElementById("notify-panel");
+  if(panel)panel.classList.add("hidden");
+  const btn=document.getElementById("notify-bell-btn");
+  if(btn)btn.setAttribute("aria-expanded","false");
+  renderNotifyBell_();
+  if(item&&item.orderId&&typeof app!=="undefined"&&app&&typeof app.navigate==="function"){
+    app.navigate("list");
+  }
+}
+function initNotifyPanelDismiss_(){
+  if(document._notifyDismissInit)return;
+  document._notifyDismissInit=true;
+  document.addEventListener("click",function(e){
+    if(!notifyPanelOpen_)return;
+    const wrap=document.getElementById("notify-wrap");
+    if(wrap&&wrap.contains(e.target))return;
+    notifyPanelOpen_=false;
+    const panel=document.getElementById("notify-panel");
+    if(panel)panel.classList.add("hidden");
+    const btn=document.getElementById("notify-bell-btn");
+    if(btn)btn.setAttribute("aria-expanded","false");
   });
 }
 
@@ -1855,6 +2089,7 @@ async function doLogout(){
   stopRealtimePoll_();
   guestMode=false;
   authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
+  resetNotifyState_();
   clearAuthToken_();
   try{await callServer("logout",t)}catch(_){}
   renderLogin();
@@ -1866,6 +2101,10 @@ function bootApp(){
   document.getElementById("app-header").classList.remove("hidden");
   syncAppBranding_();
   setSupportFooterVisible_(true);
+  notifyBaselineReady_=false;
+  orderNotifySnapshot_=null;
+  loadNotifyList_();
+  initNotifyPanelDismiss_();
   renderUserChip();
   app.renderNav();
   app.container.innerHTML=skeletonHtml("stock");
@@ -1906,6 +2145,7 @@ function renderUserChip(){
     if(me.role==="admin")adminBtn.classList.remove("hidden");
     else adminBtn.classList.add("hidden");
   }
+  renderNotifyBell_();
 }
 
 // ── App controller ───────────────────────────────────────────────────
@@ -2276,6 +2516,7 @@ const app = {
       const total=items.reduce((s,x)=>s+x.qty,0);
       const result=await runSaving({btn:btn,busyText:"กำลังบันทึกออเดอร์…"},async()=>{
         const r=await callAuthed("addMultiSizeOrder",payload);
+        if(r&&r.orderId)muteNotifyForOrder_(r.orderId,120000,isAdmin()?"admin":"user");
         if(slipFile){
           try{
             const base64=await prepareImageBase64ForUpload_(slipFile);
@@ -2596,6 +2837,7 @@ const app = {
     this.clearSlipModalMsg();
     if(!file)return this.showSlipModalMsg("กรุณาเลือกรูปสลิป","error");
     if(!payDate||!payTime)return this.showSlipModalMsg("กรุณากรอกวันที่และเวลาโอน","error");
+    muteNotifyForOrder_(orderId,120000,"user");
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderSlipUpdate_(orderId,{payDate:payDate,payTime:payTime,paymentStatus:"รอตรวจสลิป"});
     this.closeSlipUploadModal();
@@ -2935,6 +3177,7 @@ const app = {
   async submitCartToAdmin(orderId,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
+    muteNotifyForOrder_(orderId,120000,"user");
     const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||"สั่งออเดอร์แล้ว";
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
     const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):"";

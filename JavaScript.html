@@ -997,14 +997,19 @@ function ensureAppData(force, opts) {
 function shortOrderLabel_(orderId){
   return String(orderId||"").replace(/^ORD-?/i,"").substring(0,8)||"?";
 }
-function muteNotifyForOrder_(orderId,ms){
+function muteNotifyForOrder_(orderId,ms,scope){
   if(!orderId)return;
-  notifyMuteUntil_[String(orderId)]=Date.now()+(ms||90000);
+  const key=String(scope||"all")+":"+String(orderId);
+  notifyMuteUntil_[key]=Date.now()+(ms||90000);
 }
-function isNotifyMuted_(orderId){
-  const t=notifyMuteUntil_[String(orderId)];
-  if(t&&Date.now()<t)return true;
-  if(t)delete notifyMuteUntil_[String(orderId)];
+function isNotifyMuted_(orderId,scope){
+  const keys=["all:"+String(orderId)];
+  if(scope)keys.push(String(scope)+":"+String(orderId));
+  for(let i=0;i<keys.length;i++){
+    const t=notifyMuteUntil_[keys[i]];
+    if(t&&Date.now()<t)return true;
+    if(t)delete notifyMuteUntil_[keys[i]];
+  }
   return false;
 }
 function notifyIsAdminReceiver_(){
@@ -1072,8 +1077,7 @@ function detectOrderNotifications_(prev,next){
   Object.keys(next).forEach(function(orderId){
     const g=Object.assign({orderId:orderId},next[orderId]);
     const p=prev[orderId];
-    if(isNotifyMuted_(orderId))return;
-    if(notifyIsAdminReceiver_()){
+    if(notifyIsAdminReceiver_()&&!isNotifyMuted_(orderId,"admin")){
       if(!p){
         if(!isCartStatus(g.status)){
           out.push(makeOrderNotifyItem_("order_new",orderId,g,"ออเดอร์ใหม่",orderNotifySummary_(g)));
@@ -1082,7 +1086,7 @@ function detectOrderNotifications_(prev,next){
         out.push(makeOrderNotifyItem_("order_submit",orderId,g,"ยืนยันส่งออเดอร์",orderNotifySummary_(g)));
       }
     }
-    if(notifyIsUserReceiver_(g)&&p){
+    if(notifyIsUserReceiver_(g)&&p&&!isNotifyMuted_(orderId,"user")){
       if(p.status!==g.status){
         out.push(makeOrderNotifyItem_("status_change",orderId,g,"อัปเดตสถานะออเดอร์","#"+shortOrderLabel_(orderId)+" → "+String(g.status||"-")));
       }
@@ -2086,6 +2090,7 @@ async function doLogout(){
   stopRealtimePoll_();
   guestMode=false;
   authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
+  resetNotifyState_();
   clearAuthToken_();
   try{await callServer("logout",t)}catch(_){}
   renderLogin();
@@ -2097,6 +2102,10 @@ function bootApp(){
   document.getElementById("app-header").classList.remove("hidden");
   syncAppBranding_();
   setSupportFooterVisible_(true);
+  notifyBaselineReady_=false;
+  orderNotifySnapshot_=null;
+  loadNotifyList_();
+  initNotifyPanelDismiss_();
   renderUserChip();
   app.renderNav();
   app.container.innerHTML=skeletonHtml("stock");
@@ -2137,6 +2146,7 @@ function renderUserChip(){
     if(me.role==="admin")adminBtn.classList.remove("hidden");
     else adminBtn.classList.add("hidden");
   }
+  renderNotifyBell_();
 }
 
 // ── App controller ───────────────────────────────────────────────────
@@ -2507,6 +2517,7 @@ const app = {
       const total=items.reduce((s,x)=>s+x.qty,0);
       const result=await runSaving({btn:btn,busyText:"กำลังบันทึกออเดอร์…"},async()=>{
         const r=await callAuthed("addMultiSizeOrder",payload);
+        if(r&&r.orderId)muteNotifyForOrder_(r.orderId,120000,isAdmin()?"admin":"user");
         if(slipFile){
           try{
             const base64=await prepareImageBase64ForUpload_(slipFile);
@@ -2827,6 +2838,7 @@ const app = {
     this.clearSlipModalMsg();
     if(!file)return this.showSlipModalMsg("กรุณาเลือกรูปสลิป","error");
     if(!payDate||!payTime)return this.showSlipModalMsg("กรุณากรอกวันที่และเวลาโอน","error");
+    muteNotifyForOrder_(orderId,120000,"user");
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderSlipUpdate_(orderId,{payDate:payDate,payTime:payTime,paymentStatus:"รอตรวจสลิป"});
     this.closeSlipUploadModal();
@@ -3166,6 +3178,7 @@ const app = {
   async submitCartToAdmin(orderId,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
+    muteNotifyForOrder_(orderId,120000,"user");
     const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||"สั่งออเดอร์แล้ว";
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
     const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):"";
