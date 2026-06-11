@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="149">
+  <meta name="peace-build" content="150">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=149&amp;t=1781189962753">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=150&amp;t=1781190100205">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -33,9 +33,11 @@
 <body>
 <script>
 (function(){
-  var fallback="149";
+  var fallback="150";
   function metaBuild(){var m=document.querySelector('meta[name="peace-build"]');return m&&m.content?String(m.content):fallback;}
   try{
+    var q=new URLSearchParams(location.search);
+    if(!q.has('_t')&&!q.has('_b'))return;
     var b=metaBuild();
     var l=document.getElementById('peace-app-css');
     if(l)l.href='assets/app.css?v='+encodeURIComponent(b)+'&t='+Date.now();
@@ -296,7 +298,7 @@
 
 <script>
 (function(){
-  var fallback="149";
+  var fallback="150";
   function metaBuild(){var m=document.querySelector('meta[name="peace-build"]');return m&&m.content?String(m.content):fallback;}
   function bust(){return Date.now();}
   function loadScript(url,next){

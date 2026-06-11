@@ -109,6 +109,8 @@ function buildEarlyCacheBustScript(build) {
     "  var fallback=" + JSON.stringify(String(build)) + ";\n" +
     "  function metaBuild(){var m=document.querySelector('meta[name=\"peace-build\"]');return m&&m.content?String(m.content):fallback;}\n" +
     "  try{\n" +
+    "    var q=new URLSearchParams(location.search);\n" +
+    "    if(!q.has('_t')&&!q.has('_b'))return;\n" +
     "    var b=metaBuild();\n" +
     "    var l=document.getElementById('peace-app-css');\n" +
     "    if(l)l.href='assets/app.css?v='+encodeURIComponent(b)+'&t='+Date.now();\n" +
