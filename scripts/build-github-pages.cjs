@@ -48,52 +48,6 @@ function extractIndexHeadExtras(indexHtml) {
   return head.trim();
 }
 
-function buildBootGuardScript_(build, apiUrl) {
-  const v = build || readBuildFromCodeJs();
-  const api = JSON.stringify(apiUrl || GAS_WEB_APP_URL);
-  return (
-    "<script>\n" +
-    "(function(){\n" +
-    "var EXPECTED=" + JSON.stringify(v) + ";\n" +
-    "var API=" + api + ";\n" +
-    "var p=new URLSearchParams(location.search);\n" +
-    "var ra=parseInt(p.get(\"_ra\")||\"0\",10)||0;\n" +
-    "function retry(target){\n" +
-    "if(ra>=6)return;\n" +
-    "try{Object.keys(sessionStorage).forEach(function(k){if(/^peace_/.test(k))sessionStorage.removeItem(k);});}catch(_){}\n" +
-    "var u=new URL(location.href);u.search=\"\";\n" +
-    "u.searchParams.set(\"_b\",target);\n" +
-    "u.searchParams.set(\"_t\",String(Date.now()));\n" +
-    "u.searchParams.set(\"_ra\",String(ra+1));\n" +
-    "location.replace(u.toString());\n" +
-    "}\n" +
-    "function pingServer(){\n" +
-    "return new Promise(function(resolve){\n" +
-    "var cb=\"peaceGate_\"+Date.now();\n" +
-    "var timer=setTimeout(function(){cleanup();resolve(null);},8000);\n" +
-    "var s=null;\n" +
-    "function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(_){}if(s&&s.parentNode)s.parentNode.removeChild(s);}\n" +
-    "window[cb]=function(r){cleanup();resolve(r&&r.build?String(r.build):null);};\n" +
-    "var payload=encodeURIComponent(JSON.stringify({method:\"getRpcPing\",params:[]}));\n" +
-    "s=document.createElement(\"script\");\n" +
-    "s.src=API+(API.indexOf(\"?\")>=0?\"&\":\"?\")+\"rpc=1&callback=\"+encodeURIComponent(cb)+\"&payload=\"+payload;\n" +
-    "s.onerror=function(){cleanup();resolve(null);};\n" +
-    "document.head.appendChild(s);\n" +
-    "});\n" +
-    "}\n" +
-    "var meta=document.querySelector('meta[name=\"peace-build\"]');\n" +
-    "var hb=meta&&meta.content?String(meta.content):\"\";\n" +
-    "if(hb&&hb!==EXPECTED)retry(EXPECTED);\n" +
-    "pingServer().then(function(sb){\n" +
-    "if(!sb||sb===EXPECTED)return;\n" +
-    "if(hb===sb)return;\n" +
-    "retry(sb);\n" +
-    "});\n" +
-    "})();\n" +
-    "</script>"
-  );
-}
-
 function expandHtmlIncludes_(html) {
   return String(html || "").replace(/<\?!=\s*include\("([^"]+)"\);\s*\?>/g, function (_m, name) {
     let file = path.join(ROOT, name);
@@ -183,7 +137,6 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   ${headExtras}
 </head>
 <body>
-${buildBootGuardScript_(v)}
 ${bodyInner}
   <script src="config.b${v}.js"></script>
   <script src="assets/app.b${v}.js"></script>

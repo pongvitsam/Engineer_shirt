@@ -35,7 +35,9 @@ assert("index loads versioned config and app assets", () => {
   if (!html.includes("config.b" + build + ".js")) throw new Error("versioned config.js missing");
   if (!html.includes("assets/app.b" + build + ".js")) throw new Error("versioned app.js missing");
   if (!html.includes("assets/app.b" + build + ".css")) throw new Error("versioned app.css missing");
-  if (!html.includes("peaceGate_")) throw new Error("boot guard script missing");
+  if (html.includes("peaceGate_") || html.includes('searchParams.set("_ra"')) {
+    throw new Error("auto-reload boot guard must not ship in static HTML");
+  }
   if (html.includes("google.script.run")) throw new Error("should not use GAS bridge in static HTML");
   if (!fs.existsSync(path.join(DOCS, "config.b" + build + ".js"))) throw new Error("config.b file missing");
   if (!fs.existsSync(path.join(DOCS, "assets", "app.b" + build + ".js"))) throw new Error("app.b file missing");

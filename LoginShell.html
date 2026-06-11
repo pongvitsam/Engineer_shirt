@@ -33,25 +33,3 @@
     </form>
   </div>
 </div>
-<script>
-(function(){
-  function stripLoginHero_(){
-    document.querySelectorAll(".login-hero").forEach(function(el){el.remove();});
-    var shell=document.querySelector(".login-shell");
-    if(shell){
-      shell.style.setProperty("display","flex","important");
-      shell.style.setProperty("justify-content","center","important");
-      shell.style.setProperty("align-items","center","important");
-      shell.style.setProperty("max-width","min(92vw,30rem)","important");
-      shell.style.setProperty("margin","0 auto","important");
-      shell.style.setProperty("grid-template-columns","1fr","important");
-      shell.style.setProperty("width","100%","important");
-    }
-  }
-  stripLoginHero_();
-  var root=document.getElementById("app-container");
-  if(root&&typeof MutationObserver!=="undefined"){
-    new MutationObserver(stripLoginHero_).observe(root,{childList:true,subtree:true});
-  }
-})();
-</script>

@@ -311,7 +311,6 @@ function probeApiOnLogin_() {
     const htmlBuild = htmlEl && htmlEl.content ? String(htmlEl.content) : "";
     if (!serverBuild) return;
     if (cfgBuild === serverBuild && (!htmlBuild || htmlBuild === serverBuild)) return;
-    if(forcePeaceFullReload_(serverBuild))return;
     if (!msg) return;
     const shownBuild = cfgBuild || htmlBuild || "?";
     msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(shownBuild) +

@@ -296,8 +296,10 @@ assert("stock recalc gated for admin/engineer only", () => {
 
 assert("login cache reload uses retry counter", () => {
   const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
-  if (!html.includes('searchParams.set("_ra"')) throw new Error("missing _ra retry param on reload");
-  if (!html.includes("if(ra>6)return false")) throw new Error("missing max reload retry guard");
+  if (!html.includes("forcePeaceFullReload_")) throw new Error("missing forcePeaceFullReload_ for manual refresh");
+  if (html.includes("if(forcePeaceFullReload_(serverBuild))return")) {
+    throw new Error("login must not auto-reload on build mismatch (causes page bounce)");
+  }
   if (!html.includes("stripLoginHeroLayout_")) throw new Error("missing stripLoginHeroLayout_");
   if (!html.includes("forcePeaceFullReload_")) throw new Error("missing forcePeaceFullReload_");
 });
