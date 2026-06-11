@@ -287,6 +287,13 @@ assert("login uses JSONP-first RPC on GitHub Pages", () => {
   if (!html.includes("probeApiOnLogin_")) throw new Error("missing probeApiOnLogin_");
 });
 
+assert("stock recalc gated for admin/engineer only", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("function canRecalcStockFromOrders_")) throw new Error("missing canRecalcStockFromOrders_");
+  if (!html.includes("return isAdmin()||isEngineer()")) throw new Error("recalc must be admin/engineer only");
+  if (!html.includes("function orderSizeKey_")) throw new Error("missing orderSizeKey_ trim helper");
+});
+
 assert("login cache reload uses retry counter", () => {
   const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
   if (!html.includes('searchParams.set("_ra"')) throw new Error("missing _ra retry param on reload");

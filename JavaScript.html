@@ -1702,14 +1702,22 @@ function skeletonHtml(module){
   return `<div class="skeleton-wrap space-y-4 fade-in">${blocks}</div>`;
 }
 
+function orderSizeKey_(size){
+  return String(size||"").trim();
+}
+function canRecalcStockFromOrders_(){
+  // Only roles that receive the full order list for stock math (viewers hide free-giveaway rows).
+  return isAdmin()||isEngineer();
+}
 function recalcStockFromOrders(){
   if(!appData?.stock||!appData?.orders)return;
-  // Non-admin users only receive their region's orders; recalculating sold from
-  // that subset would inflate remaining vs the stock page (all orders).
-  if(!canViewAllRegions())return;
+  if(!canRecalcStockFromOrders_())return;
   const sold={};
   appData.stockSizes.forEach(s=>{sold[s]=0});
-  appData.orders.forEach(o=>{if(sold[o.size]!==undefined)sold[o.size]+=Number(o.qty||0)});
+  appData.orders.forEach(o=>{
+    const size=orderSizeKey_(o.size);
+    if(size in sold)sold[size]+=Number(o.qty||0);
+  });
   appData.stock.forEach(s=>{s.sold=sold[s.size]||0;s.remaining=Math.max(s.delivered-s.sold,0)});
 }
 
@@ -1719,7 +1727,8 @@ function stockRemainingForSize(size){
 }
 
 function qtyInOrderForSize(orderId,size){
-  return (appData?.orders||[]).filter(o=>String(o.orderId)===String(orderId)&&o.size===size)
+  const want=orderSizeKey_(size);
+  return (appData?.orders||[]).filter(o=>String(o.orderId)===String(orderId)&&orderSizeKey_(o.size)===want)
     .reduce((sum,o)=>sum+Number(o.qty||0),0);
 }
 
