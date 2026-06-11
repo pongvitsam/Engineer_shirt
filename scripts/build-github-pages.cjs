@@ -102,6 +102,52 @@ function readBuildFromCodeJs() {
   return m ? m[1] : "0";
 }
 
+function buildEarlyCacheBustScript(build) {
+  return (
+    "<script>\n" +
+    "(function(){\n" +
+    "  var fallback=" + JSON.stringify(String(build)) + ";\n" +
+    "  function metaBuild(){var m=document.querySelector('meta[name=\"peace-build\"]');return m&&m.content?String(m.content):fallback;}\n" +
+    "  try{\n" +
+    "    var b=metaBuild();\n" +
+    "    var l=document.getElementById('peace-app-css');\n" +
+    "    if(l)l.href='assets/app.css?v='+encodeURIComponent(b)+'&t='+Date.now();\n" +
+    "  }catch(e){}\n" +
+    "})();\n" +
+    "</script>"
+  );
+}
+
+function buildAssetLoaderScript(build) {
+  return (
+    "<script>\n" +
+    "(function(){\n" +
+    "  var fallback=" + JSON.stringify(String(build)) + ";\n" +
+    "  function metaBuild(){var m=document.querySelector('meta[name=\"peace-build\"]');return m&&m.content?String(m.content):fallback;}\n" +
+    "  function bust(){return Date.now();}\n" +
+    "  function loadScript(url,next){\n" +
+    "    var s=document.createElement('script');\n" +
+    "    s.src=url;\n" +
+    "    s.async=false;\n" +
+    "    s.onload=function(){next&&next();};\n" +
+    "    s.onerror=function(){next&&next();};\n" +
+    "    (document.head||document.body).appendChild(s);\n" +
+    "  }\n" +
+    "  function loadAssets(attempt){\n" +
+    "    var b=metaBuild();\n" +
+    "    var t=bust();\n" +
+    "    loadScript('config.js?v='+encodeURIComponent(b)+'&t='+t,function(){\n" +
+    "      var cfg=window.PEACE_CONFIG&&window.PEACE_CONFIG.build;\n" +
+    "      if(String(cfg||'')!==String(b)&&(attempt||0)<2){loadAssets((attempt||0)+1);return;}\n" +
+    "      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),null);\n" +
+    "    });\n" +
+    "  }\n" +
+    "  loadAssets(0);\n" +
+    "})();\n" +
+    "</script>"
+  );
+}
+
 function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   const v = build || readBuildFromCodeJs();
   const ts = deployStamp || String(Date.now());
@@ -112,6 +158,8 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="peace-build" content="${v}">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
@@ -120,13 +168,13 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="assets/app.css?v=${v}&amp;t=${ts}">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=${v}&amp;t=${ts}">
   ${headExtras}
 </head>
 <body>
+${buildEarlyCacheBustScript(v)}
 ${bodyInner}
-  <script src="config.js?v=${v}&amp;t=${ts}"></script>
-  <script src="assets/app.js?v=${v}&amp;t=${ts}"></script>
+${buildAssetLoaderScript(v)}
 </body>
 </html>
 `;

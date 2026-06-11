@@ -275,27 +275,45 @@ function rpcApiUnreachableMessage_() {
     " · ถ้า build เก่ากว่าเวอร์ชันล่าสุด ให้รอ GitHub Pages อัปเดตหรือเปิดลิงก์แอปใหม่" +
     (api ? " · API: " + api : "");
 }
+function forcePeaceFullReload_(serverBuild){
+  try{
+    Object.keys(sessionStorage).forEach(function(k){
+      if(/^peace_/.test(k))sessionStorage.removeItem(k);
+    });
+  }catch(_){}
+  const build=String(serverBuild||"").trim();
+  const u=new URL(location.href);
+  if(build)u.searchParams.set("_b",build);
+  u.searchParams.set("_t",String(Date.now()));
+  u.searchParams.set("_r",String(Math.random()).slice(2,10));
+  location.replace(u.toString());
+}
+window.forcePeaceFullReload_=forcePeaceFullReload_;
+
 function probeApiOnLogin_() {
   const msg = document.getElementById("login-msg");
   if (!getRpcApiUrl_() || isGasScriptBridge_()) return;
   callServer("getRpcPing").then(function (r) {
     const serverBuild = r && r.build ? String(r.build) : "";
     const cfgBuild = (window.PEACE_CONFIG && window.PEACE_CONFIG.build) || "";
-    if (!serverBuild || !cfgBuild || serverBuild === cfgBuild) return;
-    const reloadKey = "peace_build_reload_" + serverBuild;
-    try {
-      if (!sessionStorage.getItem(reloadKey)) {
-        sessionStorage.setItem(reloadKey, "1");
-        const u = new URL(location.href);
-        u.searchParams.set("_b", serverBuild);
-        u.searchParams.set("_t", String(Date.now()));
-        location.replace(u.toString());
-        return;
-      }
-    } catch (_) {}
+    const htmlEl = document.querySelector('meta[name="peace-build"]');
+    const htmlBuild = htmlEl && htmlEl.content ? String(htmlEl.content) : "";
+    if (!serverBuild) return;
+    if (cfgBuild === serverBuild && (!htmlBuild || htmlBuild === serverBuild)) return;
+    const attemptKey = "peace_reload_try_" + serverBuild;
+    let tries = 0;
+    try { tries = parseInt(sessionStorage.getItem(attemptKey) || "0", 10) || 0; } catch (_) {}
+    if (tries < 5) {
+      try { sessionStorage.setItem(attemptKey, String(tries + 1)); } catch (_) {}
+      forcePeaceFullReload_(serverBuild);
+      return;
+    }
     if (!msg) return;
-    msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(cfgBuild) +
-      " แต่ API เป็น build " + escHtml(serverBuild) + " — กด Ctrl+Shift+R</span>";
+    const shownBuild = cfgBuild || htmlBuild || "?";
+    msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(shownBuild) +
+      " แต่ API เป็น build " + escHtml(serverBuild) +
+      " — </span><button type=\"button\" class=\"glass-btn-secondary text-xs\" style=\"padding:.35rem .65rem;margin-top:.35rem\" onclick=\"forcePeaceFullReload_(" +
+      JSON.stringify(serverBuild) + ")\"><i class=\"fas fa-sync-alt mr-1\"></i>โหลดเวอร์ชันล่าสุด</button>";
   }).catch(function () {});
 }
 function callServerRpcJsonp_(apiUrl, envelope, attempt) {
