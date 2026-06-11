@@ -279,11 +279,17 @@ function rpcApiUnreachableMessage_() {
 function forcePeaceFullReload_(serverBuild){
   try{
     Object.keys(sessionStorage).forEach(function(k){
-      if(/^peace_reload/.test(k))sessionStorage.removeItem(k);
+      if(/^peace_/.test(k))sessionStorage.removeItem(k);
     });
   }catch(_){}
+  if(typeof caches!=="undefined"&&caches.keys){
+    caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){return caches.delete(k);}));
+    }).catch(function(){});
+  }
   const build=String(serverBuild||"").trim();
   const u=new URL(location.href);
+  u.search="";
   if(build)u.searchParams.set("_b",build);
   u.searchParams.set("_t",String(Date.now()));
   u.searchParams.set("_r",String(Math.random()).slice(2,10));
@@ -301,6 +307,14 @@ function probeApiOnLogin_() {
     const htmlBuild = htmlEl && htmlEl.content ? String(htmlEl.content) : "";
     if (!serverBuild) return;
     if (cfgBuild === serverBuild && (!htmlBuild || htmlBuild === serverBuild)) return;
+    try{
+      const autoKey="peace_auto_reload_"+serverBuild;
+      if(!sessionStorage.getItem(autoKey)){
+        sessionStorage.setItem(autoKey,"1");
+        forcePeaceFullReload_(serverBuild);
+        return;
+      }
+    }catch(_){}
     if (!msg) return;
     const shownBuild = cfgBuild || htmlBuild || "?";
     msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(shownBuild) +
@@ -1964,8 +1978,20 @@ function bindLoginFormEvents_(){
   }
 }
 
+function stripLoginHeroLayout_(){
+  document.querySelectorAll(".login-hero").forEach(el=>el.remove());
+  const shell=document.querySelector(".login-shell");
+  if(shell){
+    shell.style.display="flex";
+    shell.style.justifyContent="center";
+    shell.style.maxWidth="min(92vw,30rem)";
+    shell.style.margin="0 auto";
+    shell.style.gridTemplateColumns="1fr";
+  }
+}
 function hydrateLoginScreen_(errMsg){
   if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
+  stripLoginHeroLayout_();
   syncAppBranding_();
   document.body.classList.add("peace-login-active");
   document.querySelector("main")?.classList.add("peace-login-active");
@@ -2040,6 +2066,7 @@ function renderLogin(errMsg){
         </form>
       </div>
     </div>`;
+  stripLoginHeroLayout_();
   bindLoginFormEvents_();
   probeApiOnLogin_();
   setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="153">
+  <meta name="peace-build" content="154">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -15,9 +15,10 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=153&amp;t=1781190716959">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=154&amp;t=1781190994024">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="peace-build" content="">
   
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
 
@@ -95,7 +96,29 @@
       <div id="login-msg" class="text-xs text-center"></div>
     </form>
   </div>
-</div></div>
+</div>
+<script>
+(function(){
+  function stripLoginHero_(){
+    document.querySelectorAll(".login-hero").forEach(function(el){el.remove();});
+    var shell=document.querySelector(".login-shell");
+    if(shell){
+      shell.style.setProperty("display","flex","important");
+      shell.style.setProperty("justify-content","center","important");
+      shell.style.setProperty("align-items","center","important");
+      shell.style.setProperty("max-width","min(92vw,30rem)","important");
+      shell.style.setProperty("margin","0 auto","important");
+      shell.style.setProperty("grid-template-columns","1fr","important");
+      shell.style.setProperty("width","100%","important");
+    }
+  }
+  stripLoginHero_();
+  var root=document.getElementById("app-container");
+  if(root&&typeof MutationObserver!=="undefined"){
+    new MutationObserver(stripLoginHero_).observe(root,{childList:true,subtree:true});
+  }
+})();
+</script></div>
   </main>
 
   <footer id="app-support-footer" class="app-support-footer">
@@ -303,7 +326,7 @@
     })();
   </script>
 
-  <script src="config.js?v=153&amp;t=1781190716959"></script>
-  <script src="assets/app.js?v=153&amp;t=1781190716959"></script>
+  <script src="config.js?v=154&amp;t=1781190994024"></script>
+  <script src="assets/app.js?v=154&amp;t=1781190994024"></script>
 </body>
 </html>
