@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="140">
+  <meta name="peace-build" content="141">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="assets/app.css?v=140">
+  <link rel="stylesheet" href="assets/app.css?v=141">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -50,21 +50,23 @@
         <i class="fas fa-tshirt"></i>
         <span>สั่งซื้อเสื้อชมรม กฟภ.</span>
       </div>
-      <div id="user-info-chip" class="hidden"></div>
-      <div class="notify-wrap hidden" id="notify-wrap">
-        <button type="button" id="notify-bell-btn" class="glass-btn notify-bell-btn px-2 py-1" title="การแจ้งเตือน" aria-label="การแจ้งเตือน" aria-expanded="false" onclick="toggleNotifyPanel_()">
-          <i class="fas fa-bell"></i>
-          <span id="notify-badge" class="notify-badge hidden" aria-hidden="true">0</span>
-        </button>
-        <div id="notify-panel" class="notify-panel hidden" role="dialog" aria-label="รายการแจ้งเตือน"></div>
-      </div>
-      <div class="flex gap-1 text-xs flex-wrap justify-end" id="header-buttons">
-        <button onclick="app.navigate('orders')" class="glass-btn px-2 py-1" title="สั่งซื้อเสื้อ" aria-label="สั่งซื้อเสื้อ"><i class="fas fa-plus"></i></button>
-        <button onclick="app.navigate('list')" class="glass-btn px-2 py-1" title="รายการสั่งซื้อ" aria-label="รายการสั่งซื้อ"><i class="fas fa-list"></i></button>
-        <button onclick="app.navigate('dashboard')" class="glass-btn px-2 py-1" title="แดชบอร์ด" aria-label="แดชบอร์ด"><i class="fas fa-chart-pie"></i></button>
-        <button onclick="app.navigate('report')" class="glass-btn px-2 py-1" title="รายงาน" aria-label="รายงาน"><i class="fas fa-file-alt"></i></button>
-        <button id="header-guide-btn" onclick="app.navigate('guide')" class="glass-btn px-2 py-1" title="คู่มือการใช้งาน" aria-label="คู่มือ"><i class="fas fa-book"></i></button>
-        <button id="header-admin-btn" onclick="app.navigate('admin')" class="glass-btn-admin px-2 py-1 hidden" title="แอดมิน" aria-label="แอดมิน"><i class="fas fa-cog"></i></button>
+      <div class="header-actions flex items-center gap-1 flex-wrap justify-end flex-shrink-0">
+        <div id="user-info-chip" class="hidden"></div>
+        <div class="notify-wrap hidden" id="notify-wrap">
+          <button type="button" id="notify-bell-btn" class="glass-btn notify-bell-btn px-2 py-1" title="การแจ้งเตือน" aria-label="การแจ้งเตือน" aria-expanded="false" onclick="toggleNotifyPanel_()">
+            <i class="fas fa-bell"></i>
+            <span id="notify-badge" class="notify-badge hidden" aria-hidden="true">0</span>
+          </button>
+          <div id="notify-panel" class="notify-panel hidden" role="dialog" aria-label="รายการแจ้งเตือน"></div>
+        </div>
+        <div class="flex gap-1 text-xs flex-wrap justify-end" id="header-buttons">
+          <button onclick="app.navigate('orders')" class="glass-btn px-2 py-1" title="สั่งซื้อเสื้อ" aria-label="สั่งซื้อเสื้อ"><i class="fas fa-plus"></i></button>
+          <button onclick="app.navigate('list')" class="glass-btn px-2 py-1" title="รายการสั่งซื้อ" aria-label="รายการสั่งซื้อ"><i class="fas fa-list"></i></button>
+          <button onclick="app.navigate('dashboard')" class="glass-btn px-2 py-1" title="แดชบอร์ด" aria-label="แดชบอร์ด"><i class="fas fa-chart-pie"></i></button>
+          <button onclick="app.navigate('report')" class="glass-btn px-2 py-1" title="รายงาน" aria-label="รายงาน"><i class="fas fa-file-alt"></i></button>
+          <button id="header-guide-btn" onclick="app.navigate('guide')" class="glass-btn px-2 py-1" title="คู่มือการใช้งาน" aria-label="คู่มือ"><i class="fas fa-book"></i></button>
+          <button id="header-admin-btn" onclick="app.navigate('admin')" class="glass-btn-admin px-2 py-1 hidden" title="แอดมิน" aria-label="แอดมิน"><i class="fas fa-cog"></i></button>
+        </div>
       </div>
     </div>
     <nav class="max-w-4xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto text-xs" id="nav-tabs"></nav>
@@ -279,7 +281,7 @@
     })();
   </script>
 
-  <script src="config.js?v=140&amp;t=1781187616006"></script>
-  <script src="assets/app.js?v=140&amp;t=1781187616006"></script>
+  <script src="config.js?v=141&amp;t=1781187983401"></script>
+  <script src="assets/app.js?v=141&amp;t=1781187983401"></script>
 </body>
 </html>
