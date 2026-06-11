@@ -149,7 +149,8 @@ const RPC_JSONP_FIRST_METHODS_ = {
   login: true,
   verifySession: true,
   getRpcPing: true,
-  getGuestStockData: true
+  getGuestStockData: true,
+  getGuestLoginPreview: true
 };
 const UPLOAD_MAX_RAW_BYTES = 28 * 1024 * 1024;
 const UPLOAD_TARGET_B64_MAX = 2800000;
@@ -1955,44 +1956,71 @@ function computeSalesReport(){
 }
 
 // ── Login screen ─────────────────────────────────────────────────────
-async function resolveGuestRoundDisplayUrl_(round,stamp){
-  const r=Object.assign({},round||{});
+const LOGIN_PREVIEW_CACHE_KEY="peace_login_preview_v1";
+
+function readLoginPreviewCache_(){
+  try{
+    const raw=sessionStorage.getItem(LOGIN_PREVIEW_CACHE_KEY);
+    if(!raw)return null;
+    return JSON.parse(raw);
+  }catch(_){return null;}
+}
+
+function writeLoginPreviewCache_(data){
+  if(!data)return;
+  try{
+    sessionStorage.setItem(LOGIN_PREVIEW_CACHE_KEY,JSON.stringify({
+      round:data.round,
+      generatedAt:data.generatedAt
+    }));
+  }catch(_){}
+}
+
+function applyLoginHeroMeta_(round,yearEl,cap,priceEl){
+  const r=round||{};
+  if(yearEl)yearEl.textContent=r.year||"—";
+  if(cap)cap.textContent=String(r.name||"").trim()||(APP_BRAND_LINE1+" "+APP_BRAND_LINE2);
+  if(priceEl){
+    const p=Number(r.unitPrice||0);
+    priceEl.textContent=p>0?fmtMoney(p)+" ฿":"";
+    priceEl.style.display=p>0?"":"none";
+  }
+}
+
+function driveThumbnailUrl_(fileId){
+  return "https://drive.google.com/thumbnail?id="+encodeURIComponent(String(fileId||""))+"&sz=w1920";
+}
+
+function pickGuestRoundImageInstant_(round,stamp){
+  const r=round||{};
+  const t=stamp||Date.now();
   const imageRef=String(r.imageUrl||r.imageRef||"").trim();
-  r.imageRef=imageRef;
-  r.imageDataThumb=String(r.imageDataThumb||"");
-  let displayUrl="";
-  let sourceMode="";
-  if(extractDriveFileId(imageRef)){
-    try{
-      const res=await callServer("getImageProxy",extractDriveFileId(imageRef));
-      if(res&&res.ok&&res.dataUrl){
-        displayUrl=res.dataUrl;
-        sourceMode="proxy";
-      }else if(res&&res.ok&&res.thumbnailUrl){
-        displayUrl=res.thumbnailUrl;
-        sourceMode="proxy";
-      }
-    }catch(_){}
+  if(r.imageDataThumb&&isDataUrl(r.imageDataThumb))return r.imageDataThumb;
+  if(r.imageDisplayUrl&&!isPlaceholderImage(r.imageDisplayUrl)&&r.imageSourceMode!=="thumb")
+    return withCacheBust(r.imageDisplayUrl,t);
+  const fileId=extractDriveFileId(imageRef);
+  if(fileId)return driveThumbnailUrl_(fileId);
+  if(isValidRoundUrl(imageRef))return withCacheBust(imageRef,t);
+  return SHIRT_PLACEHOLDER_URL;
+}
+
+function showLoginHeroImage_(img,ph,sk,src){
+  if(!img)return;
+  if(isPlaceholderImage(src)){
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    if(ph)ph.classList.remove("hidden");
+  }else{
+    img.classList.remove("hidden");
+    if(ph)ph.classList.add("hidden");
+    const next=String(src||"");
+    if(img.getAttribute("data-src")!==next){
+      img.setAttribute("data-src",next);
+      img.src=next;
+    }
   }
-  if(!displayUrl&&r.imageDisplayUrl&&!isPlaceholderImage(r.imageDisplayUrl)&&r.imageSourceMode!=="thumb"){
-    displayUrl=String(r.imageDisplayUrl);
-    sourceMode=String(r.imageSourceMode||"proxy");
-  }
-  if(!displayUrl&&r.imageDataThumb&&isDataUrl(r.imageDataThumb)){
-    displayUrl=r.imageDataThumb;
-    sourceMode="thumb";
-  }
-  if(!displayUrl&&isValidRoundUrl(imageRef)){
-    displayUrl=imageRef;
-    sourceMode="url";
-  }else if(!displayUrl){
-    displayUrl=SHIRT_PLACEHOLDER_URL;
-    sourceMode="placeholder";
-  }
-  r.imageDisplayUrl=displayUrl;
-  r.imageSourceMode=sourceMode;
-  r.imageDisplaySrc=withCacheBust(displayUrl,stamp||Date.now());
-  return pickRoundDisplayImage_(r);
+  img.classList.remove("login-hero-img--loading");
+  if(sk)sk.classList.add("hidden");
 }
 
 async function loadLoginHeroImage_(attempt){
@@ -2004,47 +2032,33 @@ async function loadLoginHeroImage_(attempt){
   const ph=document.getElementById("login-hero-placeholder");
   const sk=document.getElementById("login-hero-skeleton");
   if(!img)return;
-  if(sk)sk.classList.remove("hidden");
+
+  const cached=readLoginPreviewCache_();
+  if(cached&&cached.round){
+    applyLoginHeroMeta_(cached.round,yearEl,cap,priceEl);
+    showLoginHeroImage_(img,ph,sk,pickGuestRoundImageInstant_(cached.round,cached.generatedAt));
+  }else if(sk)sk.classList.remove("hidden");
+
   try{
-    const data=await callServer("getGuestStockData");
+    const data=await callServer("getGuestLoginPreview");
     const round=data&&data.round;
     if(!round)throw new Error("no round");
+    writeLoginPreviewCache_(data);
     const stamp=data.generatedAt||Date.now();
-    if(yearEl)yearEl.textContent=round.year||"—";
-    if(cap)cap.textContent=String(round.name||"").trim()||(APP_BRAND_LINE1+" "+APP_BRAND_LINE2);
-    if(priceEl){
-      const p=Number(round.unitPrice||0);
-      priceEl.textContent=p>0?fmtMoney(p)+" ฿":"";
-      priceEl.style.display=p>0?"":"none";
+    applyLoginHeroMeta_(round,yearEl,cap,priceEl);
+    showLoginHeroImage_(img,ph,sk,pickGuestRoundImageInstant_(round,stamp));
+  }catch(_){
+    if(tryNo<2){
+      setTimeout(()=>loadLoginHeroImage_(tryNo+1),350*(tryNo+1));
+      return;
     }
-    const src=await resolveGuestRoundDisplayUrl_(round,stamp);
-    if(isPlaceholderImage(src)){
+    if(!cached){
       img.removeAttribute("src");
       img.classList.add("hidden");
       if(ph)ph.classList.remove("hidden");
-    }else{
-      img.classList.remove("hidden");
-      if(ph)ph.classList.add("hidden");
-      await new Promise((resolve,reject)=>{
-        const done=()=>{img.onload=null;img.onerror=null;resolve();};
-        img.onload=done;
-        img.onerror=()=>{img.onload=null;img.onerror=null;reject(new Error("img"));};
-        img.src=src;
-        if(img.complete&&img.naturalWidth>0)done();
-      });
+      img.classList.remove("login-hero-img--loading");
+      if(sk)sk.classList.add("hidden");
     }
-    img.classList.remove("login-hero-img--loading");
-    if(sk)sk.classList.add("hidden");
-  }catch(_){
-    if(tryNo<2){
-      setTimeout(()=>loadLoginHeroImage_(tryNo+1),700*(tryNo+1));
-      return;
-    }
-    img.removeAttribute("src");
-    img.classList.add("hidden");
-    if(ph)ph.classList.remove("hidden");
-    img.classList.remove("login-hero-img--loading");
-    if(sk)sk.classList.add("hidden");
   }
 }
 
@@ -2069,7 +2083,7 @@ function renderLogin(errMsg){
             </div>
             <div class="login-hero-image-wrap glass-image-wrap">
               <div id="login-hero-skeleton" class="login-hero-skeleton skeleton" aria-hidden="true"></div>
-              <img id="login-hero-img" class="login-hero-img login-hero-img--loading hidden" alt="เสื้อชมรมวิศวกร" decoding="async">
+              <img id="login-hero-img" class="login-hero-img login-hero-img--loading hidden" alt="เสื้อชมรมวิศวกร" decoding="async" fetchpriority="high" referrerpolicy="no-referrer">
               <div id="login-hero-placeholder" class="login-hero-placeholder hidden" aria-hidden="true">
                 <i class="fas fa-tshirt"></i>
                 <p>ยังไม่มีรูปเสื้อ</p>
@@ -2116,6 +2130,7 @@ function renderLogin(errMsg){
         </section>
       </div>
     </div>`;
+  loadLoginHeroImage_();
   setTimeout(()=>{
     const u=document.getElementById("login-username");
     if(u)u.focus();
@@ -2124,7 +2139,6 @@ function renderLogin(errMsg){
       p.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
     }
     probeApiOnLogin_();
-    loadLoginHeroImage_();
   },50);
 }
 

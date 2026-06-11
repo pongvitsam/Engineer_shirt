@@ -12,6 +12,7 @@ const RPC_PUBLIC_METHODS_ = {
   logout: true,
   verifySession: true,
   getGuestStockData: true,
+  getGuestLoginPreview: true,
   getImageProxy: true,
   getRpcPing: true
 };
@@ -140,6 +141,7 @@ function invokeRpc_(method, args, options) {
     logout: logout,
     verifySession: verifySession,
     getGuestStockData: getGuestStockData,
+    getGuestLoginPreview: getGuestLoginPreview,
     getRpcPing: getRpcPing,
     getBootstrapData: getBootstrapData,
     addMultiSizeOrder: addMultiSizeOrder,
@@ -229,7 +231,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "148";
+const APP_BUILD = "149";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -601,9 +603,32 @@ function slimRoundImageRpcFields_(imageUrl, display) {
   };
 }
 
+function getGuestBootstrapFromCache_() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(CACHE_KEY_BOOTSTRAP);
+  let data;
+  if (cached) {
+    try { data = JSON.parse(cached); } catch (e) { data = null; }
+  }
+  if (!data) {
+    ensureSheetsInitialized_();
+    data = buildBootstrapDataForCache_();
+    try { cache.put(CACHE_KEY_BOOTSTRAP, JSON.stringify(data), CACHE_TTL_SEC); } catch (e) {}
+  }
+  return data;
+}
+
+function getGuestLoginPreview() {
+  const data = getGuestBootstrapFromCache_();
+  return {
+    round: slimRoundPayloadForExternal_(data.round || {}),
+    generatedAt: data.generatedAt
+  };
+}
+
 function getGuestStockData() {
   ensureSheetsInitialized_();
-  const data = buildBootstrapData_();
+  const data = getGuestBootstrapFromCache_();
   const round = slimRoundPayloadForExternal_(data.round || {});
   return {
     regions: [],
