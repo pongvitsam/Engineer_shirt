@@ -1,4 +1,3 @@
-<script>
 // ===== PEACE Engineer Club — front-end (RBAC + multi-size + speed) =====
 
 // ── Boot error trap + watchdog (shows real errors on screen since the
@@ -2404,17 +2403,13 @@ const app = {
         <div class="text-sm text-glass"><i class="fas fa-eye mr-1"></i> โหมด Guest — ดูได้เฉพาะ <b>รูปเสื้อ</b>, <b>จำนวนคงเหลือ</b> และ <b>ตารางไซส์</b> <button onclick="renderLogin()" class="glass-btn-secondary text-xs ml-2" style="padding:.25rem .5rem">เข้าสู่ระบบ</button></div>
       </div>
       <div class="glass-card">
-        <div class="glass-card-header stock-card-header stock-card-header--solo">
+        <div class="glass-card-header px-5 py-3">
           <h1 class="text-lg font-bold">${escHtml(round.name||"เสื้อชมรมวิศวกร")}</h1>
         </div>
         <div class="p-4">
-          <div class="stock-image-section">
-            <div class="stock-image-wrap glass-image-wrap">
-              ${isPlaceholderImage(displayImage)
-                ? `<div class="stock-image-placeholder flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
-                : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="stock-shirt-img">`}
-            </div>
-          </div>
+          ${isPlaceholderImage(displayImage)
+            ? `<div class="glass-image-wrap flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
+            : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-[32rem] object-contain rounded-lg glass-image-wrap">`}
         </div>
       </div>
       <div class="glass-card p-4">
@@ -2461,7 +2456,7 @@ const app = {
         <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${s.remaining}</span></div>
       </div>`;
     }).join("");
-    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="stock-image-upload glass-btn-primary text-xs cursor-pointer"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
+    const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="absolute top-2 right-2 glass-btn-primary text-xs cursor-pointer" style="padding:.35rem .75rem;border-radius:9999px"><i class="fas fa-camera"></i> <span class="sm:inline hidden">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
     const guestNote=isGuest()?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-info-circle mr-1"></i> โหมด Guest: ดูจำนวนเสื้อคงเหลือได้เท่านั้น</div></div>`:"";
     const guestActions=isGuest()?"":`<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> สั่งซื้อเสื้อ</button>
@@ -2479,17 +2474,15 @@ const app = {
     return `
       ${guestNote}
       <div class="glass-card">
-        <div class="glass-card-header stock-card-header">
-          <div class="stock-card-title"><div class="text-xs opacity-80">รอบปี ${round.year}</div><h1 class="text-lg font-bold">${escHtml(round.name)}</h1></div>
-          <div class="stock-card-price"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(round.unitPrice)} ฿</div></div>
+        <div class="glass-card-header px-5 py-3 flex justify-between items-center">
+          <div><div class="text-xs opacity-80">รอบปี ${round.year}</div><h1 class="text-lg font-bold">${escHtml(round.name)}</h1></div>
+          <div class="text-right"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(round.unitPrice)} ฿</div></div>
         </div>
         <div class="p-4">
-          <div class="stock-image-section">
-            <div class="stock-image-wrap glass-image-wrap">
-              ${isPlaceholderImage(displayImage)
-                ? `<div class="stock-image-placeholder flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
-                : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="stock-shirt-img">`}
-            </div>
+          <div class="relative mb-4">
+            ${isPlaceholderImage(displayImage)
+              ? `<div class="glass-image-wrap flex flex-col items-center justify-center py-8 text-glass" style="opacity:.8"><i class="fas fa-tshirt text-6xl mb-2"></i><p class="text-sm font-semibold">ยังไม่มีรูปเสื้อ</p></div>`
+              : `<img id="stock-shirt-image" data-image-ref="${escHtml(round.imageRef||round.imageUrl||"")}" src="${displayImage}" alt="เสื้อ" loading="lazy" onload="app.onShirtImageLoaded(this,false)" onerror="app.onShirtImageError(this,false)" class="w-full max-h-[32rem] object-contain rounded-lg glass-image-wrap">`}
             ${adminUpload}
           </div>
         </div>
@@ -4242,4 +4235,3 @@ function bootEntry(){
 window.onload=bootEntry;
 // In case the load event already fired (script injected late), boot anyway.
 if(document.readyState==="complete"){setTimeout(bootEntry,0);}
-</script>

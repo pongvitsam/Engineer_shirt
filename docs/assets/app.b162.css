@@ -92,12 +92,3 @@ body.peace-login-active .app-support-footer{display:none!important}
 .notify-item-time{font-size:.62rem;color:rgba(255,255,255,.5);margin-top:.25rem}
 .notify-empty{padding:1.25rem .85rem;text-align:center;color:rgba(255,255,255,.55);font-size:var(--fs-xs)}
 @media (max-width:480px){.notify-panel{right:-.25rem;width:min(96vw,20rem)}.header-top{flex-wrap:wrap}.header-actions{flex-basis:100%;justify-content:flex-end}#user-info-chip:not(.hidden){flex-basis:100%;justify-content:flex-start;margin-bottom:.15rem}}
-.stock-image-section{position:relative;width:100%;margin:0 auto}
-.stock-image-wrap{width:100%;max-width:100%;margin:0 auto;display:flex;align-items:center;justify-content:center;padding:.75rem 1rem;min-height:8rem}
-.stock-image-wrap .stock-shirt-img,#stock-shirt-image{width:auto;max-width:100%;margin:0 auto;display:block;object-fit:contain;border-radius:.625rem;background:transparent;border:0;box-shadow:none}
-.stock-image-placeholder{width:100%}
-.stock-image-upload{position:absolute;top:.5rem;left:50%;transform:translateX(-50%);z-index:2;padding:.35rem .75rem;border-radius:9999px;white-space:nowrap}
-.glass-card-header.stock-card-header{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.875rem 1.25rem}
-.stock-card-title{flex:1;min-width:0}
-.stock-card-price{flex-shrink:0;text-align:right}
-.stock-card-header--solo{justify-content:center;text-align:center}
