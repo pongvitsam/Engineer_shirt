@@ -44,7 +44,11 @@
 .slip-modal-actions .glass-btn-primary,.slip-modal-actions .glass-btn-secondary{min-height:var(--touch-min);touch-action:manipulation}
 #slip-upload-modal .slip-preview-img{max-height:min(28vh,11rem)}
 #slip-upload-modal .glass-datetime-select,#slip-upload-modal .glass-select{touch-action:manipulation;position:relative;z-index:2}
+.login-overlay.login-screen-overlay{position:relative!important;inset:auto!important;background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;box-shadow:none!important}
 .login-screen-overlay{align-items:center;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:max(.75rem,env(safe-area-inset-top,0px)) clamp(.75rem,2.5vw,1.5rem) max(1.5rem,env(safe-area-inset-bottom,0px));min-height:100dvh;box-sizing:border-box}
+#app-container.login-app-container{max-width:none!important;width:100%!important;margin:0!important;padding:0!important}
+main.peace-login-active{padding-bottom:0!important}
+body.peace-login-active::after,body.peace-login-active::before{animation-play-state:paused}
 .login-shell{width:100%;max-width:min(96vw,92rem);margin:0 auto;display:grid;grid-template-columns:1fr;gap:1.25rem;align-items:stretch}
 .login-hero{width:100%;min-width:0;display:flex;flex-direction:column}
 .login-hero-card{padding:.5rem .55rem .55rem;display:flex;flex-direction:column;flex:1 1 auto;min-height:0}

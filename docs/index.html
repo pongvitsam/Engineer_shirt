@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="150">
+  <meta name="peace-build" content="151">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=150&amp;t=1781190100205">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=151&amp;t=1781190250164">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -33,7 +33,7 @@
 <body>
 <script>
 (function(){
-  var fallback="150";
+  var fallback="151";
   function metaBuild(){var m=document.querySelector('meta[name="peace-build"]');return m&&m.content?String(m.content):fallback;}
   try{
     var q=new URLSearchParams(location.search);
@@ -298,7 +298,7 @@
 
 <script>
 (function(){
-  var fallback="150";
+  var fallback="151";
   function metaBuild(){var m=document.querySelector('meta[name="peace-build"]');return m&&m.content?String(m.content):fallback;}
   function bust(){return Date.now();}
   function loadScript(url,next){
@@ -310,12 +310,17 @@
     (document.head||document.body).appendChild(s);
   }
   function loadAssets(attempt){
+    if(window.__peaceAssetsLoading||window.__peaceAssetsLoaded)return;
+    window.__peaceAssetsLoading=true;
     var b=metaBuild();
     var t=bust();
     loadScript('config.js?v='+encodeURIComponent(b)+'&t='+t,function(){
       var cfg=window.PEACE_CONFIG&&window.PEACE_CONFIG.build;
-      if(String(cfg||'')!==String(b)&&(attempt||0)<2){loadAssets((attempt||0)+1);return;}
-      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),null);
+      if(String(cfg||'')!==String(b)&&(attempt||0)<2){window.__peaceAssetsLoading=false;loadAssets((attempt||0)+1);return;}
+      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),function(){
+        window.__peaceAssetsLoaded=true;
+        window.__peaceAssetsLoading=false;
+      });
     });
   }
   loadAssets(0);

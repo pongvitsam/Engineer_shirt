@@ -1997,6 +1997,31 @@ function pickGuestRoundImageInstant_(round,stamp){
   return SHIRT_PLACEHOLDER_URL;
 }
 
+let loginHeroSkeletonTimer_=null;
+
+function clearLoginHeroSkeletonTimer_(){
+  if(loginHeroSkeletonTimer_){clearTimeout(loginHeroSkeletonTimer_);loginHeroSkeletonTimer_=null;}
+}
+
+function scheduleLoginHeroSkeleton_(sk){
+  clearLoginHeroSkeletonTimer_();
+  if(!sk||!sk.classList.contains("hidden"))return;
+  loginHeroSkeletonTimer_=setTimeout(()=>{
+    loginHeroSkeletonTimer_=null;
+    const img=document.getElementById("login-hero-img");
+    if(sk.classList.contains("hidden"))return;
+    if(loginHeroHasVisibleImage_(img))return;
+    sk.classList.remove("hidden");
+  },500);
+}
+
+function hideBootShell_(){
+  const ph=document.getElementById("pre-header");
+  const ps=document.getElementById("pre-skeleton");
+  if(ph)ph.style.display="none";
+  if(ps)ps.style.display="none";
+}
+
 function loginHeroHasVisibleImage_(img){
   return !!(img&&!img.classList.contains("hidden")&&img.complete&&img.naturalWidth>0);
 }
@@ -2016,6 +2041,7 @@ function showLoginHeroImage_(img,ph,sk,src){
   }
   const cur=img.getAttribute("data-src")||"";
   if(cur===next&&loginHeroHasVisibleImage_(img)){
+    clearLoginHeroSkeletonTimer_();
     img.classList.remove("hidden");
     if(ph)ph.classList.add("hidden");
     if(sk)sk.classList.add("hidden");
@@ -2027,21 +2053,19 @@ function showLoginHeroImage_(img,ph,sk,src){
   if(cur!==next){
     img.setAttribute("data-src",next);
     img.classList.add("login-hero-img--loading");
-    img.onload=()=>{
+    const done=()=>{
       img.classList.remove("login-hero-img--loading");
+      clearLoginHeroSkeletonTimer_();
       if(sk)sk.classList.add("hidden");
     };
-    img.onerror=()=>{
-      img.classList.remove("login-hero-img--loading");
-      if(sk)sk.classList.add("hidden");
-    };
+    img.onload=done;
+    img.onerror=done;
     img.src=next;
-    if(img.complete&&img.naturalWidth>0){
-      img.classList.remove("login-hero-img--loading");
-      if(sk)sk.classList.add("hidden");
-    }
+    if(img.complete&&img.naturalWidth>0)done();
+    else scheduleLoginHeroSkeleton_(sk);
   }else{
     img.classList.remove("login-hero-img--loading");
+    clearLoginHeroSkeletonTimer_();
     if(sk)sk.classList.add("hidden");
   }
   return true;
@@ -2066,7 +2090,10 @@ async function loadLoginHeroImage_(attempt){
     shownSrc=pickGuestRoundImageInstant_(cached.round,cached.generatedAt);
     applyLoginHeroMeta_(cached.round,yearEl,cap,priceEl);
     showLoginHeroImage_(img,ph,sk,shownSrc);
-  }else if(sk)sk.classList.remove("hidden");
+  }else if(sk){
+    sk.classList.add("hidden");
+    scheduleLoginHeroSkeleton_(sk);
+  }
 
   try{
     const data=await callServer("getGuestLoginPreview");
@@ -2102,13 +2129,19 @@ async function loadLoginHeroImage_(attempt){
 function renderLogin(errMsg){
   if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
   syncAppBranding_();
-  document.getElementById("pre-header").style.display="none";
-  document.getElementById("pre-skeleton").style.display="none";
+  document.body.classList.add("peace-login-active");
+  document.querySelector("main")?.classList.add("peace-login-active");
   document.getElementById("app-header").classList.add("hidden");
   setSupportFooterVisible_(true);
   const gasOnly=isGasAdminOnlyHost_();
   const ghUrl=getGithubPagesUrl_();
   const c=document.getElementById("app-container");
+  c.classList.add("login-app-container");
+  if(document.getElementById("login-form")&&!errMsg){
+    loadLoginHeroImage_();
+    requestAnimationFrame(hideBootShell_);
+    return;
+  }
   c.innerHTML=`
     <div class="login-overlay login-screen-overlay">
       <div class="login-shell">
@@ -2119,7 +2152,7 @@ function renderLogin(errMsg){
               <p id="login-hero-price" class="login-hero-price"></p>
             </div>
             <div class="login-hero-image-wrap glass-image-wrap">
-              <div id="login-hero-skeleton" class="login-hero-skeleton skeleton" aria-hidden="true"></div>
+              <div id="login-hero-skeleton" class="login-hero-skeleton skeleton hidden" aria-hidden="true"></div>
               <img id="login-hero-img" class="login-hero-img login-hero-img--loading hidden" alt="เสื้อชมรมวิศวกร" decoding="async" fetchpriority="high" referrerpolicy="no-referrer">
               <div id="login-hero-placeholder" class="login-hero-placeholder hidden" aria-hidden="true">
                 <i class="fas fa-tshirt"></i>
@@ -2168,6 +2201,7 @@ function renderLogin(errMsg){
       </div>
     </div>`;
   loadLoginHeroImage_();
+  requestAnimationFrame(()=>requestAnimationFrame(hideBootShell_));
   setTimeout(()=>{
     const u=document.getElementById("login-username");
     if(u)u.focus();
@@ -2302,8 +2336,11 @@ async function doLogout(){
 
 function bootApp(){
   if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
-  document.getElementById("pre-header").style.display="none";
-  document.getElementById("pre-skeleton").style.display="none";
+  hideBootShell_();
+  document.body.classList.remove("peace-login-active");
+  document.querySelector("main")?.classList.remove("peace-login-active");
+  document.getElementById("app-container")?.classList.remove("login-app-container");
+  clearLoginHeroSkeletonTimer_();
   document.getElementById("app-header").classList.remove("hidden");
   syncAppBranding_();
   setSupportFooterVisible_(true);
@@ -4261,6 +4298,8 @@ syncWindowSession_();
 
 // ── Boot ─────────────────────────────────────────────────────────────
 function bootEntry(){
+  if(window.__peaceBootStarted)return;
+  window.__peaceBootStarted=true;
   syncAppBranding_();
   try{
     app.container=document.getElementById("app-container");

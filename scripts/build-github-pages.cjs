@@ -136,12 +136,17 @@ function buildAssetLoaderScript(build) {
     "    (document.head||document.body).appendChild(s);\n" +
     "  }\n" +
     "  function loadAssets(attempt){\n" +
+    "    if(window.__peaceAssetsLoading||window.__peaceAssetsLoaded)return;\n" +
+    "    window.__peaceAssetsLoading=true;\n" +
     "    var b=metaBuild();\n" +
     "    var t=bust();\n" +
     "    loadScript('config.js?v='+encodeURIComponent(b)+'&t='+t,function(){\n" +
     "      var cfg=window.PEACE_CONFIG&&window.PEACE_CONFIG.build;\n" +
-    "      if(String(cfg||'')!==String(b)&&(attempt||0)<2){loadAssets((attempt||0)+1);return;}\n" +
-    "      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),null);\n" +
+    "      if(String(cfg||'')!==String(b)&&(attempt||0)<2){window.__peaceAssetsLoading=false;loadAssets((attempt||0)+1);return;}\n" +
+    "      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),function(){\n" +
+    "        window.__peaceAssetsLoaded=true;\n" +
+    "        window.__peaceAssetsLoading=false;\n" +
+    "      });\n" +
     "    });\n" +
     "  }\n" +
     "  loadAssets(0);\n" +
