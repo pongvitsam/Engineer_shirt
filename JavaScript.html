@@ -1347,6 +1347,19 @@ function canEditNoteInModal_(g,ownsOrder){
   if(isPaymentLocked(g&&g.paymentStatus))return false;
   return !!ownsOrder;
 }
+function copyTransferAccountNo_(btn){
+  const t=btn&&(btn.dataset.copy||"").trim()||(btn.textContent||"").trim();
+  if(!t)return;
+  const done=()=>{if(typeof app!=="undefined"&&app.showMsg)app.showMsg("คัดลอกเลขบัญชีแล้ว","success");};
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(()=>{});
+    return;
+  }
+  const ta=document.createElement("textarea");
+  ta.value=t;document.body.appendChild(ta);ta.select();
+  try{document.execCommand("copy");done();}catch(_){}
+  ta.remove();
+}
 function renderTransferAccountBlock_(opts){
   opts=opts||{};
   const raw=String(appData&&appData.transferAccount||"").trim();
@@ -1355,10 +1368,22 @@ function renderTransferAccountBlock_(opts){
   if(!lines.length)return "";
   const compact=!!opts.compact;
   const cardCls="transfer-account-card"+(compact?" transfer-account-card--compact":"");
-  const bodyCls="transfer-account-body"+(compact?" transfer-account-body--inline":"");
+  const acctNo=lines[0]||"";
+  const bank=lines[1]||"";
+  const acctName=lines.slice(2).join(" ");
+  let metaHtml="";
+  if(bank)metaHtml+=`<div class="transfer-account-bank">${escHtml(bank)}</div>`;
+  if(acctName)metaHtml+=`<div class="transfer-account-name">${escHtml(acctName)}</div>`;
   return `<div class="${cardCls}">
     <div class="transfer-account-title"><i class="fas fa-university"></i> บัญชีสำหรับการโอนเงิน</div>
-    <div class="${bodyCls}">${lines.map((l,i)=>`<div class="transfer-account-line${i===0?" transfer-account-no":""}">${escHtml(l)}</div>`).join("")}</div>
+    <div class="transfer-account-body">
+      <div class="transfer-account-row transfer-account-row--no">
+        <button type="button" class="transfer-account-no" onclick="copyTransferAccountNo_(this)" data-copy="${escAttr(acctNo)}" title="แตะเพื่อคัดลอกเลขบัญชี">
+          <span class="transfer-account-no-text">${escHtml(acctNo)}</span>
+          <i class="fas fa-copy transfer-account-copy-icon" aria-hidden="true"></i>
+        </button>
+      </div>${metaHtml?`<div class="transfer-account-row transfer-account-row--meta">${metaHtml}</div>`:""}
+    </div>
   </div>`;
 }
 
