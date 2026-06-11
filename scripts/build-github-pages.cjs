@@ -120,7 +120,7 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="assets/app.css?v=${v}">
+  <link rel="stylesheet" href="assets/app.css?v=${v}&amp;t=${ts}">
   ${headExtras}
 </head>
 <body>

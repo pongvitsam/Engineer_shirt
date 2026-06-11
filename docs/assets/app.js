@@ -276,14 +276,25 @@ function rpcApiUnreachableMessage_() {
 }
 function probeApiOnLogin_() {
   const msg = document.getElementById("login-msg");
-  if (!msg || !getRpcApiUrl_() || isGasScriptBridge_()) return;
+  if (!getRpcApiUrl_() || isGasScriptBridge_()) return;
   callServer("getRpcPing").then(function (r) {
     const serverBuild = r && r.build ? String(r.build) : "";
     const cfgBuild = (window.PEACE_CONFIG && window.PEACE_CONFIG.build) || "";
-    if (serverBuild && cfgBuild && serverBuild !== cfgBuild) {
-      msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(cfgBuild) +
-        " แต่ API เป็น build " + escHtml(serverBuild) + " — กด Ctrl+Shift+R</span>";
-    }
+    if (!serverBuild || !cfgBuild || serverBuild === cfgBuild) return;
+    const reloadKey = "peace_build_reload_" + serverBuild;
+    try {
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, "1");
+        const u = new URL(location.href);
+        u.searchParams.set("_b", serverBuild);
+        u.searchParams.set("_t", String(Date.now()));
+        location.replace(u.toString());
+        return;
+      }
+    } catch (_) {}
+    if (!msg) return;
+    msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(cfgBuild) +
+      " แต่ API เป็น build " + escHtml(serverBuild) + " — กด Ctrl+Shift+R</span>";
   }).catch(function () {});
 }
 function callServerRpcJsonp_(apiUrl, envelope, attempt) {
@@ -1926,37 +1937,60 @@ function computeSalesReport(){
 }
 
 // ── Login screen ─────────────────────────────────────────────────────
-async function resolveLoginRoundImage_(round,stamp){
-  const r=round||{};
+async function resolveGuestRoundDisplayUrl_(round,stamp){
+  const r=Object.assign({},round||{});
   const imageRef=String(r.imageUrl||r.imageRef||"").trim();
+  r.imageRef=imageRef;
+  r.imageDataThumb=String(r.imageDataThumb||"");
   let displayUrl="";
-  const fileId=extractDriveFileId(imageRef);
-  if(fileId){
+  let sourceMode="";
+  if(extractDriveFileId(imageRef)){
     try{
-      const res=await callServer("getImageProxy",fileId);
-      if(res&&res.ok&&res.dataUrl)displayUrl=res.dataUrl;
-      else if(res&&res.ok&&res.thumbnailUrl)displayUrl=res.thumbnailUrl;
+      const res=await callServer("getImageProxy",extractDriveFileId(imageRef));
+      if(res&&res.ok&&res.dataUrl){
+        displayUrl=res.dataUrl;
+        sourceMode="proxy";
+      }else if(res&&res.ok&&res.thumbnailUrl){
+        displayUrl=res.thumbnailUrl;
+        sourceMode="proxy";
+      }
     }catch(_){}
   }
-  if(!displayUrl&&r.imageDisplayUrl&&!isPlaceholderImage(r.imageDisplayUrl)&&r.imageSourceMode!=="thumb")
+  if(!displayUrl&&r.imageDisplayUrl&&!isPlaceholderImage(r.imageDisplayUrl)&&r.imageSourceMode!=="thumb"){
     displayUrl=String(r.imageDisplayUrl);
-  if(!displayUrl&&r.imageDataThumb&&isDataUrl(r.imageDataThumb))displayUrl=r.imageDataThumb;
-  if(!displayUrl&&isValidRoundUrl(imageRef))displayUrl=imageRef;
-  if(!displayUrl)return SHIRT_PLACEHOLDER_URL;
-  return withCacheBust(displayUrl,stamp||Date.now());
+    sourceMode=String(r.imageSourceMode||"proxy");
+  }
+  if(!displayUrl&&r.imageDataThumb&&isDataUrl(r.imageDataThumb)){
+    displayUrl=r.imageDataThumb;
+    sourceMode="thumb";
+  }
+  if(!displayUrl&&isValidRoundUrl(imageRef)){
+    displayUrl=imageRef;
+    sourceMode="url";
+  }else if(!displayUrl){
+    displayUrl=SHIRT_PLACEHOLDER_URL;
+    sourceMode="placeholder";
+  }
+  r.imageDisplayUrl=displayUrl;
+  r.imageSourceMode=sourceMode;
+  r.imageDisplaySrc=withCacheBust(displayUrl,stamp||Date.now());
+  return pickRoundDisplayImage_(r);
 }
 
-async function loadLoginHeroImage_(){
+async function loadLoginHeroImage_(attempt){
+  const tryNo=Number(attempt)||0;
   const img=document.getElementById("login-hero-img");
   const cap=document.getElementById("login-hero-caption");
   const yearEl=document.getElementById("login-hero-year");
   const priceEl=document.getElementById("login-hero-price");
   const ph=document.getElementById("login-hero-placeholder");
+  const sk=document.getElementById("login-hero-skeleton");
   if(!img)return;
+  if(sk)sk.classList.remove("hidden");
   try{
     const data=await callServer("getGuestStockData");
     const round=data&&data.round;
-    if(!round)return;
+    if(!round)throw new Error("no round");
     const stamp=data.generatedAt||Date.now();
     if(yearEl)yearEl.textContent=round.year||"—";
     if(cap)cap.textContent=String(round.name||"").trim()||(APP_BRAND_LINE1+" "+APP_BRAND_LINE2);
@@ -1965,20 +1999,34 @@ async function loadLoginHeroImage_(){
       priceEl.textContent=p>0?fmtMoney(p)+" ฿":"";
       priceEl.style.display=p>0?"":"none";
     }
-    const src=await resolveLoginRoundImage_(round,stamp);
+    const src=await resolveGuestRoundDisplayUrl_(round,stamp);
     if(isPlaceholderImage(src)){
+      img.removeAttribute("src");
       img.classList.add("hidden");
       if(ph)ph.classList.remove("hidden");
     }else{
-      img.src=src;
       img.classList.remove("hidden");
       if(ph)ph.classList.add("hidden");
+      await new Promise((resolve,reject)=>{
+        const done=()=>{img.onload=null;img.onerror=null;resolve();};
+        img.onload=done;
+        img.onerror=()=>{img.onload=null;img.onerror=null;reject(new Error("img"));};
+        img.src=src;
+        if(img.complete&&img.naturalWidth>0)done();
+      });
     }
+    img.classList.remove("login-hero-img--loading");
+    if(sk)sk.classList.add("hidden");
   }catch(_){
+    if(tryNo<2){
+      setTimeout(()=>loadLoginHeroImage_(tryNo+1),700*(tryNo+1));
+      return;
+    }
+    img.removeAttribute("src");
     img.classList.add("hidden");
     if(ph)ph.classList.remove("hidden");
-  }finally{
     img.classList.remove("login-hero-img--loading");
+    if(sk)sk.classList.add("hidden");
   }
 }
 
@@ -2002,7 +2050,8 @@ function renderLogin(errMsg){
               <p id="login-hero-price" class="login-hero-price"></p>
             </div>
             <div class="login-hero-image-wrap glass-image-wrap">
-              <img id="login-hero-img" class="login-hero-img login-hero-img--loading" src="${SHIRT_PLACEHOLDER_URL}" alt="เสื้อชมรมวิศวกร" decoding="async">
+              <div id="login-hero-skeleton" class="login-hero-skeleton skeleton" aria-hidden="true"></div>
+              <img id="login-hero-img" class="login-hero-img login-hero-img--loading hidden" alt="เสื้อชมรมวิศวกร" decoding="async">
               <div id="login-hero-placeholder" class="login-hero-placeholder hidden" aria-hidden="true">
                 <i class="fas fa-tshirt"></i>
                 <p>ยังไม่มีรูปเสื้อ</p>
