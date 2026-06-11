@@ -47,7 +47,8 @@ function extractIndexHeadExtras(indexHtml) {
 
 function expandHtmlIncludes_(html) {
   return String(html || "").replace(/<\?!=\s*include\("([^"]+)"\);\s*\?>/g, function (_m, name) {
-    const file = path.join(ROOT, name);
+    let file = path.join(ROOT, name);
+    if (!fs.existsSync(file) && !/\.html$/i.test(name)) file = path.join(ROOT, name + ".html");
     if (!fs.existsSync(file)) throw new Error("Missing include: " + name);
     return fs.readFileSync(file, "utf8").trim();
   });

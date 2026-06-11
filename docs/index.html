@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="151">
+  <meta name="peace-build" content="152">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=151&amp;t=1781190250164">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=152&amp;t=1781190498360">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -31,33 +31,6 @@
   <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
 </head>
 <body>
-<script>
-(function(){
-  var fallback="151";
-  function metaBuild(){var m=document.querySelector('meta[name="peace-build"]');return m&&m.content?String(m.content):fallback;}
-  try{
-    var q=new URLSearchParams(location.search);
-    if(!q.has('_t')&&!q.has('_b'))return;
-    var b=metaBuild();
-    var l=document.getElementById('peace-app-css');
-    if(l)l.href='assets/app.css?v='+encodeURIComponent(b)+'&t='+Date.now();
-  }catch(e){}
-})();
-</script>
-
-  <!-- Pre-rendered header skeleton (visible before JS runs) -->
-  <div id="pre-header" class="pre-header">
-    <i class="fas fa-tshirt"></i><span>สั่งซื้อเสื้อชมรม กฟภ.</span>
-  </div>
-
-  <!-- Pre-rendered content skeleton (visible before JS runs) -->
-  <div id="pre-skeleton" class="pre-skel">
-    <div class="pre-skel-card"></div>
-    <div class="pre-skel-card" style="height:6rem"></div>
-    <div class="pre-skel-row"></div>
-    <div class="pre-skel-row" style="width:80%"></div>
-    <div class="pre-skel-row" style="width:60%"></div>
-  </div>
 
   <header id="app-header" class="glass-header z-20 sticky top-0 hidden">
     <div class="header-top max-w-4xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
@@ -87,11 +60,96 @@
     <nav class="max-w-4xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto text-xs" id="nav-tabs"></nav>
   </header>
 
-  <main class="flex-grow pb-8">
-    <div id="app-container" class="max-w-4xl mx-auto p-4"></div>
+  <main class="flex-grow peace-login-active">
+    <div id="app-container" class="login-app-container"><div class="login-overlay login-screen-overlay">
+  <div class="login-shell">
+    <section class="login-hero" aria-label="รูปเสื้อชมรม">
+      <div class="login-hero-card glass-card">
+        <div class="login-hero-meta">
+          <span class="login-hero-badge">รอบปี <span id="login-hero-year">—</span></span>
+          <p id="login-hero-price" class="login-hero-price"></p>
+        </div>
+        <div class="login-hero-image-wrap glass-image-wrap">
+          <img id="login-hero-img" class="login-hero-img hidden" alt="เสื้อชมรมวิศวกร" decoding="async" fetchpriority="high" referrerpolicy="no-referrer">
+          <div id="login-hero-placeholder" class="login-hero-placeholder hidden" aria-hidden="true">
+            <i class="fas fa-tshirt"></i>
+            <p>ยังไม่มีรูปเสื้อ</p>
+          </div>
+        </div>
+        <p id="login-hero-caption" class="login-hero-caption">สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</p>
+      </div>
+    </section>
+    <section class="login-panel">
+      <div class="login-card">
+        <div class="login-brand-block">
+          <div class="login-brand-icon" aria-hidden="true"><i class="fas fa-tshirt"></i></div>
+          <h1 class="login-brand-name">
+            <span class="login-brand-line">สั่งซื้อเสื้อชมรมวิศวกร</span>
+            <span class="login-brand-line">การไฟฟ้าส่วนภูมิภาค</span>
+          </h1>
+        </div>
+        <div class="login-sub">ระบบสั่งซื้อเสื้อออนไลน์</div>
+        <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
+          <div>
+            <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
+            <input id="login-username" name="username" class="glass-input login-username-input" autocomplete="username" spellcheck="false" autocapitalize="off" placeholder="เช่น admin1, user_n1 หรือ viewer">
+          </div>
+          <div>
+            <label class="glass-label" for="login-password">รหัสผ่าน</label>
+            <input id="login-password" name="password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
+          </div>
+          <button id="login-btn" type="submit" class="glass-btn-primary w-full" style="padding:.75rem">
+            <i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ
+          </button>
+          <button type="button" onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
+            <i class="fas fa-user-clock mr-1"></i> Log in as Guest
+          </button>
+          <p class="text-xs text-center pt-1">
+            <button type="button" onclick="openUserGuideFromLogin()" class="glass-btn-secondary w-full" style="padding:.55rem">
+              <i class="fas fa-book mr-1"></i> คู่มือการใช้งาน
+            </button>
+          </p>
+          <p class="text-xs text-center login-support-line" id="login-support-line">แจ้งปัญหาการใช้งาน โทร 02-009-6703</p>
+          <div id="login-msg" class="text-xs text-center"></div>
+        </form>
+      </div>
+    </section>
+  </div>
+</div><script>
+(function(){
+  function pickImg(r){
+    if(!r)return "";
+    if(r.imageDataThumb&&String(r.imageDataThumb).indexOf("data:")===0)return r.imageDataThumb;
+    var ref=String(r.imageUrl||r.imageRef||"").trim();
+    var m=ref.match(/[-\w]{25,}/);
+    if(m)return "https://drive.google.com/thumbnail?id="+encodeURIComponent(m[0])+"&sz=w1920";
+    return "";
+  }
+  try{
+    var raw=sessionStorage.getItem("peace_login_preview_v1");
+    if(!raw)return;
+    var data=JSON.parse(raw);
+    var r=data&&data.round;
+    if(!r)return;
+    var y=document.getElementById("login-hero-year");
+    var cap=document.getElementById("login-hero-caption");
+    var price=document.getElementById("login-hero-price");
+    var img=document.getElementById("login-hero-img");
+    if(y)y.textContent=r.year||"—";
+    if(cap&&r.name)cap.textContent=String(r.name);
+    if(price){
+      var p=Number(r.unitPrice||0);
+      price.textContent=p>0?(p+" ฿"):"";
+      price.style.display=p>0?"":"none";
+    }
+    var src=pickImg(r);
+    if(img&&src){img.src=src;img.classList.remove("hidden");}
+  }catch(e){}
+})();
+</script></div>
   </main>
 
-  <footer id="app-support-footer" class="app-support-footer hidden">
+  <footer id="app-support-footer" class="app-support-footer">
     <div class="max-w-4xl mx-auto px-4 py-3 text-center text-xs">แจ้งปัญหาการใช้งาน โทร 02-009-6703</div>
   </footer>
 
@@ -296,35 +354,7 @@
     })();
   </script>
 
-<script>
-(function(){
-  var fallback="151";
-  function metaBuild(){var m=document.querySelector('meta[name="peace-build"]');return m&&m.content?String(m.content):fallback;}
-  function bust(){return Date.now();}
-  function loadScript(url,next){
-    var s=document.createElement('script');
-    s.src=url;
-    s.async=false;
-    s.onload=function(){next&&next();};
-    s.onerror=function(){next&&next();};
-    (document.head||document.body).appendChild(s);
-  }
-  function loadAssets(attempt){
-    if(window.__peaceAssetsLoading||window.__peaceAssetsLoaded)return;
-    window.__peaceAssetsLoading=true;
-    var b=metaBuild();
-    var t=bust();
-    loadScript('config.js?v='+encodeURIComponent(b)+'&t='+t,function(){
-      var cfg=window.PEACE_CONFIG&&window.PEACE_CONFIG.build;
-      if(String(cfg||'')!==String(b)&&(attempt||0)<2){window.__peaceAssetsLoading=false;loadAssets((attempt||0)+1);return;}
-      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),function(){
-        window.__peaceAssetsLoaded=true;
-        window.__peaceAssetsLoading=false;
-      });
-    });
-  }
-  loadAssets(0);
-})();
-</script>
+  <script src="config.js?v=152&amp;t=1781190498360"></script>
+  <script src="assets/app.js?v=152&amp;t=1781190498360"></script>
 </body>
 </html>
