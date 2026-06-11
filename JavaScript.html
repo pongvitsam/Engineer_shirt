@@ -19,15 +19,17 @@
   window.addEventListener("unhandledrejection",function(ev){
     showBoot("PROMISE ERROR",(ev.reason&&(ev.reason.stack||ev.reason.message))||ev.reason);
   });
-  // Watchdog: if nothing has rendered (still on pre-skeleton) after 8s, stop
-  // hanging silently and offer the login screen.
+  // Watchdog: if JS never booted, hydrate the static login shell or show error.
   window.__bootWatchdog=setTimeout(function(){
-    var ps=document.getElementById("pre-skeleton");
-    var stillSkeleton=ps&&ps.style.display!=="none";
-    if(stillSkeleton){
-      try{ if(typeof renderLogin==="function"){renderLogin("โหลดนานผิดปกติ กรุณาเข้าสู่ระบบใหม่"); return;} }catch(e){}
-      showBoot("โหลดนานผิดปกติ","ระบบไม่ตอบสนอง (อาจเชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ)");
+    if(window.__peaceBootStarted)return;
+    if(document.getElementById("login-form")){
+      try{
+        if(typeof hydrateLoginScreen_==="function")hydrateLoginScreen_("โหลดนานผิดปกติ กรุณาเข้าสู่ระบบใหม่");
+        else if(typeof renderLogin==="function")renderLogin("โหลดนานผิดปกติ กรุณาเข้าสู่ระบบใหม่");
+      }catch(e){}
+      return;
     }
+    showBoot("โหลดนานผิดปกติ","ระบบไม่ตอบสนอง (อาจเชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ)");
   },8000);
 })();
 
@@ -2036,37 +2038,17 @@ function showLoginHeroImage_(img,ph,sk,src){
     img.classList.add("hidden");
     if(ph)ph.classList.remove("hidden");
     if(sk)sk.classList.add("hidden");
-    img.classList.remove("login-hero-img--loading");
     return false;
   }
   const cur=img.getAttribute("data-src")||"";
-  if(cur===next&&loginHeroHasVisibleImage_(img)){
-    clearLoginHeroSkeletonTimer_();
-    img.classList.remove("hidden");
-    if(ph)ph.classList.add("hidden");
-    if(sk)sk.classList.add("hidden");
-    img.classList.remove("login-hero-img--loading");
-    return true;
-  }
+  if(cur===next&&loginHeroHasVisibleImage_(img))return true;
   img.classList.remove("hidden");
   if(ph)ph.classList.add("hidden");
+  if(sk)sk.classList.add("hidden");
+  clearLoginHeroSkeletonTimer_();
   if(cur!==next){
     img.setAttribute("data-src",next);
-    img.classList.add("login-hero-img--loading");
-    const done=()=>{
-      img.classList.remove("login-hero-img--loading");
-      clearLoginHeroSkeletonTimer_();
-      if(sk)sk.classList.add("hidden");
-    };
-    img.onload=done;
-    img.onerror=done;
     img.src=next;
-    if(img.complete&&img.naturalWidth>0)done();
-    else scheduleLoginHeroSkeleton_(sk);
-  }else{
-    img.classList.remove("login-hero-img--loading");
-    clearLoginHeroSkeletonTimer_();
-    if(sk)sk.classList.add("hidden");
   }
   return true;
 }
@@ -2126,22 +2108,54 @@ async function loadLoginHeroImage_(attempt){
   }
 }
 
+function bindLoginFormEvents_(){
+  const p=document.getElementById("login-password");
+  if(p&&!p.dataset.peaceBound){
+    p.dataset.peaceBound="1";
+    p.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
+  }
+}
+
+function hydrateLoginScreen_(errMsg){
+  if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
+  syncAppBranding_();
+  document.body.classList.add("peace-login-active");
+  document.querySelector("main")?.classList.add("peace-login-active");
+  document.getElementById("app-header")?.classList.add("hidden");
+  const c=document.getElementById("app-container");
+  if(c){
+    c.classList.add("login-app-container");
+    c.classList.remove("max-w-4xl","mx-auto","p-4");
+  }
+  setSupportFooterVisible_(true);
+  const supportLine=document.getElementById("login-support-line");
+  if(supportLine)supportLine.innerHTML=supportContactInlineHtml_();
+  const msgEl=document.getElementById("login-msg");
+  if(msgEl)msgEl.innerHTML=errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:"";
+  bindLoginFormEvents_();
+  loadLoginHeroImage_();
+  probeApiOnLogin_();
+  setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);
+}
+window.hydrateLoginScreen_=hydrateLoginScreen_;
+
 function renderLogin(errMsg){
+  const gasOnly=isGasAdminOnlyHost_();
+  if(document.getElementById("login-form")&&!gasOnly){
+    hydrateLoginScreen_(errMsg);
+    hideBootShell_();
+    return;
+  }
   if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
   syncAppBranding_();
   document.body.classList.add("peace-login-active");
   document.querySelector("main")?.classList.add("peace-login-active");
   document.getElementById("app-header").classList.add("hidden");
   setSupportFooterVisible_(true);
-  const gasOnly=isGasAdminOnlyHost_();
   const ghUrl=getGithubPagesUrl_();
   const c=document.getElementById("app-container");
   c.classList.add("login-app-container");
-  if(document.getElementById("login-form")&&!errMsg){
-    loadLoginHeroImage_();
-    requestAnimationFrame(hideBootShell_);
-    return;
-  }
+  c.classList.remove("max-w-4xl","mx-auto","p-4");
   c.innerHTML=`
     <div class="login-overlay login-screen-overlay">
       <div class="login-shell">
@@ -2200,17 +2214,10 @@ function renderLogin(errMsg){
         </section>
       </div>
     </div>`;
+  bindLoginFormEvents_();
   loadLoginHeroImage_();
-  requestAnimationFrame(()=>requestAnimationFrame(hideBootShell_));
-  setTimeout(()=>{
-    const u=document.getElementById("login-username");
-    if(u)u.focus();
-    const p=document.getElementById("login-password");
-    if(p){
-      p.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
-    }
-    probeApiOnLogin_();
-  },50);
+  probeApiOnLogin_();
+  setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);
 }
 
 function openUserGuideFromLogin(){
@@ -2339,7 +2346,11 @@ function bootApp(){
   hideBootShell_();
   document.body.classList.remove("peace-login-active");
   document.querySelector("main")?.classList.remove("peace-login-active");
-  document.getElementById("app-container")?.classList.remove("login-app-container");
+  const appC=document.getElementById("app-container");
+  if(appC){
+    appC.classList.remove("login-app-container");
+    appC.classList.add("max-w-4xl","mx-auto","p-4");
+  }
   clearLoginHeroSkeletonTimer_();
   document.getElementById("app-header").classList.remove("hidden");
   syncAppBranding_();
@@ -4304,7 +4315,7 @@ function bootEntry(){
   try{
     app.container=document.getElementById("app-container");
     authToken=readAuthToken_();
-    if(!authToken){renderLogin();return}
+    if(!authToken){hydrateLoginScreen_();return}
     // Guard verifySession so a hung/failed call still lands on the login screen.
     let settled=false;
     const fallback=setTimeout(()=>{if(settled)return;settled=true;try{renderLogin("เชื่อมต่อเซิร์ฟเวอร์ช้า กรุณาเข้าสู่ระบบ")}catch(_){}} ,9000);

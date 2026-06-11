@@ -1,0 +1,55 @@
+<div class="login-overlay login-screen-overlay">
+  <div class="login-shell">
+    <section class="login-hero" aria-label="รูปเสื้อชมรม">
+      <div class="login-hero-card glass-card">
+        <div class="login-hero-meta">
+          <span class="login-hero-badge">รอบปี <span id="login-hero-year">—</span></span>
+          <p id="login-hero-price" class="login-hero-price"></p>
+        </div>
+        <div class="login-hero-image-wrap glass-image-wrap">
+          <img id="login-hero-img" class="login-hero-img hidden" alt="เสื้อชมรมวิศวกร" decoding="async" fetchpriority="high" referrerpolicy="no-referrer">
+          <div id="login-hero-placeholder" class="login-hero-placeholder hidden" aria-hidden="true">
+            <i class="fas fa-tshirt"></i>
+            <p>ยังไม่มีรูปเสื้อ</p>
+          </div>
+        </div>
+        <p id="login-hero-caption" class="login-hero-caption">สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค</p>
+      </div>
+    </section>
+    <section class="login-panel">
+      <div class="login-card">
+        <div class="login-brand-block">
+          <div class="login-brand-icon" aria-hidden="true"><i class="fas fa-tshirt"></i></div>
+          <h1 class="login-brand-name">
+            <span class="login-brand-line">สั่งซื้อเสื้อชมรมวิศวกร</span>
+            <span class="login-brand-line">การไฟฟ้าส่วนภูมิภาค</span>
+          </h1>
+        </div>
+        <div class="login-sub">ระบบสั่งซื้อเสื้อออนไลน์</div>
+        <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
+          <div>
+            <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
+            <input id="login-username" name="username" class="glass-input login-username-input" autocomplete="username" spellcheck="false" autocapitalize="off" placeholder="เช่น admin1, user_n1 หรือ viewer">
+          </div>
+          <div>
+            <label class="glass-label" for="login-password">รหัสผ่าน</label>
+            <input id="login-password" name="password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
+          </div>
+          <button id="login-btn" type="submit" class="glass-btn-primary w-full" style="padding:.75rem">
+            <i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ
+          </button>
+          <button type="button" onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
+            <i class="fas fa-user-clock mr-1"></i> Log in as Guest
+          </button>
+          <p class="text-xs text-center pt-1">
+            <button type="button" onclick="openUserGuideFromLogin()" class="glass-btn-secondary w-full" style="padding:.55rem">
+              <i class="fas fa-book mr-1"></i> คู่มือการใช้งาน
+            </button>
+          </p>
+          <p class="text-xs text-center login-support-line" id="login-support-line">แจ้งปัญหาการใช้งาน โทร 02-009-6703</p>
+          <div id="login-msg" class="text-xs text-center"></div>
+        </form>
+      </div>
+    </section>
+  </div>
+</div>

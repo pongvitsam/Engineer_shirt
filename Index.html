@@ -20,15 +20,20 @@
     *{box-sizing:border-box}
     html,body{margin:0;padding:0}
     body{font-family:'Sarabun','Segoe UI',sans-serif;color:#fff;min-height:100vh;background:linear-gradient(135deg,#450A0A 0%,#7F1D1D 25%,#4C1D95 55%,#6D28D9 80%,#991B1B 100%);background-size:400% 400%;overflow-x:hidden;display:flex;flex-direction:column}
-    .pre-skel{padding:4.5rem 1rem 1rem;max-width:56rem;margin:0 auto}
-    .pre-skel-card{height:8rem;background:rgba(255,255,255,.12);border-radius:1.25rem;margin-bottom:.875rem;animation:preskel 1.2s ease-in-out infinite;background-image:linear-gradient(90deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,.18) 50%,rgba(255,255,255,.08) 100%);background-size:200% 100%}
-    .pre-skel-row{height:1.75rem;background:rgba(255,255,255,.1);border-radius:.5rem;margin-bottom:.5rem}
-    @keyframes preskel{0%{background-position:200% 0}100%{background-position:-200% 0}}
-    .pre-header{position:fixed;top:0;left:0;right:0;height:3.25rem;background:rgba(69,10,10,.55);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.28);display:flex;align-items:center;padding:0 1rem;font-weight:700;color:#fff;z-index:20}
-    .pre-header i{color:#F59E0B;margin-right:.5rem}
-    .pre-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:'Sarabun',sans-serif;z-index:30;background:rgba(20,5,10,.4);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-    .pre-spinner{width:3rem;height:3rem;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:.75rem}
-    @keyframes spin{to{transform:rotate(360deg)}}
+    body.peace-login-active::after,body.peace-login-active::before{display:none}
+    #app-container.login-app-container{max-width:none;width:100%;margin:0;padding:0}
+    main.peace-login-active{padding-bottom:0}
+    .login-shell{width:100%;max-width:min(96vw,92rem);margin:0 auto;display:grid;grid-template-columns:1fr;gap:1.25rem;padding:max(.75rem,env(safe-area-inset-top,0px)) clamp(.75rem,2.5vw,1.5rem) max(1.5rem,env(safe-area-inset-bottom,0px));min-height:100dvh;box-sizing:border-box}
+    @media(min-width:768px){.login-shell{grid-template-columns:minmax(0,1.75fr) minmax(17rem,24rem);align-items:center}}
+    .login-card,.login-hero-card{background:rgba(76,29,149,.55);border:1px solid rgba(255,255,255,.28);border-radius:1.25rem;color:#fff;padding:1rem}
+    .login-hero-image-wrap{position:relative;min-height:min(62vh,30rem);width:100%}
+    .login-hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+    .hidden{display:none!important}
+    .glass-input{width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.28);border-radius:.75rem;padding:.75rem;color:#fff;margin-top:.25rem}
+    .glass-label{display:block;font-size:.875rem;font-weight:700;color:rgba(255,255,255,.9)}
+    .glass-btn-primary,.glass-btn-secondary{width:100%;border-radius:.875rem;padding:.75rem;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.28);margin-top:.5rem}
+    .glass-btn-primary{background:rgba(127,29,29,.8)}
+    .glass-btn-secondary{background:rgba(255,255,255,.22)}
   </style>
 
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap">
@@ -38,21 +43,7 @@
 
   <?!= include("CSS"); ?>
 </head>
-<body>
-  <!-- Pre-rendered header skeleton (visible before JS runs) -->
-  <div id="pre-header" class="pre-header">
-    <i class="fas fa-tshirt"></i><span>สั่งซื้อเสื้อชมรม กฟภ.</span>
-  </div>
-
-  <!-- Pre-rendered content skeleton (visible before JS runs) -->
-  <div id="pre-skeleton" class="pre-skel">
-    <div class="pre-skel-card"></div>
-    <div class="pre-skel-card" style="height:6rem"></div>
-    <div class="pre-skel-row"></div>
-    <div class="pre-skel-row" style="width:80%"></div>
-    <div class="pre-skel-row" style="width:60%"></div>
-  </div>
-
+<body class="peace-login-active">
   <header id="app-header" class="glass-header z-20 sticky top-0 hidden">
     <div class="header-top max-w-4xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
       <div class="flex items-center gap-2 font-bold text-lg cursor-pointer glass-header-title" onclick="app.navigate('stock')">
@@ -81,11 +72,11 @@
     <nav class="max-w-4xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto text-xs" id="nav-tabs"></nav>
   </header>
 
-  <main class="flex-grow pb-8">
-    <div id="app-container" class="max-w-4xl mx-auto p-4"></div>
+  <main class="flex-grow peace-login-active">
+    <div id="app-container" class="login-app-container"><?!= include("LoginShell"); ?><?!= include("LoginEarlyHydrate"); ?></div>
   </main>
 
-  <footer id="app-support-footer" class="app-support-footer hidden">
+  <footer id="app-support-footer" class="app-support-footer">
     <div class="max-w-4xl mx-auto px-4 py-3 text-center text-xs">แจ้งปัญหาการใช้งาน โทร 02-009-6703</div>
   </footer>
 

@@ -45,8 +45,16 @@ function extractIndexHeadExtras(indexHtml) {
   return head.trim();
 }
 
+function expandHtmlIncludes_(html) {
+  return String(html || "").replace(/<\?!=\s*include\("([^"]+)"\);\s*\?>/g, function (_m, name) {
+    const file = path.join(ROOT, name);
+    if (!fs.existsSync(file)) throw new Error("Missing include: " + name);
+    return fs.readFileSync(file, "utf8").trim();
+  });
+}
+
 function patchIndexPatches(html) {
-  return html.replace(
+  return expandHtmlIncludes_(html).replace(
     /<script src="[^"]*\?asset=js[^"]*"><\/script>\s*/i,
     ""
   ).replace(
@@ -102,59 +110,6 @@ function readBuildFromCodeJs() {
   return m ? m[1] : "0";
 }
 
-function buildEarlyCacheBustScript(build) {
-  return (
-    "<script>\n" +
-    "(function(){\n" +
-    "  var fallback=" + JSON.stringify(String(build)) + ";\n" +
-    "  function metaBuild(){var m=document.querySelector('meta[name=\"peace-build\"]');return m&&m.content?String(m.content):fallback;}\n" +
-    "  try{\n" +
-    "    var q=new URLSearchParams(location.search);\n" +
-    "    if(!q.has('_t')&&!q.has('_b'))return;\n" +
-    "    var b=metaBuild();\n" +
-    "    var l=document.getElementById('peace-app-css');\n" +
-    "    if(l)l.href='assets/app.css?v='+encodeURIComponent(b)+'&t='+Date.now();\n" +
-    "  }catch(e){}\n" +
-    "})();\n" +
-    "</script>"
-  );
-}
-
-function buildAssetLoaderScript(build) {
-  return (
-    "<script>\n" +
-    "(function(){\n" +
-    "  var fallback=" + JSON.stringify(String(build)) + ";\n" +
-    "  function metaBuild(){var m=document.querySelector('meta[name=\"peace-build\"]');return m&&m.content?String(m.content):fallback;}\n" +
-    "  function bust(){return Date.now();}\n" +
-    "  function loadScript(url,next){\n" +
-    "    var s=document.createElement('script');\n" +
-    "    s.src=url;\n" +
-    "    s.async=false;\n" +
-    "    s.onload=function(){next&&next();};\n" +
-    "    s.onerror=function(){next&&next();};\n" +
-    "    (document.head||document.body).appendChild(s);\n" +
-    "  }\n" +
-    "  function loadAssets(attempt){\n" +
-    "    if(window.__peaceAssetsLoading||window.__peaceAssetsLoaded)return;\n" +
-    "    window.__peaceAssetsLoading=true;\n" +
-    "    var b=metaBuild();\n" +
-    "    var t=bust();\n" +
-    "    loadScript('config.js?v='+encodeURIComponent(b)+'&t='+t,function(){\n" +
-    "      var cfg=window.PEACE_CONFIG&&window.PEACE_CONFIG.build;\n" +
-    "      if(String(cfg||'')!==String(b)&&(attempt||0)<2){window.__peaceAssetsLoading=false;loadAssets((attempt||0)+1);return;}\n" +
-    "      loadScript('assets/app.js?v='+encodeURIComponent(b)+'&t='+bust(),function(){\n" +
-    "        window.__peaceAssetsLoaded=true;\n" +
-    "        window.__peaceAssetsLoading=false;\n" +
-    "      });\n" +
-    "    });\n" +
-    "  }\n" +
-    "  loadAssets(0);\n" +
-    "})();\n" +
-    "</script>"
-  );
-}
-
 function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   const v = build || readBuildFromCodeJs();
   const ts = deployStamp || String(Date.now());
@@ -179,9 +134,9 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   ${headExtras}
 </head>
 <body>
-${buildEarlyCacheBustScript(v)}
 ${bodyInner}
-${buildAssetLoaderScript(v)}
+  <script src="config.js?v=${v}&amp;t=${ts}"></script>
+  <script src="assets/app.js?v=${v}&amp;t=${ts}"></script>
 </body>
 </html>
 `;
