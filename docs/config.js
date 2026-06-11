@@ -5,6 +5,6 @@ window.PEACE_CONFIG = {
   userGuideHtml: "https://pongvitsam.github.io/Engineer_shirt/guides/user-guide-user.html",
   userGuidePdf: "https://pongvitsam.github.io/Engineer_shirt/guides/user-guide.pdf",
   build: "144",
-  deployStamp: "1781188584665"
+  deployStamp: "1781188764373"
 };
 window.PEACE_GAS_ADMIN_ONLY = false;
