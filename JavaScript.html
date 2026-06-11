@@ -278,6 +278,10 @@ function rpcApiUnreachableMessage_() {
     (api ? " · API: " + api : "");
 }
 function forcePeaceFullReload_(serverBuild){
+  const build=String(serverBuild||"").trim();
+  const u=new URL(location.href);
+  const ra=(parseInt(u.searchParams.get("_ra")||"0",10)||0)+1;
+  if(ra>6)return false;
   try{
     Object.keys(sessionStorage).forEach(function(k){
       if(/^peace_/.test(k))sessionStorage.removeItem(k);
@@ -288,13 +292,12 @@ function forcePeaceFullReload_(serverBuild){
       return Promise.all(keys.map(function(k){return caches.delete(k);}));
     }).catch(function(){});
   }
-  const build=String(serverBuild||"").trim();
-  const u=new URL(location.href);
   u.search="";
   if(build)u.searchParams.set("_b",build);
   u.searchParams.set("_t",String(Date.now()));
-  u.searchParams.set("_r",String(Math.random()).slice(2,10));
+  u.searchParams.set("_ra",String(ra));
   location.replace(u.toString());
+  return true;
 }
 window.forcePeaceFullReload_=forcePeaceFullReload_;
 
@@ -308,14 +311,7 @@ function probeApiOnLogin_() {
     const htmlBuild = htmlEl && htmlEl.content ? String(htmlEl.content) : "";
     if (!serverBuild) return;
     if (cfgBuild === serverBuild && (!htmlBuild || htmlBuild === serverBuild)) return;
-    try{
-      const autoKey="peace_auto_reload_"+serverBuild;
-      if(!sessionStorage.getItem(autoKey)){
-        sessionStorage.setItem(autoKey,"1");
-        forcePeaceFullReload_(serverBuild);
-        return;
-      }
-    }catch(_){}
+    if(forcePeaceFullReload_(serverBuild))return;
     if (!msg) return;
     const shownBuild = cfgBuild || htmlBuild || "?";
     msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(shownBuild) +

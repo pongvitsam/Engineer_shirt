@@ -42,7 +42,54 @@ function extractIndexHeadExtras(indexHtml) {
   head = head.replace(/<link[^>]*font-awesome[^>]*>/gi, "");
   head = head.replace(/<link[^>]*preload[^>]*>/gi, "");
   head = head.replace(/<style>[\s\S]*?<\/style>/gi, "");
+  head = head.replace(/<meta[^>]*name=["']peace-build["'][^>]*>/gi, "");
   return head.trim();
+}
+
+function buildBootGuardScript_(build, apiUrl) {
+  const v = build || readBuildFromCodeJs();
+  const api = JSON.stringify(apiUrl || GAS_WEB_APP_URL);
+  return (
+    "<script>\n" +
+    "(function(){\n" +
+    "var EXPECTED=" + JSON.stringify(v) + ";\n" +
+    "var API=" + api + ";\n" +
+    "var p=new URLSearchParams(location.search);\n" +
+    "var ra=parseInt(p.get(\"_ra\")||\"0\",10)||0;\n" +
+    "function retry(target){\n" +
+    "if(ra>=6)return;\n" +
+    "try{Object.keys(sessionStorage).forEach(function(k){if(/^peace_/.test(k))sessionStorage.removeItem(k);});}catch(_){}\n" +
+    "var u=new URL(location.href);u.search=\"\";\n" +
+    "u.searchParams.set(\"_b\",target);\n" +
+    "u.searchParams.set(\"_t\",String(Date.now()));\n" +
+    "u.searchParams.set(\"_ra\",String(ra+1));\n" +
+    "location.replace(u.toString());\n" +
+    "}\n" +
+    "function pingServer(){\n" +
+    "return new Promise(function(resolve){\n" +
+    "var cb=\"peaceGate_\"+Date.now();\n" +
+    "var timer=setTimeout(function(){cleanup();resolve(null);},8000);\n" +
+    "var s=null;\n" +
+    "function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(_){}if(s&&s.parentNode)s.parentNode.removeChild(s);}\n" +
+    "window[cb]=function(r){cleanup();resolve(r&&r.build?String(r.build):null);};\n" +
+    "var payload=encodeURIComponent(JSON.stringify({method:\"getRpcPing\",params:[]}));\n" +
+    "s=document.createElement(\"script\");\n" +
+    "s.src=API+(API.indexOf(\"?\")>=0?\"&\":\"?\")+\"rpc=1&callback=\"+encodeURIComponent(cb)+\"&payload=\"+payload;\n" +
+    "s.onerror=function(){cleanup();resolve(null);};\n" +
+    "document.head.appendChild(s);\n" +
+    "});\n" +
+    "}\n" +
+    "var meta=document.querySelector('meta[name=\"peace-build\"]');\n" +
+    "var hb=meta&&meta.content?String(meta.content):\"\";\n" +
+    "if(hb&&hb!==EXPECTED)retry(EXPECTED);\n" +
+    "pingServer().then(function(sb){\n" +
+    "if(!sb||sb===EXPECTED)return;\n" +
+    "if(hb===sb)return;\n" +
+    "retry(sb);\n" +
+    "});\n" +
+    "})();\n" +
+    "</script>"
+  );
 }
 
 function expandHtmlIncludes_(html) {
@@ -113,7 +160,6 @@ function readBuildFromCodeJs() {
 
 function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   const v = build || readBuildFromCodeJs();
-  const ts = deployStamp || String(Date.now());
   return `<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -131,13 +177,14 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=${v}&amp;t=${ts}">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.b${v}.css">
   ${headExtras}
 </head>
 <body>
+${buildBootGuardScript_(v)}
 ${bodyInner}
-  <script src="config.js?v=${v}&amp;t=${ts}"></script>
-  <script src="assets/app.js?v=${v}&amp;t=${ts}"></script>
+  <script src="config.b${v}.js"></script>
+  <script src="assets/app.b${v}.js"></script>
 </body>
 </html>
 `;
@@ -146,18 +193,22 @@ ${bodyInner}
 function main() {
   fs.mkdirSync(ASSETS, { recursive: true });
 
+  const build = readBuildFromCodeJs();
+  const stamp = String(Date.now());
   const css = stripTag(read("CSS.html"), "style");
-  fs.writeFileSync(path.join(ASSETS, "app.css"), css, "utf8");
-
   const js = stripTag(read("JavaScript.html"), "script");
+  const cfg = buildConfigJs(stamp);
+
+  fs.writeFileSync(path.join(ASSETS, "app.css"), css, "utf8");
+  fs.writeFileSync(path.join(ASSETS, "app.b" + build + ".css"), css, "utf8");
   fs.writeFileSync(path.join(ASSETS, "app.js"), js, "utf8");
+  fs.writeFileSync(path.join(ASSETS, "app.b" + build + ".js"), js, "utf8");
+  fs.writeFileSync(path.join(DOCS, "config.js"), cfg, "utf8");
+  fs.writeFileSync(path.join(DOCS, "config.b" + build + ".js"), cfg, "utf8");
 
   let indexSrc = read("Index.html");
   let body = patchIndexPatches(extractIndexBody(indexSrc));
   const headExtras = extractIndexHeadExtras(indexSrc);
-  const build = readBuildFromCodeJs();
-  const stamp = String(Date.now());
-  fs.writeFileSync(path.join(DOCS, "config.js"), buildConfigJs(stamp), "utf8");
   fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build, stamp), "utf8");
 
   const nojekyll = path.join(DOCS, ".nojekyll");

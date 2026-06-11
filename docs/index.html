@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="154">
+  <meta name="peace-build" content="155">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -15,10 +15,10 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=154&amp;t=1781190994024">
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.b155.css">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="">
+  
   
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
 
@@ -32,6 +32,45 @@
   <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
 </head>
 <body>
+<script>
+(function(){
+var EXPECTED="155";
+var API="https://script.google.com/macros/s/AKfycbxNr1MJ0ym_X0lIjvk_UvgoBbgVaXxd_1zG0Eq-I-SBCMyB8dR6jdYAlDvwnd57Ywze0g/exec";
+var p=new URLSearchParams(location.search);
+var ra=parseInt(p.get("_ra")||"0",10)||0;
+function retry(target){
+if(ra>=6)return;
+try{Object.keys(sessionStorage).forEach(function(k){if(/^peace_/.test(k))sessionStorage.removeItem(k);});}catch(_){}
+var u=new URL(location.href);u.search="";
+u.searchParams.set("_b",target);
+u.searchParams.set("_t",String(Date.now()));
+u.searchParams.set("_ra",String(ra+1));
+location.replace(u.toString());
+}
+function pingServer(){
+return new Promise(function(resolve){
+var cb="peaceGate_"+Date.now();
+var timer=setTimeout(function(){cleanup();resolve(null);},8000);
+var s=null;
+function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(_){}if(s&&s.parentNode)s.parentNode.removeChild(s);}
+window[cb]=function(r){cleanup();resolve(r&&r.build?String(r.build):null);};
+var payload=encodeURIComponent(JSON.stringify({method:"getRpcPing",params:[]}));
+s=document.createElement("script");
+s.src=API+(API.indexOf("?")>=0?"&":"?")+"rpc=1&callback="+encodeURIComponent(cb)+"&payload="+payload;
+s.onerror=function(){cleanup();resolve(null);};
+document.head.appendChild(s);
+});
+}
+var meta=document.querySelector('meta[name="peace-build"]');
+var hb=meta&&meta.content?String(meta.content):"";
+if(hb&&hb!==EXPECTED)retry(EXPECTED);
+pingServer().then(function(sb){
+if(!sb||sb===EXPECTED)return;
+if(hb===sb)return;
+retry(sb);
+});
+})();
+</script>
 
   <header id="app-header" class="glass-header z-20 sticky top-0 hidden">
     <div class="header-top max-w-4xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
@@ -326,7 +365,7 @@
     })();
   </script>
 
-  <script src="config.js?v=154&amp;t=1781190994024"></script>
-  <script src="assets/app.js?v=154&amp;t=1781190994024"></script>
+  <script src="config.b155.js"></script>
+  <script src="assets/app.b155.js"></script>
 </body>
 </html>
