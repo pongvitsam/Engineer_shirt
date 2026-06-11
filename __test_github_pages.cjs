@@ -45,6 +45,8 @@ assert("index loads versioned config and app assets", () => {
 
 assert("index ships static login shell for flicker-free boot", () => {
   const html = read("index.html");
+  if (!html.includes('body class="peace-login-active"')) throw new Error("body peace-login-active missing");
+  if (!html.includes(".login-overlay.login-screen-overlay")) throw new Error("critical login css missing");
   if (!html.includes('id="login-form"')) throw new Error("static login form missing");
   if (!html.includes("peace-login-active")) throw new Error("peace-login-active missing");
   if (!html.includes('class="login-card"')) throw new Error("static centered login card missing");

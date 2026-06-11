@@ -21,7 +21,9 @@
     *{box-sizing:border-box}
     html,body{margin:0;padding:0}
     body{font-family:'Sarabun','Segoe UI',sans-serif;color:#fff;min-height:100vh;background:linear-gradient(135deg,#450A0A 0%,#7F1D1D 25%,#4C1D95 55%,#6D28D9 80%,#991B1B 100%);background-size:400% 400%;overflow-x:hidden;display:flex;flex-direction:column}
-    body.peace-login-active::after,body.peace-login-active::before{display:none}
+    body.peace-login-active{animation:none!important;background-position:50% 50%!important;color:#fff!important}
+    body.peace-login-active::after,body.peace-login-active::before{display:none!important}
+    body.peace-login-active .app-support-footer{display:none!important}
     #app-container.login-app-container{max-width:none;width:100%;margin:0;padding:0}
     main.peace-login-active{padding-bottom:0}
     .login-overlay.login-screen-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,5,10,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:1rem;min-height:100dvh;box-sizing:border-box;z-index:30}
@@ -165,7 +167,13 @@
         }
       }
 
+      function isLoginScreen_() {
+        var hdr = document.getElementById("app-header");
+        return !!document.getElementById("login-form") && (!hdr || hdr.classList.contains("hidden"));
+      }
+
       function safeRerenderNav(reason) {
+        if (isLoginScreen_()) return;
         try { normalizeMeAccess(); } catch (_) {}
         try { normalizeOrderSlips(); } catch (_) {}
         try { ensureOrderNoteField(); } catch (_) {}

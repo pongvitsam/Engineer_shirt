@@ -32,6 +32,11 @@ function extractIndexBody(indexHtml) {
   return m ? m[1] : "";
 }
 
+function extractCriticalLoginCss_(indexHtml) {
+  const m = String(indexHtml).match(/<style>([\s\S]*?)<\/style>/i);
+  return m ? m[1].trim() : "";
+}
+
 function extractIndexHeadExtras(indexHtml) {
   const headM = String(indexHtml).match(/<head[^>]*>([\s\S]*)<\/head>/i);
   if (!headM) return "";
@@ -114,8 +119,9 @@ function readBuildFromCodeJs() {
   return m ? m[1] : "0";
 }
 
-function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
+function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss) {
   const v = build || readBuildFromCodeJs();
+  const crit = criticalCss ? "<style>\n" + criticalCss + "\n</style>\n  " : "";
   return `<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -133,10 +139,10 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp) {
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.b${v}.css">
+  ${crit}<link id="peace-app-css" rel="stylesheet" href="assets/app.b${v}.css">
   ${headExtras}
 </head>
-<body>
+<body class="peace-login-active">
 ${bodyInner}
   <script src="config.b${v}.js"></script>
   <script src="assets/app.b${v}.js"></script>
@@ -164,7 +170,8 @@ function main() {
   let indexSrc = read("Index.html");
   let body = patchIndexPatches(extractIndexBody(indexSrc));
   const headExtras = extractIndexHeadExtras(indexSrc);
-  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build, stamp), "utf8");
+  const criticalCss = extractCriticalLoginCss_(indexSrc);
+  fs.writeFileSync(path.join(DOCS, "index.html"), buildIndexHtml(body, headExtras, build, stamp, criticalCss), "utf8");
 
   const nojekyll = path.join(DOCS, ".nojekyll");
   if (!fs.existsSync(nojekyll)) fs.writeFileSync(nojekyll, "", "utf8");

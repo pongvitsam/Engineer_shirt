@@ -48,7 +48,9 @@
 .login-overlay.login-screen-overlay{position:fixed!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;background:rgba(20,5,10,.6)!important;backdrop-filter:blur(8px)!important;-webkit-backdrop-filter:blur(8px)!important;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:max(.75rem,env(safe-area-inset-top,0px)) clamp(.75rem,2.5vw,1.5rem) max(1.5rem,env(safe-area-inset-bottom,0px));min-height:100dvh;box-sizing:border-box;z-index:30}
 #app-container.login-app-container{max-width:none!important;width:100%!important;margin:0!important;padding:0!important}
 main.peace-login-active{padding-bottom:0!important}
-body.peace-login-active::after,body.peace-login-active::before{animation-play-state:paused}
+body.peace-login-active{animation:none!important;background-position:50% 50%!important;color:#fff!important}
+body.peace-login-active::after,body.peace-login-active::before{display:none!important;animation:none!important}
+body.peace-login-active .app-support-footer{display:none!important}
 .login-screen-overlay .login-card{margin:0;flex-shrink:0;max-width:min(92vw,30rem);width:100%}
 .login-hero,.login-hero-card,.login-hero-image-wrap{display:none!important}
 .login-shell{grid-template-columns:1fr!important;max-width:min(92vw,30rem)!important;margin:0 auto!important;display:flex!important;justify-content:center!important;width:100%!important}

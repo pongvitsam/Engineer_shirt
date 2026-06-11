@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="peace-build" content="157">
+  <meta name="peace-build" content="158">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -15,7 +15,28 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link id="peace-app-css" rel="stylesheet" href="assets/app.b157.css">
+  <style>
+/* â”€â”€ Critical first-paint CSS (no extra round-trip) â”€â”€ */
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{font-family:'Sarabun','Segoe UI',sans-serif;color:#fff;min-height:100vh;background:linear-gradient(135deg,#450A0A 0%,#7F1D1D 25%,#4C1D95 55%,#6D28D9 80%,#991B1B 100%);background-size:400% 400%;overflow-x:hidden;display:flex;flex-direction:column}
+    body.peace-login-active{animation:none!important;background-position:50% 50%!important;color:#fff!important}
+    body.peace-login-active::after,body.peace-login-active::before{display:none!important}
+    body.peace-login-active .app-support-footer{display:none!important}
+    #app-container.login-app-container{max-width:none;width:100%;margin:0;padding:0}
+    main.peace-login-active{padding-bottom:0}
+    .login-overlay.login-screen-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,5,10,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:1rem;min-height:100dvh;box-sizing:border-box;z-index:30}
+    .login-card{background:rgba(76,29,149,.55);border:1px solid rgba(255,255,255,.28);border-radius:1.25rem;color:#fff;padding:1rem;max-width:min(92vw,30rem);width:100%}
+    .login-hero,.login-hero-card,.login-hero-image-wrap{display:none!important}
+    .login-shell{grid-template-columns:1fr!important;max-width:min(92vw,30rem)!important;margin:0 auto!important;display:flex!important;justify-content:center!important}
+    .hidden{display:none!important}
+    .glass-input{width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.28);border-radius:.75rem;padding:.75rem;color:#fff;margin-top:.25rem}
+    .glass-label{display:block;font-size:.875rem;font-weight:700;color:rgba(255,255,255,.9)}
+    .glass-btn-primary,.glass-btn-secondary{width:100%;border-radius:.875rem;padding:.75rem;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.28);margin-top:.5rem}
+    .glass-btn-primary{background:rgba(127,29,29,.8)}
+    .glass-btn-secondary{background:rgba(255,255,255,.22)}
+</style>
+  <link id="peace-app-css" rel="stylesheet" href="assets/app.b158.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%237F1D1D'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' fill='%23F59E0B'%3EP%3C/text%3E%3C/svg%3E">
 
   
@@ -27,7 +48,7 @@
   <link rel="dns-prefetch" href="https://drive.google.com">
   <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
 </head>
-<body>
+<body class="peace-login-active">
 
   <header id="app-header" class="glass-header z-20 sticky top-0 hidden">
     <div class="header-top max-w-4xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
@@ -182,7 +203,13 @@
         }
       }
 
+      function isLoginScreen_() {
+        var hdr = document.getElementById("app-header");
+        return !!document.getElementById("login-form") && (!hdr || hdr.classList.contains("hidden"));
+      }
+
       function safeRerenderNav(reason) {
+        if (isLoginScreen_()) return;
         try { normalizeMeAccess(); } catch (_) {}
         try { normalizeOrderSlips(); } catch (_) {}
         try { ensureOrderNoteField(); } catch (_) {}
@@ -300,7 +327,7 @@
     })();
   </script>
 
-  <script src="config.b157.js"></script>
-  <script src="assets/app.b157.js"></script>
+  <script src="config.b158.js"></script>
+  <script src="assets/app.b158.js"></script>
 </body>
 </html>

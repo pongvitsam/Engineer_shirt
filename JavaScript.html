@@ -304,6 +304,7 @@ window.forcePeaceFullReload_=forcePeaceFullReload_;
 function probeApiOnLogin_() {
   const msg = document.getElementById("login-msg");
   if (!getRpcApiUrl_() || isGasScriptBridge_()) return;
+  if (msg && msg.dataset.peaceBuildWarn === "1") return;
   callServer("getRpcPing").then(function (r) {
     const serverBuild = r && r.build ? String(r.build) : "";
     const cfgBuild = (window.PEACE_CONFIG && window.PEACE_CONFIG.build) || "";
@@ -312,6 +313,8 @@ function probeApiOnLogin_() {
     if (!serverBuild) return;
     if (cfgBuild === serverBuild && (!htmlBuild || htmlBuild === serverBuild)) return;
     if (!msg) return;
+    if (msg.dataset.peaceBuildWarn === "1") return;
+    msg.dataset.peaceBuildWarn = "1";
     const shownBuild = cfgBuild || htmlBuild || "?";
     msg.innerHTML = "<span style=\"color:#FDE68A\">เบราว์เซอร์ใช้ build " + escHtml(shownBuild) +
       " แต่ API เป็น build " + escHtml(serverBuild) +
@@ -1996,24 +1999,32 @@ function stripLoginHeroLayout_(){
 }
 function hydrateLoginScreen_(errMsg){
   if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
-  stripLoginHeroLayout_();
-  syncAppBranding_();
-  document.body.classList.add("peace-login-active");
-  document.querySelector("main")?.classList.add("peace-login-active");
-  document.getElementById("app-header")?.classList.add("hidden");
-  const c=document.getElementById("app-container");
-  if(c){
-    c.classList.add("login-app-container");
-    c.classList.remove("max-w-4xl","mx-auto","p-4");
+  const form=document.getElementById("login-form");
+  const already=!!(form&&document.body.classList.contains("peace-login-active"));
+  if(!already){
+    stripLoginHeroLayout_();
+    syncAppBranding_();
+    document.body.classList.add("peace-login-active");
+    document.querySelector("main")?.classList.add("peace-login-active");
+    document.getElementById("app-header")?.classList.add("hidden");
+    const c=document.getElementById("app-container");
+    if(c){
+      c.classList.add("login-app-container");
+      c.classList.remove("max-w-4xl","mx-auto","p-4");
+    }
+    const supportLine=document.getElementById("login-support-line");
+    if(supportLine)supportLine.innerHTML=supportContactInlineHtml_();
   }
-  setSupportFooterVisible_(true);
-  const supportLine=document.getElementById("login-support-line");
-  if(supportLine)supportLine.innerHTML=supportContactInlineHtml_();
-  const msgEl=document.getElementById("login-msg");
-  if(msgEl)msgEl.innerHTML=errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:"";
+  setSupportFooterVisible_(false);
+  if(errMsg){
+    const msgEl=document.getElementById("login-msg");
+    if(msgEl)msgEl.innerHTML=`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`;
+  }
   bindLoginFormEvents_();
-  probeApiOnLogin_();
-  setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);
+  if(!window.__peaceLoginProbed_){
+    window.__peaceLoginProbed_=true;
+    requestAnimationFrame(()=>{try{probeApiOnLogin_();}catch(_){}});
+  }
 }
 window.hydrateLoginScreen_=hydrateLoginScreen_;
 
@@ -2029,7 +2040,7 @@ function renderLogin(errMsg){
   document.body.classList.add("peace-login-active");
   document.querySelector("main")?.classList.add("peace-login-active");
   document.getElementById("app-header").classList.add("hidden");
-  setSupportFooterVisible_(true);
+  setSupportFooterVisible_(false);
   const ghUrl=getGithubPagesUrl_();
   const c=document.getElementById("app-container");
   c.classList.add("login-app-container");
@@ -2073,8 +2084,10 @@ function renderLogin(errMsg){
     </div>`;
   stripLoginHeroLayout_();
   bindLoginFormEvents_();
-  probeApiOnLogin_();
-  setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);
+  if(!window.__peaceLoginProbed_){
+    window.__peaceLoginProbed_=true;
+    requestAnimationFrame(()=>{try{probeApiOnLogin_();}catch(_){}});
+  }
 }
 
 function openUserGuideFromLogin(){
