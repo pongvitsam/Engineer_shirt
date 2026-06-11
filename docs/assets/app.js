@@ -1170,10 +1170,26 @@ function formatThaiTime(v){
   if(m)return pad2(+m[1])+":"+m[2]+" น.";
   return "";
 }
+function bangkokPartsFromInstant_(d){
+  if(!(d instanceof Date)||isNaN(d.getTime()))return null;
+  return {
+    date:d.toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}),
+    time:d.toLocaleTimeString("en-GB",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",hour12:false})
+  };
+}
+function formatBangkokTimestampLiteral_(d){
+  const parts=bangkokPartsFromInstant_(d instanceof Date?d:new Date());
+  return parts?parts.date+"T"+parts.time:"";
+}
 // Combined two-line (date / time) cell for the order list
 function formatOrderTimestampCell(ts){
   const s=String(ts||"").trim();
   if(!s)return "-";
+  // Legacy UTC ISO from bootstrap (Z suffix or explicit offset) — convert to Bangkok
+  if(/Z$/i.test(s)||/[+-]\d{2}:\d{2}$/.test(s)){
+    const parts=bangkokPartsFromInstant_(new Date(s));
+    if(parts)return formatThaiDateTimeCell(parts.date,parts.time);
+  }
   const iso=s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
   if(iso)return formatThaiDateTimeCell(iso[1],iso[2]);
   return formatThaiDateTimeCell(s,"");
@@ -1446,7 +1462,7 @@ function applyLocalOrderCreate_(result,payload,items){
   const unitPrice=Number(result.unitPrice||appData.unitPrice||0);
   const status=String(result.status||payload.status||(isAdmin()?"สั่งออเดอร์แล้ว":orderCartStatus()));
   const note=String(result.note||payload.note||"");
-  const now=new Date().toISOString();
+  const now=result.timestamp||formatBangkokTimestampLiteral_(new Date());
   let nextNo=appData.orders.reduce((m,o)=>Math.max(m,Number(o.no)||0),0);
   items.forEach(it=>{
     nextNo+=1;
@@ -1497,7 +1513,7 @@ function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote){
       orderStatus:status,
       status:status,
       note:note,
-      timestamp:orderGroup.timestamp||new Date().toISOString(),
+      timestamp:orderGroup.timestamp||formatBangkokTimestampLiteral_(new Date()),
       slipName:orderGroup.slipName||"",
       slipUrl:orderGroup.slipUrl||"",
       createdBy:(me&&me.username)||"",

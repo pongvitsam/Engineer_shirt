@@ -229,7 +229,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "138";
+const APP_BUILD = "140";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1121,7 +1121,7 @@ function addMultiSizeOrder(token, payload) {
       note: note,
       payDate: payDate,
       payTime: payTime,
-      timestamp: now.toISOString(),
+      timestamp: formatOrderTimestampFromSheet_(now),
       unitPrice: unitPrice,
       paymentStatus: PAYMENT_STATUS.NONE
     };
@@ -2838,6 +2838,22 @@ function formatPayTimeFromSheet_(value) {
   return s;
 }
 
+/** อ่าน Timestamp สั่งเสื้อจากชีต — ไม่ใช้ toISOString (กันคลาดเคลื่อน timezone) */
+function formatOrderTimestampFromSheet_(value) {
+  if (value == null || value === "") return "";
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    if (isNaN(value.getTime())) return "";
+    return Utilities.formatDate(value, SHEET_TZ_, "yyyy-MM-dd'T'HH:mm");
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return Utilities.formatDate(d, SHEET_TZ_, "yyyy-MM-dd'T'HH:mm");
+  }
+  return s;
+}
+
 /** บันทึกวันที่/เวลาโอนเป็นข้อความตรงตามที่ผู้ใช้เลือก */
 function writeOrderPayDateTime_(sheet, row, payDate, payTime) {
   const dateStr = formatPayDateFromSheet_(payDate) || String(payDate || "").trim();
@@ -2861,7 +2877,7 @@ function sanitizeOrderForClient_(order) {
     orderStatus: String(order.orderStatus || order.status || ORDER_STATUS_ORDERED),
     status: String(order.status || order.orderStatus || ORDER_STATUS_ORDERED),
     note: String(order.note || ""),
-    timestamp: String(serializeSheetValue_(order.timestamp) || ""),
+    timestamp: String(formatOrderTimestampFromSheet_(order.timestamp) || ""),
     slipName: String(order.slipName || ""),
     slipUrl: String(order.slipUrl || ""),
     createdBy: String(order.createdBy || ""),
