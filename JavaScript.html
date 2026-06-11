@@ -152,8 +152,7 @@ const RPC_JSONP_FIRST_METHODS_ = {
   login: true,
   verifySession: true,
   getRpcPing: true,
-  getGuestStockData: true,
-  getGuestLoginPreview: true
+  getGuestStockData: true
 };
 const UPLOAD_MAX_RAW_BYTES = 28 * 1024 * 1024;
 const UPLOAD_TARGET_B64_MAX = 2800000;
@@ -1951,161 +1950,11 @@ function computeSalesReport(){
 }
 
 // ── Login screen ─────────────────────────────────────────────────────
-const LOGIN_PREVIEW_CACHE_KEY="peace_login_preview_v1";
-
-function readLoginPreviewCache_(){
-  try{
-    const raw=sessionStorage.getItem(LOGIN_PREVIEW_CACHE_KEY);
-    if(!raw)return null;
-    return JSON.parse(raw);
-  }catch(_){return null;}
-}
-
-function writeLoginPreviewCache_(data){
-  if(!data)return;
-  try{
-    sessionStorage.setItem(LOGIN_PREVIEW_CACHE_KEY,JSON.stringify({
-      round:data.round,
-      generatedAt:data.generatedAt
-    }));
-  }catch(_){}
-}
-
-function applyLoginHeroMeta_(round,yearEl,cap,priceEl){
-  const r=round||{};
-  if(yearEl)yearEl.textContent=r.year||"—";
-  if(cap)cap.textContent=String(r.name||"").trim()||(APP_BRAND_LINE1+" "+APP_BRAND_LINE2);
-  if(priceEl){
-    const p=Number(r.unitPrice||0);
-    priceEl.textContent=p>0?fmtMoney(p)+" ฿":"";
-    priceEl.style.display=p>0?"":"none";
-  }
-}
-
-function driveThumbnailUrl_(fileId){
-  return "https://drive.google.com/thumbnail?id="+encodeURIComponent(String(fileId||""))+"&sz=w1920";
-}
-
-function pickGuestRoundImageInstant_(round,stamp){
-  const r=round||{};
-  const t=stamp||Date.now();
-  const imageRef=String(r.imageUrl||r.imageRef||"").trim();
-  if(r.imageDataThumb&&isDataUrl(r.imageDataThumb))return r.imageDataThumb;
-  if(r.imageDisplayUrl&&!isPlaceholderImage(r.imageDisplayUrl)&&r.imageSourceMode!=="thumb")
-    return withCacheBust(r.imageDisplayUrl,t);
-  const fileId=extractDriveFileId(imageRef);
-  if(fileId)return driveThumbnailUrl_(fileId);
-  if(isValidRoundUrl(imageRef))return withCacheBust(imageRef,t);
-  return SHIRT_PLACEHOLDER_URL;
-}
-
-let loginHeroSkeletonTimer_=null;
-
-function clearLoginHeroSkeletonTimer_(){
-  if(loginHeroSkeletonTimer_){clearTimeout(loginHeroSkeletonTimer_);loginHeroSkeletonTimer_=null;}
-}
-
-function scheduleLoginHeroSkeleton_(sk){
-  clearLoginHeroSkeletonTimer_();
-  if(!sk||!sk.classList.contains("hidden"))return;
-  loginHeroSkeletonTimer_=setTimeout(()=>{
-    loginHeroSkeletonTimer_=null;
-    const img=document.getElementById("login-hero-img");
-    if(sk.classList.contains("hidden"))return;
-    if(loginHeroHasVisibleImage_(img))return;
-    sk.classList.remove("hidden");
-  },500);
-}
-
 function hideBootShell_(){
   const ph=document.getElementById("pre-header");
   const ps=document.getElementById("pre-skeleton");
   if(ph)ph.style.display="none";
   if(ps)ps.style.display="none";
-}
-
-function loginHeroHasVisibleImage_(img){
-  return !!(img&&!img.classList.contains("hidden")&&img.complete&&img.naturalWidth>0);
-}
-
-function showLoginHeroImage_(img,ph,sk,src){
-  if(!img)return false;
-  const next=String(src||"");
-  if(isPlaceholderImage(next)){
-    if(loginHeroHasVisibleImage_(img))return true;
-    img.removeAttribute("src");
-    img.removeAttribute("data-src");
-    img.classList.add("hidden");
-    if(ph)ph.classList.remove("hidden");
-    if(sk)sk.classList.add("hidden");
-    return false;
-  }
-  const cur=img.getAttribute("data-src")||"";
-  if(cur===next&&loginHeroHasVisibleImage_(img))return true;
-  img.classList.remove("hidden");
-  if(ph)ph.classList.add("hidden");
-  if(sk)sk.classList.add("hidden");
-  clearLoginHeroSkeletonTimer_();
-  if(cur!==next){
-    img.setAttribute("data-src",next);
-    img.src=next;
-  }
-  return true;
-}
-
-let loginHeroLoadGen_=0;
-
-async function loadLoginHeroImage_(attempt){
-  const tryNo=Number(attempt)||0;
-  const gen=++loginHeroLoadGen_;
-  const img=document.getElementById("login-hero-img");
-  const cap=document.getElementById("login-hero-caption");
-  const yearEl=document.getElementById("login-hero-year");
-  const priceEl=document.getElementById("login-hero-price");
-  const ph=document.getElementById("login-hero-placeholder");
-  const sk=document.getElementById("login-hero-skeleton");
-  if(!img)return;
-
-  const cached=readLoginPreviewCache_();
-  let shownSrc="";
-  if(cached&&cached.round){
-    shownSrc=pickGuestRoundImageInstant_(cached.round,cached.generatedAt);
-    applyLoginHeroMeta_(cached.round,yearEl,cap,priceEl);
-    showLoginHeroImage_(img,ph,sk,shownSrc);
-  }else if(sk){
-    sk.classList.add("hidden");
-    scheduleLoginHeroSkeleton_(sk);
-  }
-
-  try{
-    const data=await callServer("getGuestLoginPreview");
-    if(gen!==loginHeroLoadGen_)return;
-    const round=data&&data.round;
-    if(!round)throw new Error("no round");
-    writeLoginPreviewCache_(data);
-    const stamp=data.generatedAt||Date.now();
-    applyLoginHeroMeta_(round,yearEl,cap,priceEl);
-    if(loginHeroHasVisibleImage_(img)&&shownSrc&&!isPlaceholderImage(shownSrc)){
-      if(sk)sk.classList.add("hidden");
-      return;
-    }
-    const newSrc=pickGuestRoundImageInstant_(round,stamp);
-    showLoginHeroImage_(img,ph,sk,newSrc);
-  }catch(_){
-    if(gen!==loginHeroLoadGen_)return;
-    if(tryNo<2){
-      setTimeout(()=>loadLoginHeroImage_(tryNo+1),350*(tryNo+1));
-      return;
-    }
-    if(!loginHeroHasVisibleImage_(img)){
-      img.removeAttribute("src");
-      img.removeAttribute("data-src");
-      img.classList.add("hidden");
-      if(ph)ph.classList.remove("hidden");
-      img.classList.remove("login-hero-img--loading");
-      if(sk)sk.classList.add("hidden");
-    }
-  }
 }
 
 function bindLoginFormEvents_(){
@@ -2133,7 +1982,6 @@ function hydrateLoginScreen_(errMsg){
   const msgEl=document.getElementById("login-msg");
   if(msgEl)msgEl.innerHTML=errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:"";
   bindLoginFormEvents_();
-  loadLoginHeroImage_();
   probeApiOnLogin_();
   setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);
 }
@@ -2158,64 +2006,42 @@ function renderLogin(errMsg){
   c.classList.remove("max-w-4xl","mx-auto","p-4");
   c.innerHTML=`
     <div class="login-overlay login-screen-overlay">
-      <div class="login-shell">
-        <section class="login-hero" aria-label="รูปเสื้อชมรม">
-          <div class="login-hero-card glass-card">
-            <div class="login-hero-meta">
-              <span class="login-hero-badge">รอบปี <span id="login-hero-year">—</span></span>
-              <p id="login-hero-price" class="login-hero-price"></p>
-            </div>
-            <div class="login-hero-image-wrap glass-image-wrap">
-              <div id="login-hero-skeleton" class="login-hero-skeleton skeleton hidden" aria-hidden="true"></div>
-              <img id="login-hero-img" class="login-hero-img login-hero-img--loading hidden" alt="เสื้อชมรมวิศวกร" decoding="async" fetchpriority="high" referrerpolicy="no-referrer">
-              <div id="login-hero-placeholder" class="login-hero-placeholder hidden" aria-hidden="true">
-                <i class="fas fa-tshirt"></i>
-                <p>ยังไม่มีรูปเสื้อ</p>
-              </div>
-            </div>
-            <p id="login-hero-caption" class="login-hero-caption">${escHtml(APP_BRAND_LINE1)} ${escHtml(APP_BRAND_LINE2)}</p>
+      <div class="login-card">
+        <div class="login-brand-block">
+          <div class="login-brand-icon" aria-hidden="true"><i class="fas fa-tshirt"></i></div>
+          <h1 class="login-brand-name">
+            <span class="login-brand-line">${escHtml(APP_BRAND_LINE1)}</span>
+            <span class="login-brand-line">${escHtml(APP_BRAND_LINE2)}</span>
+          </h1>
+        </div>
+        <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":"ระบบสั่งซื้อเสื้อออนไลน์"}</div>
+        ${gasOnly?`<p class="text-xs text-center mb-2 opacity-80">ผู้ใช้ทั่วไป <a href="${escHtml(ghUrl)}" style="color:#FDE68A;text-decoration:underline">เปิดแอปหลัก (GitHub Pages)</a></p>`:""}
+        <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
+          <div>
+            <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
+            <input id="login-username" name="username" class="glass-input login-username-input" autocomplete="username" spellcheck="false" autocapitalize="off" placeholder="${gasOnly?"admin1":"เช่น admin1, user_n1 หรือ viewer"}">
           </div>
-        </section>
-        <section class="login-panel">
-          <div class="login-card">
-            <div class="login-brand-block">
-              <div class="login-brand-icon" aria-hidden="true"><i class="fas fa-tshirt"></i></div>
-              <h1 class="login-brand-name">
-                <span class="login-brand-line">${escHtml(APP_BRAND_LINE1)}</span>
-                <span class="login-brand-line">${escHtml(APP_BRAND_LINE2)}</span>
-              </h1>
-            </div>
-            <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":"ระบบสั่งซื้อเสื้อออนไลน์"}</div>
-            ${gasOnly?`<p class="text-xs text-center mb-2 opacity-80">ผู้ใช้ทั่วไป <a href="${escHtml(ghUrl)}" style="color:#FDE68A;text-decoration:underline">เปิดแอปหลัก (GitHub Pages)</a></p>`:""}
-            <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
-              <div>
-                <label class="glass-label" for="login-username">ชื่อผู้ใช้</label>
-                <input id="login-username" name="username" class="glass-input login-username-input" autocomplete="username" spellcheck="false" autocapitalize="off" placeholder="${gasOnly?"admin1":"เช่น admin1, user_n1 หรือ viewer"}">
-              </div>
-              <div>
-                <label class="glass-label" for="login-password">รหัสผ่าน</label>
-                <input id="login-password" name="password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
-              </div>
-              <button id="login-btn" type="submit" class="glass-btn-primary w-full" style="padding:.75rem">
-                <i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ
-              </button>
-              ${gasOnly?"":`<button type="button" onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
-                <i class="fas fa-user-clock mr-1"></i> Log in as Guest
-              </button>`}
-              <p class="text-xs text-center pt-1">
-                <button type="button" onclick="openUserGuideFromLogin()" class="glass-btn-secondary w-full" style="padding:.55rem">
-                  <i class="fas fa-book mr-1"></i> คู่มือการใช้งาน
-                </button>
-              </p>
-              <p class="text-xs text-center login-support-line">${supportContactInlineHtml_()}</p>
-              <div id="login-msg" class="text-xs text-center">${errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:''}</div>
-            </form>
+          <div>
+            <label class="glass-label" for="login-password">รหัสผ่าน</label>
+            <input id="login-password" name="password" type="password" class="glass-input" autocomplete="current-password" placeholder="••••••••">
           </div>
-        </section>
+          <button id="login-btn" type="submit" class="glass-btn-primary w-full" style="padding:.75rem">
+            <i class="fas fa-sign-in-alt mr-1"></i> เข้าสู่ระบบ
+          </button>
+          ${gasOnly?"":`<button type="button" onclick="doGuestLogin()" class="glass-btn-secondary w-full" style="padding:.75rem">
+            <i class="fas fa-user-clock mr-1"></i> Log in as Guest
+          </button>`}
+          <p class="text-xs text-center pt-1">
+            <button type="button" onclick="openUserGuideFromLogin()" class="glass-btn-secondary w-full" style="padding:.55rem">
+              <i class="fas fa-book mr-1"></i> คู่มือการใช้งาน
+            </button>
+          </p>
+          <p class="text-xs text-center login-support-line">${supportContactInlineHtml_()}</p>
+          <div id="login-msg" class="text-xs text-center">${errMsg?`<span style="color:#FCA5A5">${escHtml(errMsg)}</span>`:''}</div>
+        </form>
       </div>
     </div>`;
   bindLoginFormEvents_();
-  loadLoginHeroImage_();
   probeApiOnLogin_();
   setTimeout(()=>{const u=document.getElementById("login-username");if(u)u.focus();},50);
 }

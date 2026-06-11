@@ -5,7 +5,6 @@
 !Index.html
 !JavaScript.html
 !LoginShell.html
-!LoginEarlyHydrate.html
 __test_*.cjs
 __test_*.js
 docs/**
