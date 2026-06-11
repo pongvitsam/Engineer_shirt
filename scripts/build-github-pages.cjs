@@ -144,6 +144,7 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss) 
 </head>
 <body class="peace-login-active">
 ${bodyInner}
+  <script>window.clearLoginHeroSkeletonTimer_=function(){};</script>
   <script src="config.b${v}.js"></script>
   <script src="assets/app.b${v}.js"></script>
 </body>
