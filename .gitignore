@@ -1,5 +1,6 @@
 node_modules/
 __*
+!__test_*.cjs
 *.log
 served.html
 *.png

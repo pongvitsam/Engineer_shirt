@@ -10,7 +10,9 @@
     "test:audit": "node __test_system_audit.cjs",
     "test:pages": "node __test_github_pages.cjs",
     "test:realtime": "node __test_realtime_client.cjs",
-    "test": "npm run test:stock && npm run test:audit && npm run test:realtime && npm run build:pages && npm run test:pages",
+    "test": "node scripts/pre-push-test.cjs",
+    "test:prepush": "node scripts/pre-push-test.cjs",
+    "test:all": "node scripts/pre-push-test.cjs",
     "build:user-guide-pdf": "node scripts/generate-user-guide-pdf.cjs"
   }
 }

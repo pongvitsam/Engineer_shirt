@@ -42,7 +42,9 @@ function extractIndexHeadExtras(indexHtml) {
   head = head.replace(/<link[^>]*font-awesome[^>]*>/gi, "");
   head = head.replace(/<link[^>]*preload[^>]*>/gi, "");
   head = head.replace(/<style>[\s\S]*?<\/style>/gi, "");
-  head = head.replace(/<meta[^>]*name=["']peace-build["'][^>]*>/gi, "");
+  head = head.replace(/<meta[^>]*name=["']peace-build["'][^>]*>\s*/gi, "");
+  head = head.replace(/<meta charset="UTF-8">\s*/gi, "");
+  head = head.replace(/<meta name="viewport"[^>]*>\s*/gi, "");
   return head.trim();
 }
 
