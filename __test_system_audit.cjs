@@ -304,6 +304,26 @@ assert("login cache reload uses retry counter", () => {
   if (!html.includes("forcePeaceFullReload_")) throw new Error("missing forcePeaceFullReload_");
 });
 
+assert("auth token persists across refresh and boot restores session", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("localStorage.setItem(TOKEN_KEY")) {
+    throw new Error("token must mirror to localStorage for refresh restore");
+  }
+  const persistFn = html.match(/function persistAuthToken_\(token\)\{[\s\S]*?\n\}/);
+  if (!persistFn) throw new Error("persistAuthToken_ missing");
+  if (!persistFn[0].includes("localStorage.setItem(TOKEN_KEY,token)")) {
+    throw new Error("persistAuthToken_ must mirror token to localStorage");
+  }
+  if (persistFn[0].includes("if(token)sessionStorage.setItem(TOKEN_KEY,token);")) {
+    throw new Error("persistAuthToken_ must not use session-only save pattern");
+  }
+  if (!html.includes("showBootRestoring_")) throw new Error("missing showBootRestoring_");
+  if (!html.includes("verifySessionForBoot_")) throw new Error("missing verifySessionForBoot_");
+  if (!html.includes("localStorage.removeItem(TOKEN_KEY)")) {
+    throw new Error("forcePeaceFullReload_ must clear localStorage token");
+  }
+});
+
 assert("APP_BUILD defined in Code.js", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   const m = code.match(/const APP_BUILD = "(\d+)"/);

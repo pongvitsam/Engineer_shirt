@@ -70,9 +70,13 @@ let loadUserListGen_ = 0;
 const TOKEN_KEY = "peace_token_v1";
 function persistAuthToken_(token){
   try{
-    if(token)sessionStorage.setItem(TOKEN_KEY,token);
-    else sessionStorage.removeItem(TOKEN_KEY);
-    try{localStorage.removeItem(TOKEN_KEY);}catch(_){}
+    if(token){
+      sessionStorage.setItem(TOKEN_KEY,token);
+      try{localStorage.setItem(TOKEN_KEY,token);}catch(_){}
+    }else{
+      sessionStorage.removeItem(TOKEN_KEY);
+      try{localStorage.removeItem(TOKEN_KEY);}catch(_){}
+    }
   }catch(_){}
 }
 function readAuthToken_(){
@@ -286,6 +290,7 @@ function forcePeaceFullReload_(serverBuild){
     Object.keys(sessionStorage).forEach(function(k){
       if(/^peace_/.test(k))sessionStorage.removeItem(k);
     });
+    try{localStorage.removeItem(TOKEN_KEY);}catch(_){}
   }catch(_){}
   if(typeof caches!=="undefined"&&caches.keys){
     caches.keys().then(function(keys){
@@ -1982,6 +1987,34 @@ function hideBootShell_(){
   const ps=document.getElementById("pre-skeleton");
   if(ph)ph.style.display="none";
   if(ps)ps.style.display="none";
+}
+
+function showBootRestoring_(){
+  if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
+  hideBootShell_();
+  document.body.classList.remove("peace-login-active");
+  document.querySelector("main")?.classList.remove("peace-login-active");
+  const appC=document.getElementById("app-container");
+  if(appC){
+    appC.classList.remove("login-app-container");
+    appC.classList.add("max-w-4xl","mx-auto","p-4");
+    appC.innerHTML=skeletonHtml("stock");
+  }
+  document.getElementById("app-header")?.classList.remove("hidden");
+  setSupportFooterVisible_(true);
+}
+
+async function verifySessionForBoot_(token, attempts){
+  const tries=Math.max(1,attempts||3);
+  for(let i=0;i<tries;i++){
+    if(i>0)await sleepMs(400*i);
+    try{
+      const r=await callServer("verifySession",token);
+      if(r&&r.ok)return r;
+      return null;
+    }catch(_){}
+  }
+  throw new Error("verifySession unreachable");
 }
 
 function bindLoginFormEvents_(){
@@ -4212,23 +4245,37 @@ function bootEntry(){
     app.container=document.getElementById("app-container");
     authToken=readAuthToken_();
     if(!authToken){hydrateLoginScreen_();return}
-    // Guard verifySession so a hung/failed call still lands on the login screen.
+    showBootRestoring_();
     let settled=false;
-    const fallback=setTimeout(()=>{if(settled)return;settled=true;try{renderLogin("เชื่อมต่อเซิร์ฟเวอร์ช้า กรุณาเข้าสู่ระบบ")}catch(_){}} ,9000);
-    callServer("verifySession",authToken).then(r=>{
-      if(settled)return; settled=true; clearTimeout(fallback);
-      if(r&&r.ok){
+    const fallback=setTimeout(()=>{
+      if(settled)return;
+      settled=true;
+      try{
+        const c=document.getElementById("app-container");
+        if(c)c.innerHTML=`<div class="glass-msg-error text-center font-semibold p-4">${escHtml("เชื่อมต่อเซิร์ฟเวอร์ช้า — กรุณารีเฟรชหน้าอีกครั้ง")}</div>`;
+      }catch(_){}
+    },12000);
+    verifySessionForBoot_(authToken,3).then(r=>{
+      if(settled)return;
+      settled=true;
+      clearTimeout(fallback);
+      if(r){
         me=normalizeMeClient_({username:r.username,role:r.role,region:r.region,displayName:r.displayName});
         syncWindowSession_();
         bootApp();
       }else{
-        authToken=null;clearAuthToken_();
+        authToken=null;
+        clearAuthToken_();
         renderLogin();
       }
     }).catch(()=>{
-      if(settled)return; settled=true; clearTimeout(fallback);
-      authToken=null;
-      try{renderLogin()}catch(_){}
+      if(settled)return;
+      settled=true;
+      clearTimeout(fallback);
+      try{
+        const c=document.getElementById("app-container");
+        if(c)c.innerHTML=`<div class="glass-msg-error text-center font-semibold p-4">${escHtml("เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ — กรุณารีเฟรชหน้าอีกครั้ง")}</div>`;
+      }catch(_){}
     });
   }catch(err){
     // Last-resort: never leave the user stranded on the static pre-header.
