@@ -100,6 +100,33 @@ assert("app.js built from source (pastel chart)", () => {
   if (!js.includes("SIZE_CHART_PASTEL_SALE")) throw new Error("stale build");
 });
 
+assert("built JS bundles and inline patch parse cleanly", () => {
+  const html = read("index.html");
+  const m = html.match(/peace-build" content="(\d+)"/);
+  const build = m ? m[1] : "";
+  const appJs = read("assets/app.b" + build + ".js");
+  const cfgJs = read("config.b" + build + ".js");
+  try {
+    new Function(appJs);
+    new Function(cfgJs);
+  } catch (e) {
+    throw new Error("bundle syntax: " + (e && e.message));
+  }
+  const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+  scripts.forEach((s, i) => {
+    const code = s[1].trim();
+    if (!code || code.indexOf("clearLoginHeroSkeletonTimer_") === 0) return;
+    try {
+      new Function(code);
+    } catch (e) {
+      throw new Error("inline script " + i + ": " + (e && e.message));
+    }
+  });
+  if (!html.includes("postAppLegacyPatches_")) {
+    throw new Error("legacy patch script missing from index.html");
+  }
+});
+
 assert("user guide shipped for Pages", () => {
   const js = read("assets/app.js");
   if (!js.includes('id:"guide"')) throw new Error("guide nav missing in app.js");

@@ -12,7 +12,7 @@ const ASSETS = path.join(DOCS, "assets");
 /** Must match clasp deployment used by GitHub Pages (re-deploy after clasp push). */
 const GAS_WEB_APP_URL =
   process.env.PEACE_GAS_API_URL ||
-  "https://script.google.com/macros/s/AKfycbxNr1MJ0ym_X0lIjvk_UvgoBbgVaXxd_1zG0Eq-I-SBCMyB8dR6jdYAlDvwnd57Ywze0g/exec";
+  "https://script.google.com/macros/s/AKfycbw1qF-YWtPdX5yktJU5PZRL57mDQkJTqFzm8P4E2ViJ8WDPSMWd0noqw7268a27yK-LKw/exec";
 const GITHUB_PAGES_URL =
   process.env.PEACE_GITHUB_PAGES_URL ||
   "https://pongvitsam.github.io/Engineer_shirt/";
@@ -66,13 +66,30 @@ function expandHtmlIncludes_(html) {
 const LEGACY_HERO_STUB =
   "<script>var clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_||function(){};window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;</script>";
 
+// Anchor on postAppLegacyPatches_ (unique, near end) — avoid non-greedy stop at
+// the first ensureLegacyLoginHeroStubs_ inside the IIFE declaration.
 const INDEX_PATCH_SCRIPT_RE =
-  /<script>\s*\(function \(\) \{[\s\S]*?ensureLegacyLoginHeroStubs_[\s\S]*?\}\)\(\);\s*<\/script>/i;
+  /<script>\s*\(function \(\) \{[\s\S]*postAppLegacyPatches_[\s\S]*\}\)\(\);\s*<\/script>/i;
+
+function assertValidJsSyntax_(label, code) {
+  try {
+    new Function(String(code || ""));
+  } catch (e) {
+    throw new Error(label + " JavaScript syntax error: " + (e && e.message));
+  }
+}
 
 function extractIndexPatchScript(indexHtml) {
   const body = expandHtmlIncludes_(extractIndexBody(indexHtml));
   const m = body.match(INDEX_PATCH_SCRIPT_RE);
-  return m ? m[0] : "";
+  if (!m) {
+    throw new Error(
+      "Index.html legacy patch script not found — expected IIFE with postAppLegacyPatches_"
+    );
+  }
+  const inner = m[0].replace(/^<script>\s*/i, "").replace(/\s*<\/script>$/i, "");
+  assertValidJsSyntax_("Index.html patch script", inner);
+  return m[0];
 }
 
 function patchIndexPatches(html) {
@@ -176,6 +193,7 @@ function main() {
 
   fs.writeFileSync(path.join(ASSETS, "app.css"), css, "utf8");
   fs.writeFileSync(path.join(ASSETS, "app.b" + build + ".css"), css, "utf8");
+  assertValidJsSyntax_("JavaScript.html app bundle", js);
   fs.writeFileSync(path.join(ASSETS, "app.js"), js, "utf8");
   fs.writeFileSync(path.join(ASSETS, "app.b" + build + ".js"), js, "utf8");
   fs.writeFileSync(path.join(DOCS, "config.js"), cfg, "utf8");
