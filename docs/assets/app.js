@@ -83,6 +83,8 @@ function clearAuthToken_(){
   persistAuthToken_(null);
 }
 const APP_BRAND_FULL = "สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
+const APP_BRAND_LINE1 = "สั่งซื้อเสื้อชมรมวิศวกร";
+const APP_BRAND_LINE2 = "การไฟฟ้าส่วนภูมิภาค";
 const APP_BRAND_SHORT = "สั่งซื้อเสื้อชมรม กฟภ.";
 const APP_PAGE_TITLE = "ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
 const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=Engineer+Club+Shirt";
@@ -1937,8 +1939,14 @@ function renderLogin(errMsg){
   c.innerHTML=`
     <div class="login-overlay login-screen-overlay">
       <div class="login-card">
-        <div class="login-title"><i class="fas fa-tshirt mr-2" style="color:#F59E0B"></i>${escHtml(APP_BRAND_FULL)}</div>
-        <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":escHtml(APP_BRAND_FULL)}</div>
+        <div class="login-brand-block">
+          <div class="login-brand-icon" aria-hidden="true"><i class="fas fa-tshirt"></i></div>
+          <h1 class="login-brand-name">
+            <span class="login-brand-line">${escHtml(APP_BRAND_LINE1)}</span>
+            <span class="login-brand-line">${escHtml(APP_BRAND_LINE2)}</span>
+          </h1>
+        </div>
+        <div class="login-sub">${gasOnly?"โหมดแอดมิน GAS — เฉพาะบัญชีแอดมิน":"ระบบสั่งซื้อเสื้อออนไลน์"}</div>
         ${gasOnly?`<p class="text-xs text-center mb-2 opacity-80">ผู้ใช้ทั่วไป <a href="${escHtml(ghUrl)}" style="color:#FDE68A;text-decoration:underline">เปิดแอปหลัก (GitHub Pages)</a></p>`:""}
         <form id="login-form" class="space-y-3" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false;">
           <div>
