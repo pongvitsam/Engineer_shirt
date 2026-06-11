@@ -319,6 +319,9 @@ assert("login screen centered without hero image", () => {
   if (html.includes("login-hero-img") || html.includes("loadLoginHeroImage_")) {
     throw new Error("login must not load or show hero image");
   }
+  if (html.includes("clearLoginHeroSkeletonTimer_")) {
+    throw new Error("removed login hero timer must not be referenced");
+  }
   if (shell.includes('class="login-hero"') || shell.includes('id="login-hero-img"')) {
     throw new Error("LoginShell must not include hero section");
   }
