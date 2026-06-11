@@ -64,6 +64,7 @@ let notifyBaselineReady_ = false;
 let notifyItems_ = [];
 let notifyPanelOpen_ = false;
 const notifyMuteUntil_ = {};
+let loadUserListGen_ = 0;
 const TOKEN_KEY = "peace_token_v1";
 function persistAuthToken_(token){
   try{
@@ -1925,6 +1926,7 @@ function computeSalesReport(){
 
 // ── Login screen ─────────────────────────────────────────────────────
 function renderLogin(errMsg){
+  if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
   syncAppBranding_();
   document.getElementById("pre-header").style.display="none";
   document.getElementById("pre-skeleton").style.display="none";
@@ -2097,6 +2099,7 @@ async function doLogout(){
 }
 
 function bootApp(){
+  if(window.__bootWatchdog){clearTimeout(window.__bootWatchdog);window.__bootWatchdog=null;}
   document.getElementById("pre-header").style.display="none";
   document.getElementById("pre-skeleton").style.display="none";
   document.getElementById("app-header").classList.remove("hidden");
@@ -2205,7 +2208,7 @@ const app = {
       else if(module==="list")this.fillOrderListBody();
       else if(module==="dashboard")await this.initDashboard();
       else if(module==="report")this.initReport();
-      else if(module==="admin")this.initAdmin();
+      else if(module==="admin")await this.initAdmin();
     }catch(e){
       this.showMsg&&this.showMsg(e.message||"เกิดข้อผิดพลาดในการแสดงผล","error");
     }
@@ -2604,9 +2607,28 @@ const app = {
       this.applyListFilter();
       return;
     }
-    if(m==="stock"||m==="orders"||m==="admin"||m==="guide"){
+    if(m==="guide"){
+      if(opts.keepLocal)return;
       this.paintModule(m);
-      if(m==="orders")this.initOrderForm();
+      return;
+    }
+    if(m==="orders"){
+      if(opts.keepLocal&&document.getElementById("order-region"))return;
+      this.paintModule(m);
+      this.initOrderForm();
+      return;
+    }
+    if(m==="admin"){
+      if(opts.keepLocal&&document.getElementById("admin-users-list")){
+        if(isAdmin())await this.loadUserList();
+        return;
+      }
+      this.paintModule(m);
+      if(isAdmin())await this.initAdmin();
+      return;
+    }
+    if(m==="stock"){
+      this.paintModule(m);
       return;
     }
     if(m==="dashboard"){
@@ -3428,8 +3450,11 @@ const app = {
   async loadUserList(){
     const el=document.getElementById("admin-users-list");
     if(!el)return;
+    const gen=++loadUserListGen_;
+    el.innerHTML='<div class="text-xs text-glass-muted text-center">กำลังโหลด...</div>';
     try{
-      const users=await callAuthed("listUsers");
+      const users=await callAuthedWithTimeout(45000,"listUsers");
+      if(gen!==loadUserListGen_||!document.getElementById("admin-users-list"))return;
       if(!users||users.length===0){el.innerHTML='<div class="text-xs text-glass-muted text-center">ไม่มีผู้ใช้</div>';return}
       const myU=String(me&&me.username||"").trim().toLowerCase();
       el.innerHTML=users.map(u=>{
@@ -3460,7 +3485,10 @@ const app = {
           else if(t.classList.contains("admin-user-del"))app.deleteUserPrompt(name,t);
         });
       }
-    }catch(e){el.innerHTML=`<div class="text-xs text-red-glass">${escHtml(e.message)}</div>`}
+    }catch(e){
+      if(gen!==loadUserListGen_||!document.getElementById("admin-users-list"))return;
+      el.innerHTML=`<div class="text-xs text-red-glass text-center">${escHtml(e.message||"โหลดรายชื่อผู้ใช้ไม่สำเร็จ")}<br><button type="button" class="glass-btn-secondary text-xs mt-2" style="padding:.35rem .65rem" onclick="app.loadUserList()">ลองใหม่</button></div>`;
+    }
   },
 
   showCreateUser(){
