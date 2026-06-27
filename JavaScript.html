@@ -1501,6 +1501,34 @@ function formatOrderTimestampCell(ts){
   if(iso)return formatThaiDateTimeCell(iso[1],iso[2]);
   return formatThaiDateTimeCell(s,"");
 }
+function buildOrderSearchHaystack_(g){
+  const parts=[];
+  const oid=String(g&&g.orderId||"");
+  if(oid){
+    parts.push(oid);
+    parts.push(oid.replace(/^ORD-?/i,""));
+  }
+  const ts=String(g&&g.timestamp||"").trim();
+  if(ts){
+    parts.push(ts);
+    let datePart=ts;
+    if(/Z$/i.test(ts)||/[+-]\d{2}:\d{2}$/.test(ts)){
+      const p=bangkokPartsFromInstant_(new Date(ts));
+      if(p)datePart=p.date;
+    }else{
+      const m=ts.match(/^(\d{4}-\d{2}-\d{2})/);
+      if(m)datePart=m[1];
+    }
+    const thai=formatThaiDate(datePart);
+    if(thai&&thai!=="-")parts.push(thai);
+    const iso=String(datePart).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(iso){
+      parts.push(iso[1],iso[2],iso[3]);
+      parts.push(String(+iso[3]),String(+iso[2]));
+    }
+  }
+  return parts.join(" ").toLowerCase();
+}
 
 function paymentStatusLabel(s){
   const v=String(s||"").trim();
@@ -2764,6 +2792,7 @@ const app = {
     const body=grouped.length===0
       ? '<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
+    const searchHtml=`<input id="list-search" type="search" class="glass-input order-list-search p-2 text-sm" placeholder="เลขออเดอร์ / วันที่สั่ง" oninput="app.filterList()" aria-label="ค้นหาออเดอร์">`;
     const filterHtml=showFilter
       ?`<select id="list-filter" onchange="app.filterList()" class="glass-select order-list-filter p-2 text-sm">${filterOpts}</select>`
       :"";
@@ -2777,7 +2806,7 @@ const app = {
             <h2 class="text-lg font-bold glass-section-title order-list-title"><i class="fas fa-list mr-1"></i>รายการสั่งซื้อ</h2>
             <span class="order-list-count">${grouped.length} ออเดอร์</span>
           </div>
-          <div class="order-list-actions">${filterHtml}${addBtn}</div>
+          <div class="order-list-actions">${searchHtml}${filterHtml}${addBtn}</div>
         </div>
         <div class="order-list-table-wrap overflow-x-auto glass-table-wrap">
           <table class="glass-table w-full text-xs" id="order-table">
@@ -2861,9 +2890,10 @@ const app = {
       try{return this.orderGroupRowHtml(g);}
       catch(e){
         const oid=escHtml((g&&g.orderId)||"?");
-        return `<tr data-region="${escHtml((g&&g.region)||"")}"><td colspan="9" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
+        return `<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="9" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
       }
     }).join("");
+    this.applyListFilter();
   },
 
   orderGroupRowHtml(g){
@@ -2882,8 +2912,7 @@ const app = {
     if(g.slipUrl){
       slipCell=`<div class="order-slip-actions">
         <button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="app.viewOrderImage('${escHtml(g.orderId)}',this)"><i class="fas fa-eye"></i> ดูสลิป</button>
-        ${canManageSlip?`<button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="app.openSlipUploadModal('${escHtml(g.orderId)}',true)"><i class="fas fa-upload"></i> เปลี่ยนสลิป</button>
-        <button class="glass-btn-danger text-xs" style="padding:.3rem .55rem" onclick="app.deleteOrderImage('${escHtml(g.orderId)}',this)"><i class="fas fa-trash"></i> ลบ</button>`:""}
+        ${canManageSlip?`<button class="glass-btn-secondary text-xs" style="padding:.3rem .55rem" onclick="app.openSlipUploadModal('${escHtml(g.orderId)}',true)"><i class="fas fa-upload"></i> เปลี่ยนสลิป</button>`:""}
         <div class="text-xs text-glass-dim mt-1">โอน: ${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>
       </div>`;
     }else if(canManageSlip){
@@ -2913,7 +2942,7 @@ const app = {
       :`<span class="text-glass-dim text-xs">-</span>`;
     const shortId=String(g.orderId).replace(/^ORD-?/,"").substring(0,8);
     return `
-      <tr data-region="${escHtml(g.region)}">
+      <tr data-region="${escHtml(g.region)}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}">
         <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold">#${shortId}</td>
         <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
         <td data-label="รายการ" class="py-2 px-2">${itemsLabel}</td>
@@ -2938,12 +2967,33 @@ const app = {
   },
 
   applyListFilter(){
-    const region=document.getElementById("list-filter")?.value;
-    if(region===undefined)return;
+    const regionEl=document.getElementById("list-filter");
+    const region=regionEl?regionEl.value:"all";
+    const query=(document.getElementById("list-search")?.value||"").trim().toLowerCase();
     const rows=document.querySelectorAll("#order-table tbody tr[data-region]");
+    let visible=0;
     rows.forEach(tr=>{
-      tr.style.display=(region==="all"||tr.getAttribute("data-region")===region)?"":"none";
+      const matchRegion=region==="all"||tr.getAttribute("data-region")===region;
+      const haystack=tr.getAttribute("data-order-search")||"";
+      const matchSearch=!query||haystack.indexOf(query)>-1;
+      const show=matchRegion&&matchSearch;
+      tr.style.display=show?"":"none";
+      if(show)visible++;
     });
+    const tbody=document.getElementById("order-tbody");
+    if(!tbody)return;
+    let emptyRow=document.getElementById("order-list-filter-empty");
+    if(query&&rows.length>0&&visible===0){
+      if(!emptyRow){
+        emptyRow=document.createElement("tr");
+        emptyRow.id="order-list-filter-empty";
+        emptyRow.innerHTML='<td colspan="9" class="text-center py-8 text-glass-dim">ไม่พบออเดอร์ที่ค้นหา</td>';
+        tbody.appendChild(emptyRow);
+      }
+      emptyRow.style.display="";
+    }else if(emptyRow){
+      emptyRow.remove();
+    }
   },
 
   async changeGroupStatus(orderId,status){
