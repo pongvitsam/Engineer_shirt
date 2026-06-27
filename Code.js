@@ -231,7 +231,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "167";
+const APP_BUILD = "168";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1315,6 +1315,19 @@ function assertUserCanModifyOwnOrder_(session, groupStatus, paymentStatus) {
   }
 }
 
+function assertUserCanManageSlip_(session, paymentStatus) {
+  if (!session || session.role === "admin") return;
+  if (isViewerRole_(session)) {
+    throw new Error("บัญชีผู้ดูข้อมูลแก้ไขสลิปไม่ได้");
+  }
+  if (isFreeGiveawayPayment_(paymentStatus)) {
+    throw new Error("เสื้อแจกฟรี แก้ไขสลิปไม่ได้");
+  }
+  if (isPaymentLocked_(paymentStatus)) {
+    throw new Error("ออเดอร์ชำระเงินแล้ว แก้ไขสลิปได้เฉพาะแอดมิน");
+  }
+}
+
 function assertUserCanModifyOrderNote_(session, paymentStatus) {
   if (!session || session.role === "admin") return;
   if (isViewerRole_(session)) {
@@ -1478,7 +1491,7 @@ function uploadOrderImage(token, orderId, base64, payDate, payTime, filename) {
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
     const ctx = getOrderSlipContext_(orderSheet, targetOrderId, session);
     if (!ctx.targetRows.length) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
-    assertUserCanModifyOwnOrder_(session, ctx.orderStatus, ctx.paymentStatus);
+    assertUserCanManageSlip_(session, ctx.paymentStatus);
     if (ctx.hadSlip) {
       trashSlipDriveFilesBestEffort_(collectSlipFileIdsForOrderId_(getOrderSheetValues_(orderSheet), targetOrderId));
     }

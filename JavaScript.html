@@ -1327,6 +1327,10 @@ function isFreeGiveawayPayment(s){
 function isPaymentLocked(s){
   return isPaymentVerified(s)||isFreeGiveawayPayment(s);
 }
+function canManageOrderSlip_(g,ownsOrder){
+  return !isFreeGiveawayPayment(g&&g.paymentStatus)&&
+    (isAdmin()||(ownsOrder&&!isPaymentLocked(g&&g.paymentStatus)));
+}
 function countsAsSaleRevenue(s){
   return !isFreeGiveawayPayment(s);
 }
@@ -2906,7 +2910,7 @@ const app = {
     const canDeleteOrder=canUserDeleteOrderGroup(g,ownsOrder);
     const showEditBtn=canEditOrder||canEditNote;
     const itemsLabel=`<div class="order-items">${g.items.map(it=>`<span class="order-item"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span><span class="order-item-qty">×${it.qty}</span></span>`).join("")}</div>`;
-    const canManageSlip=!isFreeGiveawayPayment(g.paymentStatus)&&(isAdmin()||(ownsOrder&&!isPaymentLocked(g.paymentStatus)));
+    const canManageSlip=canManageOrderSlip_(g,ownsOrder);
     const slipSafeId=ddSafeId(g.orderId);
     let slipCell;
     if(g.slipUrl){
@@ -2983,13 +2987,15 @@ const app = {
     const tbody=document.getElementById("order-tbody");
     if(!tbody)return;
     let emptyRow=document.getElementById("order-list-filter-empty");
-    if(query&&rows.length>0&&visible===0){
+    const filteredOut=rows.length>0&&visible===0;
+    if(filteredOut){
       if(!emptyRow){
         emptyRow=document.createElement("tr");
         emptyRow.id="order-list-filter-empty";
-        emptyRow.innerHTML='<td colspan="9" class="text-center py-8 text-glass-dim">ไม่พบออเดอร์ที่ค้นหา</td>';
         tbody.appendChild(emptyRow);
       }
+      emptyRow.innerHTML='<td colspan="9" class="text-center py-8 text-glass-dim">'+
+        (query?"ไม่พบออเดอร์ที่ค้นหา":"ไม่พบออเดอร์ในเขตที่เลือก")+'</td>';
       emptyRow.style.display="";
     }else if(emptyRow){
       emptyRow.remove();
@@ -3062,7 +3068,12 @@ const app = {
     const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     const ownsOrder=ownsOrderRegion(orderGroup);
-    if(!canUserEditOrderGroup(orderGroup,ownsOrder))return this.showMsg("ออเดอร์ชำระเงินแล้ว แก้ไขสลิปได้เฉพาะแอดมิน","warning");
+    if(!canManageOrderSlip_(orderGroup,ownsOrder)){
+      const msg=isPaymentLocked(orderGroup.paymentStatus)
+        ?"ออเดอร์ชำระเงินแล้ว แก้ไขสลิปได้เฉพาะแอดมิน"
+        :"ไม่มีสิทธิ์แก้ไขสลิปของออเดอร์นี้";
+      return this.showMsg(msg,"warning");
+    }
     this.closeSlipUploadModal();
     const safeOid=ddSafeId(orderId);
     const initDate=normalizePayDateForInput_(orderGroup.payDate)||todayStr();

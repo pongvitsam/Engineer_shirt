@@ -205,5 +205,25 @@ assert("client converts legacy UTC order timestamps", () => {
   }
 });
 
+assert("slip upload uses canManageOrderSlip not order edit gate", () => {
+  if (!html.includes("function canManageOrderSlip_")) throw new Error("missing canManageOrderSlip_");
+  const modal = html.match(/_openSlipUploadModalNow_[\s\S]*?closeSlipUploadModal\(\)/);
+  if (!modal) throw new Error("_openSlipUploadModalNow_ block not found");
+  if (!modal[0].includes("canManageOrderSlip_")) {
+    throw new Error("slip modal must gate with canManageOrderSlip_");
+  }
+  if (modal[0].includes("canUserEditOrderGroup")) {
+    throw new Error("slip modal must not use canUserEditOrderGroup");
+  }
+});
+
+assert("order list filter empty state for region and search", () => {
+  if (!html.includes("ไม่พบออเดอร์ในเขตที่เลือก")) {
+    throw new Error("missing region filter empty message");
+  }
+  if (!html.includes("function buildOrderSearchHaystack_")) throw new Error("missing search haystack");
+  if (!html.includes('id="list-search"')) throw new Error("missing list-search input");
+});
+
 console.log("\n" + passed + "/" + (passed + failed) + " passed\n");
 process.exit(failed ? 1 : 0);

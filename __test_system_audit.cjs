@@ -324,6 +324,21 @@ assert("auth token persists across refresh and boot restores session", () => {
   }
 });
 
+assert("uploadOrderImage allows slip when order status locked", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!code.includes("function assertUserCanManageSlip_")) {
+    throw new Error("missing assertUserCanManageSlip_");
+  }
+  const fn = code.match(/function uploadOrderImage[\s\S]*?^}/m);
+  if (!fn) throw new Error("uploadOrderImage not found");
+  if (!fn[0].includes("assertUserCanManageSlip_")) {
+    throw new Error("uploadOrderImage must use assertUserCanManageSlip_");
+  }
+  if (fn[0].includes("assertUserCanModifyOwnOrder_")) {
+    throw new Error("uploadOrderImage must not require editable order status");
+  }
+});
+
 assert("APP_BUILD defined in Code.js", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   const m = code.match(/const APP_BUILD = "(\d+)"/);
