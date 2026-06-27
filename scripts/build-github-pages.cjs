@@ -12,7 +12,7 @@ const ASSETS = path.join(DOCS, "assets");
 /** Must match clasp deployment used by GitHub Pages (re-deploy after clasp push). */
 const GAS_WEB_APP_URL =
   process.env.PEACE_GAS_API_URL ||
-  "https://script.google.com/macros/s/AKfycbw1qF-YWtPdX5yktJU5PZRL57mDQkJTqFzm8P4E2ViJ8WDPSMWd0noqw7268a27yK-LKw/exec";
+  "https://script.google.com/macros/s/AKfycbzLmPIIVSrQqecIWBEF6fCiyKGm0nwqVWKVNBG-TmOtOOgpb1ZXEVx1Pgu9bgGPCSSI0w/exec";
 const GITHUB_PAGES_URL =
   process.env.PEACE_GITHUB_PAGES_URL ||
   "https://pongvitsam.github.io/Engineer_shirt/";

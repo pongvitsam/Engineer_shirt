@@ -1,10 +1,10 @@
 /* PEACE Engineer Club — GitHub Pages config (generated) */
 window.PEACE_CONFIG = {
-  apiUrl: "https://script.google.com/macros/s/AKfycbw1qF-YWtPdX5yktJU5PZRL57mDQkJTqFzm8P4E2ViJ8WDPSMWd0noqw7268a27yK-LKw/exec",
+  apiUrl: "https://script.google.com/macros/s/AKfycbzLmPIIVSrQqecIWBEF6fCiyKGm0nwqVWKVNBG-TmOtOOgpb1ZXEVx1Pgu9bgGPCSSI0w/exec",
   githubPagesUrl: "https://pongvitsam.github.io/Engineer_shirt/",
   userGuideHtml: "https://pongvitsam.github.io/Engineer_shirt/guides/user-guide-user.html",
   userGuidePdf: "https://pongvitsam.github.io/Engineer_shirt/guides/user-guide.pdf",
   build: "167",
-  deployStamp: "1781195166770"
+  deployStamp: "1782531303562"
 };
 window.PEACE_GAS_ADMIN_ONLY = false;
