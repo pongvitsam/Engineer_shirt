@@ -10,6 +10,8 @@
     "test:audit": "node __test_system_audit.cjs",
     "test:pages": "node __test_github_pages.cjs",
     "test:realtime": "node __test_realtime_client.cjs",
+    "test:live": "node __test_live_integration.cjs",
+    "test:e2e": "node __test_browser_e2e.cjs",
     "test": "node scripts/pre-push-test.cjs",
     "test:prepush": "node scripts/pre-push-test.cjs",
     "test:all": "node scripts/pre-push-test.cjs",

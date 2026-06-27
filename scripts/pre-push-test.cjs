@@ -18,6 +18,8 @@ const PARALLEL_SUITES = [
 const SEQUENTIAL_SUITES = [
   { id: "build", label: "GitHub Pages build", file: "scripts/build-github-pages.cjs" },
   { id: "pages", label: "GitHub Pages verify", file: "__test_github_pages.cjs" },
+  { id: "live", label: "Live API + Pages integration", file: "__test_live_integration.cjs" },
+  { id: "e2e", label: "Browser E2E smoke", file: "__test_browser_e2e.cjs" },
 ];
 
 function runSuite(suite) {

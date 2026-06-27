@@ -130,11 +130,21 @@ assert("built JS bundles and inline patch parse cleanly", () => {
 assert("user guide shipped for Pages", () => {
   const js = read("assets/app.js");
   if (!js.includes('id:"guide"')) throw new Error("guide nav missing in app.js");
-  if (!fs.existsSync(path.join(DOCS, "guides", "user-guide-user.html"))) {
+  const guidePath = path.join(DOCS, "guides", "user-guide-user.html");
+  if (!fs.existsSync(guidePath)) {
     throw new Error("guides/user-guide-user.html missing");
   }
+  const guide = fs.readFileSync(guidePath, "utf8");
+  if (guide.includes("รอ HQ")) throw new Error("user guide still contains stale 'รอ HQ'");
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  const m = code.match(/const APP_BUILD = "(\d+)"/);
+  const build = m ? m[1] : "";
+  if (!guide.includes("Build " + build)) throw new Error("user guide footer build stale");
   const cfg = read("config.js");
   if (!cfg.includes("userGuideHtml")) throw new Error("userGuideHtml in config");
+  if (!fs.existsSync(path.join(DOCS, "guides", "user-guide.pdf"))) {
+    throw new Error("guides/user-guide.pdf missing — run npm run build:user-guide-pdf && npm run build:pages");
+  }
 });
 
 console.log("\n" + passed + "/" + (passed + failed) + " passed\n");
