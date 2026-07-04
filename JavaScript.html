@@ -1993,6 +1993,18 @@ function groupOrdersByOrderId(orders){
   return order.map(id=>map[id]);
 }
 
+function sortOrderGroupsForList_(groups){
+  const arr=Array.isArray(groups)?groups.slice():[];
+  arr.reverse();
+  const active=[];
+  const received=[];
+  arr.forEach(function(g){
+    if(normalizeOrderStatus_(g&&g.status)===ORDER_STATUS_RECEIVED)received.push(g);
+    else active.push(g);
+  });
+  return active.concat(received);
+}
+
 // ── Dashboard / report compute ──────────────────────────────────────
 function computeDashboard(regionFilter){
   const all=appData?.orders||[];
@@ -2067,7 +2079,7 @@ function computeSalesReport(){
   const regionFreeAcc={};
   regions.forEach(r=>{
     const bs={};const bf={};sizes.forEach(s=>{bs[s]=0;bf[s]=0});
-    regionAcc[r]={totalQty:0,totalAmount:0,orderIds:{},bySize:bs};
+    regionAcc[r]={totalQty:0,totalAmount:0,orderIds:{},bySize:bs,byStatusSize:{}};
     regionFreeAcc[r]={totalQty:0,totalLoss:0,orderIds:{},bySize:bf};
   });
   let totalQty=0,totalAmount=0,freeQty=0,freeLoss=0,pendingCount=0,pendingQty=0;
@@ -2079,6 +2091,15 @@ function computeSalesReport(){
     allOrderIds[oid]=1;
     const acc=regionAcc[o.region];
     const accFree=regionFreeAcc[o.region];
+    const st=normalizeOrderStatus_(o.status);
+    if(acc){
+      if(!acc.byStatusSize[st])acc.byStatusSize[st]={};
+      const sz=String(o.size||"").trim();
+      if(sz){
+        if(acc.byStatusSize[st][sz]===undefined)acc.byStatusSize[st][sz]=0;
+        acc.byStatusSize[st][sz]+=Number(o.qty)||0;
+      }
+    }
     if(isFreeGiveawayPayment(o.paymentStatus)){
       freeQty+=o.qty;
       freeLoss+=o.price;
@@ -2109,7 +2130,8 @@ function computeSalesReport(){
     orderCount:Object.keys(regionAcc[r].orderIds).length,
     freeOrderCount:Object.keys(regionFreeAcc[r].orderIds).length,
     bySize:regionAcc[r].bySize,
-    bySizeFree:regionFreeAcc[r].bySize
+    bySizeFree:regionFreeAcc[r].bySize,
+    byStatusSize:regionAcc[r].byStatusSize
   }));
   const stock=appData?.stock||[];
   return {byRegion,stock,
@@ -2117,6 +2139,31 @@ function computeSalesReport(){
     pendingPayment:{count:pendingCount,totalQty:pendingQty},
     totals:{totalQty,totalAmount,freeQty,freeLoss,orderCount:Object.keys(allOrderIds).length,regionCount:regions.length},
     unitPrice:appData?.unitPrice||0};
+}
+
+function reportStatusDisplayOrder_(){
+  const cartSt=String(appData?.cartStatus||"อยู่ในตะกร้า");
+  return [cartSt,ORDER_STATUS_ORDERED,ORDER_STATUS_AWAITING,ORDER_STATUS_SHIPPED,ORDER_STATUS_RECEIVED];
+}
+
+function reportRegionStatusSummaryHtml_(byStatusSize){
+  if(!byStatusSize||!Object.keys(byStatusSize).length)return '<span class="text-glass-dim">-</span>';
+  const sizes=appData?.stockSizes||[];
+  const known=reportStatusDisplayOrder_();
+  const extra=Object.keys(byStatusSize).filter(st=>known.indexOf(st)<0).sort();
+  const ordered=known.concat(extra);
+  const blocks=[];
+  ordered.forEach(function(st){
+    const bySz=byStatusSize[st];
+    if(!bySz)return;
+    const sizeKeys=sizes.length?sizes.filter(function(s){return(bySz[s]||0)>0}):Object.keys(bySz).filter(function(s){return(bySz[s]||0)>0});
+    if(!sizeKeys.length)return;
+    const sizeParts=sizeKeys.map(function(s){
+      return `<span class="order-item"><span class="size-badge ${sizeClass(s)}">${escHtml(s)}</span><span class="order-item-qty">${bySz[s]}</span></span>`;
+    }).join("");
+    blocks.push(`<div class="report-status-block"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${statusClass(st)}" style="border:1px solid rgba(255,255,255,.2)">${escHtml(st)}</span><div class="order-items mt-0.5">${sizeParts}</div></div>`);
+  });
+  return blocks.length?`<div class="report-status-summary">${blocks.join("")}</div>`:'<span class="text-glass-dim">-</span>';
 }
 
 // ── Login screen ─────────────────────────────────────────────────────
@@ -2871,7 +2918,7 @@ const app = {
 
   // ── Order list (grouped by orderId) ─────────────────────────────────
   renderOrderList(){
-    const grouped=groupOrdersByOrderId((appData&&Array.isArray(appData.orders))?appData.orders:[]).reverse();
+    const grouped=sortOrderGroupsForList_(groupOrdersByOrderId((appData&&Array.isArray(appData.orders))?appData.orders:[]));
     let filterOpts='<option value="all">ทุกเขต</option>';
     appData.regions.forEach(r=>{filterOpts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
     const showFilter=canViewAllRegions();
@@ -2940,10 +2987,7 @@ const app = {
       return;
     }
     if(m==="admin"){
-      if(opts.keepLocal&&document.getElementById("admin-users-list")){
-        if(isAdmin())await this.loadUserList();
-        return;
-      }
+      if(opts.keepLocal&&document.getElementById("admin-users-list"))return;
       this.paintModule(m);
       if(isAdmin())await this.initAdmin();
       return;
@@ -2967,7 +3011,7 @@ const app = {
     const tbody=document.getElementById("order-tbody");
     if(!tbody)return;
     const orders=(appData&&Array.isArray(appData.orders))?appData.orders:[];
-    const grouped=groupOrdersByOrderId(orders).reverse();
+    const grouped=sortOrderGroupsForList_(groupOrdersByOrderId(orders));
     if(grouped.length===0){
       tbody.innerHTML='<tr><td colspan="10" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
       return;
@@ -3783,6 +3827,7 @@ const app = {
                 ${isAdmin()?`<th class="py-2 px-2 text-center">แจกฟรี</th>
                 <th class="py-2 px-2 text-right">ขาดทุนแจก</th>`:""}
                 <th class="py-2 px-2 text-left">ไซส์ (สั่งซื้อ)</th>
+                <th class="py-2 px-2 text-left">สรุปสถานะ/ไซส์</th>
               </tr></thead>
               <tbody id="report-region-body"></tbody>
               <tfoot id="report-region-foot"></tfoot>
@@ -3813,13 +3858,14 @@ const app = {
       const parts=sizes.filter(s=>x.bySize[s]>0).length
         ? `<div class="order-items">${sizes.filter(s=>x.bySize[s]>0).map(s=>`<span class="order-item"><span class="size-badge ${sizeClass(s)}">${s}</span><span class="order-item-qty">${x.bySize[s]}</span></span>`).join("")}</div>`
         : '<span class="text-glass-dim">-</span>';
+      const statusSummary=reportRegionStatusSummaryHtml_(x.byStatusSize);
       const cls=x.totalQty>0?"":"text-glass-dim";
       const giveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td>`:"";
-      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td></tr>`;
+      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td><td data-label="สรุปสถานะ/ไซส์" class="py-2 px-2 align-top">${statusSummary}</td></tr>`;
     }).join("");
     document.getElementById("report-region-body").innerHTML=rows;
     const footGiveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td>`:"";
-    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td></tr>`;
+    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td><td data-label="สรุปสถานะ/ไซส์" class="py-2 px-2"></td></tr>`;
     const cells=r.stock.map(s=>{
       const cls=s.remaining<=5?"low":"";
       const nc=s.remaining<=5?"text-red-glass":"text-green-glass";

@@ -113,13 +113,16 @@ assert("submitSlipUpload uses runSaving only for busy toast", () => {
   if (!block.includes("await runSaving")) throw new Error("submitSlipUpload must wrap upload in runSaving");
 });
 
-assert("admin refresh reloads user list without full repaint", () => {
+assert("admin background sync skips user list repaint", () => {
   const block = html.match(/async refreshCurrentView_[\s\S]*?^  \},/m);
   if (!block) throw new Error("refreshCurrentView_ not found");
   const body = block[0];
   if (!body.includes('m==="admin"')) throw new Error("missing admin branch");
-  if (!/keepLocal[\s\S]*admin-users-list[\s\S]*loadUserList/.test(body)) {
-    throw new Error("admin keepLocal refresh must reload user list only");
+  if (/keepLocal[\s\S]*admin-users-list[\s\S]*loadUserList/.test(body)) {
+    throw new Error("admin keepLocal must not reload user list");
+  }
+  if (!/keepLocal[\s\S]*admin-users-list[\s\S]*return/.test(body)) {
+    throw new Error("admin keepLocal must skip refresh when panel mounted");
   }
   if (!/paintModule\(m\)[\s\S]*initAdmin/.test(body)) {
     throw new Error("admin full refresh must call initAdmin after paint");
