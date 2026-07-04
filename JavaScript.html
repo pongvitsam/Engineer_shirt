@@ -1874,6 +1874,12 @@ function stockRemainingForSize(size){
   return Math.max(0,Number(s&&s.remaining)||0);
 }
 
+function stockRemainingDisplay_(remaining){
+  const n=Math.max(0,Number(remaining)||0);
+  if(n<=0)return '<span class="text-red-glass">สินค้าหมด</span>';
+  return String(n);
+}
+
 function qtyInOrderForSize(orderId,size){
   const want=orderSizeKey_(size);
   return (appData?.orders||[]).filter(o=>String(o.orderId)===String(orderId)&&orderSizeKey_(o.size)===want)
@@ -2022,7 +2028,7 @@ function computeDashboard(regionFilter){
   const bySizeFree={};
   (appData?.stockSizes||[]).forEach(s=>{bySize[s]=0;bySizeFree[s]=0});
   let saleQty=0,saleMoney=0,freeGiveawayQty=0,freeGiveawayLoss=0;
-  let pendingPayment=0,pendingPickup=0,pickedUp=0;
+  let pendingPayment=0,pendingPickup=0,pickedUp=0,paidQty=0;
   const orderIdSet={};
   for(let i=0;i<orders.length;i++){
     const o=orders[i];
@@ -2047,6 +2053,7 @@ function computeDashboard(regionFilter){
       const st=String(o.status||"").trim();
       const ps=String(o.paymentStatus||"").trim();
       if(normalizeOrderStatus_(o.status)===ORDER_STATUS_ORDERED)pendingPayment+=qty;
+      if(isPaymentVerified(ps))paidQty+=qty;
       if(normalizeOrderStatus_(o.status)===ORDER_STATUS_AWAITING)pendingPickup+=qty;
       else if(normalizeOrderStatus_(o.status)===ORDER_STATUS_RECEIVED)pickedUp+=qty;
     }
@@ -2056,7 +2063,7 @@ function computeDashboard(regionFilter){
     totalMoney:saleMoney,
     freeGiveawayQty,
     freeGiveawayLoss,
-    pendingPayment,pendingPickup,pickedUp,
+    pendingPayment,pendingPickup,pickedUp,paidQty,
     orderCount:Object.keys(orderIdSet).length,
     regionLabels:regions,
     regionQtys:regions.map(r=>byRegion[r].qty),
@@ -2667,18 +2674,20 @@ const app = {
     const deliveredRow=stock.map(s=>`<td class="stock-cell font-semibold">${s.delivered}</td>`).join("");
     const soldRow=stock.map(s=>`<td class="stock-cell text-orange-glass">${s.sold}</td>`).join("");
     const remainRow=stock.map(s=>{
-      const cls=s.remaining<=5?"text-red-glass font-bold":"text-green-glass font-bold";
-      return `<td class="stock-cell ${cls}">${s.remaining}</td>`;
+      const out=s.remaining<=0;
+      const cls=out||s.remaining<=5?"text-red-glass font-bold":"text-green-glass font-bold";
+      return `<td class="stock-cell ${cls}">${stockRemainingDisplay_(s.remaining)}</td>`;
     }).join("");
     const chartRows=sizeChartRows.map(r=>`<tr><td class="py-2 px-3"><span class="size-badge ${sizeClass(r.size)}">${r.size}</span></td><td class="py-2 px-3 text-center">${r.chest}</td><td class="py-2 px-3 text-center">${r.length}</td></tr>`).join("");
     const stockMobileCards=stock.map(s=>{
-      const low=s.remaining<=5;
+      const out=s.remaining<=0;
+      const low=out||s.remaining<=5;
       const remainCls=low?"text-red-glass":"text-green-glass";
       return `<div class="stock-mobile-card ${low?'low':''}">
-        <div class="flex justify-between items-center" style="margin-bottom:.35rem"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><span class="font-bold ${remainCls}" style="font-size:1.1rem">${s.remaining}<span class="text-xs opacity-70">/${s.delivered}</span></span></div>
+        <div class="flex justify-between items-center" style="margin-bottom:.35rem"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><span class="font-bold ${remainCls}" style="font-size:1.1rem">${stockRemainingDisplay_(s.remaining)}${out?"":`<span class="text-xs opacity-70">/${s.delivered}</span>`}</span></div>
         <div class="row"><span class="lbl">มาส่ง</span><span class="val">${s.delivered}</span></div>
         <div class="row"><span class="lbl">สั่งแล้ว</span><span class="val text-orange-glass">${s.sold}</span></div>
-        <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${s.remaining}</span></div>
+        <div class="row"><span class="lbl">คงเหลือ</span><span class="val ${remainCls}">${stockRemainingDisplay_(s.remaining)}</span></div>
       </div>`;
     }).join("");
     const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="stock-header-upload glass-btn-primary text-xs cursor-pointer"><i class="fas fa-camera"></i> <span class="hidden sm:inline">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
@@ -3743,6 +3752,7 @@ const app = {
         <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
         ${giveawayCards}
         <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอตรวจสอบการชำระ</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
+        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(16,185,129,.35),rgba(5,150,105,.25))"><div class="glass-stat-label">ชำระเงินแล้ว</div><div class="glass-stat-value text-2xl">${dash.paidQty||0}</div><div class="glass-stat-sub">ตัว</div></div>
         <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอจัดส่ง/เข้ามารับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
         <div class="glass-stat glass-stat-green"><div class="glass-stat-label">ได้รับแล้ว</div><div class="glass-stat-value text-2xl">${dash.pickedUp}</div></div>`;
     }
