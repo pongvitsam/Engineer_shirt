@@ -396,6 +396,17 @@ assert("change request RPC methods registered", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("requestOrderChange: requestOrderChange")) throw new Error("missing requestOrderChange RPC");
   if (!code.includes("updateUser: updateUser")) throw new Error("missing updateUser RPC");
+  if (!code.includes("updateOrderPickupByOrderId: updateOrderPickupByOrderId")) throw new Error("missing updateOrderPickupByOrderId RPC");
+});
+
+assert("order list pickup delivery column", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!html.includes("วันที่รับ/จัดส่ง")) throw new Error("missing pickup column header");
+  if (!html.includes("openPickupModal")) throw new Error("missing pickup modal");
+  if (!html.includes("updateOrderPickupByOrderId")) throw new Error("missing pickup RPC client call");
+  if (!code.includes("วันที่รับ/จัดส่ง")) throw new Error("missing pickup sheet columns");
+  if (!code.includes("resolvePickupStatusAfterRecord_")) throw new Error("missing pickup status resolver");
 });
 
 assert("order form has optional slip upload with datetime", () => {

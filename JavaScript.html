@@ -576,6 +576,20 @@ function applyLocalOrderStatusUpdate_(orderId, status) {
   });
 }
 
+function applyLocalOrderPickupUpdate_(orderId, result) {
+  if (!appData || !result || !orderId) return;
+  (appData.orders || []).forEach(function (o) {
+    if (String(o.orderId) !== String(orderId)) return;
+    if (result.pickupDate != null) o.pickupDate = result.pickupDate;
+    if (result.pickupTime != null) o.pickupTime = result.pickupTime;
+    if (result.pickupNote != null) o.pickupNote = result.pickupNote;
+    if (result.status != null) {
+      o.status = result.status;
+      o.orderStatus = result.status;
+    }
+  });
+}
+
 function snapshotOrderGroup_(orderId) {
   return (appData && appData.orders ? appData.orders : [])
     .filter(function (o) { return String(o.orderId) === String(orderId); })
@@ -717,93 +731,125 @@ function slipDtMinuteOptions_(selMinute){
   return h;
 }
 
-function buildSlipDateTimeFieldsHtml_(safeOid, initDate, initTime) {
-  const iso=initDate||todayStr();
-  const tp=parseTimeParts_(initTime||nowTimeStr());
-  const dp=parseIsoDateParts_(iso)||parseIsoDateParts_(todayStr());
-  const y=dp.y,m=dp.m,d=Math.min(dp.d,daysInMonthCe_(dp.y,dp.m));
-  const isoVal=buildIsoDateFromParts_(y,m,d);
-  const timeVal=pad2(tp.h)+":"+pad2(tp.min);
-  const heroDate=formatThaiDateLong(isoVal);
-  const heroTime=timeVal+" น.";
+function buildDateTimePickerFieldsHtml_(safeOid, initDate, initTime, opts) {
+  opts = opts || {};
+  const prefix = opts.prefix || "slip";
+  const icon = opts.icon || "fa-receipt";
+  const labelDate = opts.labelDate || "เลือกวันที่โอน *";
+  const labelTime = opts.labelTime || "เลือกเวลาโอน *";
+  const iso = initDate || todayStr();
+  const tp = parseTimeParts_(initTime || nowTimeStr());
+  const dp = parseIsoDateParts_(iso) || parseIsoDateParts_(todayStr());
+  const y = dp.y, m = dp.m, d = Math.min(dp.d, daysInMonthCe_(dp.y, dp.m));
+  const isoVal = buildIsoDateFromParts_(y, m, d);
+  const timeVal = pad2(tp.h) + ":" + pad2(tp.min);
+  const heroDate = formatThaiDateLong(isoVal);
+  const heroTime = timeVal + " น.";
   return `<div class="glass-datetime-panel">
     <div class="glass-datetime-hero">
-      <div class="glass-datetime-hero-icon"><i class="fas fa-receipt"></i></div>
-      <div id="slip-dt-preview-date-${safeOid}" class="glass-datetime-hero-date">${escHtml(heroDate)}</div>
-      <div id="slip-dt-preview-time-${safeOid}" class="glass-datetime-hero-time">${escHtml(heroTime)}</div>
+      <div class="glass-datetime-hero-icon"><i class="fas ${icon}"></i></div>
+      <div id="${prefix}-dt-preview-date-${safeOid}" class="glass-datetime-hero-date">${escHtml(heroDate)}</div>
+      <div id="${prefix}-dt-preview-time-${safeOid}" class="glass-datetime-hero-time">${escHtml(heroTime)}</div>
     </div>
     <div class="glass-datetime-section">
-      <div class="glass-datetime-label"><i class="fas fa-calendar-day"></i> เลือกวันที่โอน *</div>
+      <div class="glass-datetime-label"><i class="fas fa-calendar-day"></i> ${labelDate}</div>
       <div class="glass-datetime-selects">
         <div class="glass-datetime-select-wrap">
           <span class="glass-datetime-select-hint">วัน</span>
-          <select id="slip-dt-day-${safeOid}" class="glass-select glass-datetime-select" aria-label="วัน">${slipDtDayOptions_(y,m,d)}</select>
+          <select id="${prefix}-dt-day-${safeOid}" class="glass-select glass-datetime-select" aria-label="วัน">${slipDtDayOptions_(y, m, d)}</select>
         </div>
         <div class="glass-datetime-select-wrap glass-datetime-select-month">
           <span class="glass-datetime-select-hint">เดือน</span>
-          <select id="slip-dt-month-${safeOid}" class="glass-select glass-datetime-select" aria-label="เดือน">${slipDtMonthOptions_(m)}</select>
+          <select id="${prefix}-dt-month-${safeOid}" class="glass-select glass-datetime-select" aria-label="เดือน">${slipDtMonthOptions_(m)}</select>
         </div>
         <div class="glass-datetime-select-wrap">
           <span class="glass-datetime-select-hint">ปี พ.ศ.</span>
-          <select id="slip-dt-year-${safeOid}" class="glass-select glass-datetime-select" aria-label="ปี พ.ศ.">${slipDtYearOptions_(y)}</select>
+          <select id="${prefix}-dt-year-${safeOid}" class="glass-select glass-datetime-select" aria-label="ปี พ.ศ.">${slipDtYearOptions_(y)}</select>
         </div>
       </div>
     </div>
     <div class="glass-datetime-section">
-      <div class="glass-datetime-label"><i class="fas fa-clock"></i> เลือกเวลาโอน *</div>
+      <div class="glass-datetime-label"><i class="fas fa-clock"></i> ${labelTime}</div>
       <div class="glass-datetime-selects glass-datetime-time-selects">
         <div class="glass-datetime-select-wrap">
           <span class="glass-datetime-select-hint">ชั่วโมง</span>
-          <select id="slip-dt-hour-${safeOid}" class="glass-select glass-datetime-select" aria-label="ชั่วโมง">${slipDtHourOptions_(tp.h)}</select>
+          <select id="${prefix}-dt-hour-${safeOid}" class="glass-select glass-datetime-select" aria-label="ชั่วโมง">${slipDtHourOptions_(tp.h)}</select>
         </div>
         <span class="glass-datetime-colon" aria-hidden="true">:</span>
         <div class="glass-datetime-select-wrap">
           <span class="glass-datetime-select-hint">นาที</span>
-          <select id="slip-dt-minute-${safeOid}" class="glass-select glass-datetime-select" aria-label="นาที">${slipDtMinuteOptions_(tp.min)}</select>
+          <select id="${prefix}-dt-minute-${safeOid}" class="glass-select glass-datetime-select" aria-label="นาที">${slipDtMinuteOptions_(tp.min)}</select>
         </div>
       </div>
     </div>
-    <input type="hidden" id="slip-pay-date-${safeOid}" value="${escAttr(isoVal)}">
-    <input type="hidden" id="slip-pay-time-${safeOid}" value="${escAttr(timeVal)}">
+    <input type="hidden" id="${prefix}-pay-date-${safeOid}" value="${escAttr(isoVal)}">
+    <input type="hidden" id="${prefix}-pay-time-${safeOid}" value="${escAttr(timeVal)}">
   </div>`;
 }
 
-function bindSlipDateTimePicker_(safeOid) {
-  const dayEl=document.getElementById("slip-dt-day-"+safeOid);
-  const monthEl=document.getElementById("slip-dt-month-"+safeOid);
-  const yearEl=document.getElementById("slip-dt-year-"+safeOid);
-  const hourEl=document.getElementById("slip-dt-hour-"+safeOid);
-  const minEl=document.getElementById("slip-dt-minute-"+safeOid);
-  const hidDate=document.getElementById("slip-pay-date-"+safeOid);
-  const hidTime=document.getElementById("slip-pay-time-"+safeOid);
-  const prevDate=document.getElementById("slip-dt-preview-date-"+safeOid);
-  const prevTime=document.getElementById("slip-dt-preview-time-"+safeOid);
-  if(!dayEl||!monthEl||!yearEl)return;
-  function rebuildDays(){
-    const y=+yearEl.value,m=+monthEl.value;
-    let sel=+dayEl.value;
-    const max=daysInMonthCe_(y,m);
-    if(sel>max)sel=max;
-    const cur=dayEl.value;
-    dayEl.innerHTML=slipDtDayOptions_(y,m,sel);
-    if(cur&&+cur<=max)dayEl.value=cur;
+function buildSlipDateTimeFieldsHtml_(safeOid, initDate, initTime) {
+  return buildDateTimePickerFieldsHtml_(safeOid, initDate, initTime, {
+    prefix: "slip",
+    icon: "fa-receipt",
+    labelDate: "เลือกวันที่โอน *",
+    labelTime: "เลือกเวลาโอน *"
+  });
+}
+
+function buildPickupDateTimeFieldsHtml_(safeOid, initDate, initTime) {
+  return buildDateTimePickerFieldsHtml_(safeOid, initDate, initTime, {
+    prefix: "pickup",
+    icon: "fa-truck",
+    labelDate: "วันที่เข้ามารับ/จัดส่ง *",
+    labelTime: "เวลารับ/จัดส่ง *"
+  });
+}
+
+function bindDateTimePicker_(safeOid, prefix) {
+  prefix = prefix || "slip";
+  const dayEl = document.getElementById(prefix + "-dt-day-" + safeOid);
+  const monthEl = document.getElementById(prefix + "-dt-month-" + safeOid);
+  const yearEl = document.getElementById(prefix + "-dt-year-" + safeOid);
+  const hourEl = document.getElementById(prefix + "-dt-hour-" + safeOid);
+  const minEl = document.getElementById(prefix + "-dt-minute-" + safeOid);
+  const hidDate = document.getElementById(prefix + "-pay-date-" + safeOid);
+  const hidTime = document.getElementById(prefix + "-pay-time-" + safeOid);
+  const prevDate = document.getElementById(prefix + "-dt-preview-date-" + safeOid);
+  const prevTime = document.getElementById(prefix + "-dt-preview-time-" + safeOid);
+  if (!dayEl || !monthEl || !yearEl) return;
+  function rebuildDays() {
+    const y = +yearEl.value, m = +monthEl.value;
+    let sel = +dayEl.value;
+    const max = daysInMonthCe_(y, m);
+    if (sel > max) sel = max;
+    const cur = dayEl.value;
+    dayEl.innerHTML = slipDtDayOptions_(y, m, sel);
+    if (cur && +cur <= max) dayEl.value = cur;
   }
-  function sync(){
+  function sync() {
     rebuildDays();
-    const y=+yearEl.value,m=+monthEl.value,d=+dayEl.value;
-    const iso=buildIsoDateFromParts_(y,m,d);
-    const h=hourEl?hourEl.value:"00";
-    const mi=minEl?minEl.value:"00";
-    const time=h+":"+mi;
-    if(hidDate)hidDate.value=iso;
-    if(hidTime)hidTime.value=time;
-    if(prevDate)prevDate.textContent=formatThaiDateLong(iso);
-    if(prevTime)prevTime.textContent=time+" น.";
+    const y = +yearEl.value, m = +monthEl.value, d = +dayEl.value;
+    const iso = buildIsoDateFromParts_(y, m, d);
+    const h = hourEl ? hourEl.value : "00";
+    const mi = minEl ? minEl.value : "00";
+    const time = h + ":" + mi;
+    if (hidDate) hidDate.value = iso;
+    if (hidTime) hidTime.value = time;
+    if (prevDate) prevDate.textContent = formatThaiDateLong(iso);
+    if (prevTime) prevTime.textContent = time + " น.";
   }
-  [dayEl,monthEl,yearEl,hourEl,minEl].forEach(function(el){
-    if(el)el.addEventListener("change",sync);
+  [dayEl, monthEl, yearEl, hourEl, minEl].forEach(function (el) {
+    if (el) el.addEventListener("change", sync);
   });
   sync();
+}
+
+function bindSlipDateTimePicker_(safeOid) {
+  bindDateTimePicker_(safeOid, "slip");
+}
+
+function bindPickupDateTimePicker_(safeOid) {
+  bindDateTimePicker_(safeOid, "pickup");
 }
 
 const slipPreviewUrls_ = {};
@@ -1394,6 +1440,22 @@ function renderTransferAccountBlock_(opts){
 function shouldHideOrderNoteForViewer_(g){
   return canViewAllRegions()&&!isAdmin()&&isAdminHiddenNoteRegion(g&&g.region);
 }
+function renderPickupDeliveryCell_(g){
+  const hasPickup=!!(String(g.pickupDate||"").trim()&&String(g.pickupTime||"").trim());
+  let display=hasPickup
+    ?`<div class="text-xs">${formatThaiDateTimeCell(g.pickupDate,g.pickupTime)}</div>`
+    :`<span class="text-glass-dim text-xs">-</span>`;
+  const note=String(g.pickupNote||"").trim();
+  if(note)display+=`<div class="order-pickup-note text-xs text-glass-dim mt-1">${escHtml(note)}</div>`;
+  if(!isAdmin())return `<div class="order-pickup-cell">${display}</div>`;
+  const btnLabel=hasPickup?"แก้ไข":"บันทึก";
+  const btnIcon=hasPickup?"fa-edit":"fa-calendar-plus";
+  return `<div class="order-pickup-cell">
+    ${display}
+    <button type="button" onclick="app.openPickupModal('${escHtml(g.orderId)}')" class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .55rem"><i class="fas ${btnIcon}"></i> ${btnLabel}</button>
+  </div>`;
+}
+
 function renderOrderNoteBlock_(g,ownsOrder){
   if(shouldHideOrderNoteForViewer_(g))return `<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
   const note=String(g&&g.note||"").trim();
@@ -1895,6 +1957,9 @@ function groupOrdersByOrderId(orders){
         slipUrl:o.slipUrl,
         timestamp:o.timestamp,
         paymentStatus:o.paymentStatus||"",
+        pickupDate:o.pickupDate||"",
+        pickupTime:o.pickupTime||"",
+        pickupNote:o.pickupNote||"",
         items:[],
         totalQty:0,
         totalPrice:0,
@@ -2794,7 +2859,7 @@ const app = {
     const showFilter=canViewAllRegions();
     const canAdd=!isViewer()&&!isGuest();
     const body=grouped.length===0
-      ? '<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
+      ? '<tr><td colspan="10" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
     const searchHtml=`<input id="list-search" type="search" class="glass-input order-list-search p-2 text-sm" placeholder="เลขออเดอร์ / วันที่สั่ง" oninput="app.filterList()" aria-label="ค้นหาออเดอร์">`;
     const filterHtml=showFilter
@@ -2823,6 +2888,7 @@ const app = {
               <th class="py-2 px-2">สถานะ</th>
               <th class="py-2 px-2">สลิปชำระ</th>
               <th class="py-2 px-2">ชำระเงิน</th>
+              <th class="py-2 px-2">วันที่รับ/จัดส่ง</th>
               <th class="py-2 px-1"></th>
             </tr></thead>
             <tbody id="order-tbody">${body}</tbody>
@@ -2885,7 +2951,7 @@ const app = {
     const orders=(appData&&Array.isArray(appData.orders))?appData.orders:[];
     const grouped=groupOrdersByOrderId(orders).reverse();
     if(grouped.length===0){
-      tbody.innerHTML='<tr><td colspan="9" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
+      tbody.innerHTML='<tr><td colspan="10" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
       return;
     }
     // Render each order group independently so one malformed order can never
@@ -2894,7 +2960,7 @@ const app = {
       try{return this.orderGroupRowHtml(g);}
       catch(e){
         const oid=escHtml((g&&g.orderId)||"?");
-        return `<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="9" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
+        return `<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="10" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
       }
     }).join("");
     this.applyListFilter();
@@ -2961,6 +3027,7 @@ const app = {
         </td>
         <td data-label="สลิปชำระ" class="py-2 px-2 text-center">${slipCell}</td>
         <td data-label="ชำระเงิน" class="py-2 px-2 text-center">${paymentCell}</td>
+        <td data-label="วันที่รับ/จัดส่ง" class="py-2 px-2 text-center">${renderPickupDeliveryCell_(g)}</td>
         <td data-label="ลบ" class="py-2 px-1 text-center">${deleteBtn}</td>
       </tr>`;
   },
@@ -2994,7 +3061,7 @@ const app = {
         emptyRow.id="order-list-filter-empty";
         tbody.appendChild(emptyRow);
       }
-      emptyRow.innerHTML='<td colspan="9" class="text-center py-8 text-glass-dim">'+
+      emptyRow.innerHTML='<td colspan="10" class="text-center py-8 text-glass-dim">'+
         (query?"ไม่พบออเดอร์ที่ค้นหา":"ไม่พบออเดอร์ในเขตที่เลือก")+'</td>';
       emptyRow.style.display="";
     }else if(emptyRow){
@@ -3115,6 +3182,88 @@ const app = {
     if(m&&m._previewKey)revokeSlipPreviewUrl_(m._previewKey);
     if(m&&m._escHandler)document.removeEventListener("keydown",m._escHandler);
     if(m)m.remove();
+  },
+
+  openPickupModal(orderId){
+    if(!isAdmin())return this.showMsg("เฉพาะแอดมินเท่านั้น","warning");
+    const self=this;
+    setTimeout(function(){self._openPickupModalNow_(orderId);},0);
+  },
+  _openPickupModalNow_(orderId){
+    if(typeof app!=="undefined"&&app&&typeof app.closeDropdownPanel==="function")app.closeDropdownPanel();
+    const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
+    if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
+    this.closePickupModal();
+    const safeOid=ddSafeId(orderId);
+    const initDate=normalizePayDateForInput_(orderGroup.pickupDate)||todayStr();
+    const initTime=normalizePayTimeForInput_(orderGroup.pickupTime)||nowTimeStr();
+    const initNote=String(orderGroup.pickupNote||"");
+    const html=`
+      <div class="login-overlay slip-upload-overlay" id="pickup-modal" onclick="if(event.target===this)app.closePickupModal()">
+        <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
+          <div class="login-title">วันที่เข้ามารับ/จัดส่ง #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
+          <p class="login-sub text-xs">บันทึกวันที่รับ/จัดส่ง · ระบบจะอัปเดตสถานะเป็น <b>รับแล้ว</b> หรือ <b>จัดส่งแล้ว</b> อัตโนมัติ</p>
+          <div class="slip-upload-body space-y-2">
+            ${buildPickupDateTimeFieldsHtml_(safeOid,initDate,initTime)}
+            <div>
+              <label class="glass-label" for="pickup-note-${safeOid}">หมายเหตุ (ไม่บังคับ)</label>
+              <textarea id="pickup-note-${safeOid}" class="glass-input text-sm cart-edit-note-input" maxlength="120" rows="2" placeholder="เช่น ผู้มารับ, จุดส่ง">${escHtml(initNote)}</textarea>
+            </div>
+            <div id="pickup-modal-msg" class="modal-inline-msg text-sm text-center mt-2 font-semibold" style="display:none" role="alert"></div>
+          </div>
+          <div class="slip-modal-actions grid grid-cols-2 gap-2">
+            <button type="button" onclick="app.closePickupModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
+            <button type="button" onclick="app.submitPickupDelivery('${escHtml(orderId)}',this)" class="glass-btn-primary py-2">บันทึก</button>
+          </div>
+        </div>
+      </div>`;
+    const wrap=document.createElement("div");
+    wrap.innerHTML=html;
+    document.body.appendChild(wrap.firstElementChild);
+    const escHandler=function(e){if(e.key==="Escape")app.closePickupModal();};
+    document.addEventListener("keydown",escHandler);
+    const m=document.getElementById("pickup-modal");
+    if(m)m._escHandler=escHandler;
+    bindPickupDateTimePicker_(safeOid);
+  },
+  closePickupModal(){
+    const m=document.getElementById("pickup-modal");
+    if(m&&m._escHandler)document.removeEventListener("keydown",m._escHandler);
+    if(m)m.remove();
+  },
+  showPickupModalMsg(msg,type){
+    const el=document.getElementById("pickup-modal-msg");
+    if(!el)return;
+    el.style.display="block";
+    el.className="modal-inline-msg text-sm text-center mt-2 font-semibold "+(type==="error"?"text-red-glass":"text-green-glass");
+    el.textContent=msg;
+  },
+  async submitPickupDelivery(orderId,btn){
+    if(!isAdmin())return;
+    const safeOid=ddSafeId(orderId);
+    const pickupDate=String(document.getElementById("pickup-pay-date-"+safeOid)?.value||"").trim();
+    const pickupTime=String(document.getElementById("pickup-pay-time-"+safeOid)?.value||"").trim();
+    const pickupNote=String(document.getElementById("pickup-note-"+safeOid)?.value||"").trim();
+    if(!pickupDate||!pickupTime)return this.showPickupModalMsg("กรุณาเลือกวันที่และเวลา","error");
+    const snap=snapshotOrderGroup_(orderId);
+    const prevStatus=snap&&snap[0]?String(snap[0].status||""):"";
+    const nextStatus=prevStatus==="รอส่ง"?"จัดส่งแล้ว":"รับแล้ว";
+    applyLocalOrderPickupUpdate_(orderId,{pickupDate:pickupDate,pickupTime:pickupTime,pickupNote:pickupNote,status:nextStatus});
+    this.closePickupModal();
+    refreshAfterMutation_({ keepLocal: true });
+    await new Promise(function(r){setTimeout(r,0);});
+    try{
+      const res=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
+        return await callAuthed("updateOrderPickupByOrderId",orderId,pickupDate,pickupTime,pickupNote);
+      });
+      applyLocalOrderPickupUpdate_(orderId,res);
+      this.showMsg("บันทึกวันที่รับ/จัดส่งแล้ว · สถานะ: "+escHtml(res.status||nextStatus),"success");
+      scheduleBackgroundBootstrapSync_();
+    }catch(e){
+      restoreOrderGroupSnapshot_(orderId,snap);
+      refreshAfterMutation_({ keepLocal: true });
+      this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
+    }
   },
 
   async submitSlipUpload(orderId,btn){
