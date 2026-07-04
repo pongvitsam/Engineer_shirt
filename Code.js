@@ -232,7 +232,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "169";
+const APP_BUILD = "170";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -271,13 +271,23 @@ const DEFAULT_SIZE_CHART = [
   ["XL", 44, 29], ["2L", 46, 30], ["3L", 48, 31], ["5L", 52, 32], ["7L", 56, 33]
 ];
 
-const PICKUP_STATUS = ["รอโอน", "รอส่ง", "จัดส่งแล้ว", "รอรับ", "รับแล้ว"];
+const ORDER_STATUS_ORDERED = "สั่งออเดอร์แล้วรอตรวจสอบการชำระ";
+const ORDER_STATUS_AWAITING = "รอจัดส่ง/เข้ามารับ";
+const ORDER_STATUS_SHIPPED = "จัดส่งแล้ว";
+const ORDER_STATUS_RECEIVED = "ได้รับแล้ว";
+const PICKUP_STATUS = [ORDER_STATUS_AWAITING, ORDER_STATUS_SHIPPED, ORDER_STATUS_RECEIVED];
 const ORDER_STATUS_CART = "อยู่ในตะกร้า";
-const ORDER_STATUS_ORDERED = "สั่งออเดอร์แล้ว";
-const USER_EDITABLE_STATUSES = [ORDER_STATUS_ORDERED, "รอโอน"];
-const USER_LOCKED_STATUSES = ["รอส่ง", "จัดส่งแล้ว", "รอรับ", "รับแล้ว"];
+const USER_EDITABLE_STATUSES = [ORDER_STATUS_ORDERED];
+const USER_LOCKED_STATUSES = [ORDER_STATUS_AWAITING, ORDER_STATUS_SHIPPED, ORDER_STATUS_RECEIVED];
 const ADMIN_ORDER_STATUS = [ORDER_STATUS_ORDERED].concat(PICKUP_STATUS);
 const SUBMITTED_ORDER_STATUSES = ADMIN_ORDER_STATUS.slice();
+const ORDER_STATUS_LEGACY_MAP_ = {
+  "สั่งออเดอร์แล้ว": ORDER_STATUS_ORDERED,
+  "รอโอน": ORDER_STATUS_ORDERED,
+  "รอส่ง": ORDER_STATUS_AWAITING,
+  "รอรับ": ORDER_STATUS_AWAITING,
+  "รับแล้ว": ORDER_STATUS_RECEIVED
+};
 const CHANGE_REQUEST_STATUS = {
   NONE: "none",
   PENDING: "pending",
@@ -1452,13 +1462,44 @@ function updateOrderStatusByOrderId(token, orderId, status) {
   return { ok: true, changed: changed };
 }
 
-function resolvePickupStatusAfterRecord_(currentStatus) {
-  const s = String(currentStatus || "").trim();
-  if (s === "รอส่ง") return "จัดส่งแล้ว";
-  return "รับแล้ว";
+function normalizeOrderStatus_(status) {
+  const s = String(status || "").trim();
+  if (!s) return ORDER_STATUS_ORDERED;
+  if (ORDER_STATUS_LEGACY_MAP_[s]) return ORDER_STATUS_LEGACY_MAP_[s];
+  if (ADMIN_ORDER_STATUS.indexOf(s) > -1 || s === ORDER_STATUS_CART) return s;
+  return s;
 }
 
-function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pickupNote) {
+function resolvePickupStatusFromDeliveryMode_(deliveryMode) {
+  const mode = String(deliveryMode || "").trim().toLowerCase();
+  if (mode === "ship" || mode === "delivery" || mode === "จัดส่ง") return ORDER_STATUS_SHIPPED;
+  return ORDER_STATUS_RECEIVED;
+}
+
+function migrateOrderStatusesV2_(ss) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty("ORDER_STATUS_V2") === "1") return;
+  const orderSheet = ss.getSheetByName(ORDER_SHEET);
+  if (!orderSheet || orderSheet.getLastRow() <= 1) {
+    props.setProperty("ORDER_STATUS_V2", "1");
+    return;
+  }
+  const last = orderSheet.getLastRow();
+  const values = orderSheet.getRange(2, 1, last - 1, Math.max(9, orderSheet.getLastColumn())).getValues();
+  let changed = 0;
+  for (let i = 0; i < values.length; i++) {
+    const raw = String(values[i][8] || "").trim();
+    const next = normalizeOrderStatus_(raw);
+    if (next && next !== raw) {
+      orderSheet.getRange(i + 2, 9).setValue(next);
+      changed++;
+    }
+  }
+  props.setProperty("ORDER_STATUS_V2", "1");
+  if (changed > 0) invalidateDataCache_();
+}
+
+function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pickupNote, deliveryMode) {
   requireAdmin_(token);
   ensureSheetsInitialized_();
   const targetOrderId = String(orderId || "").trim();
@@ -1467,6 +1508,7 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
   const timeStr = formatPayTimeFromSheet_(pickupTime) || String(pickupTime || "").trim();
   if (!dateStr || !timeStr) throw new Error("กรุณาระบุวันที่และเวลารับ/จัดส่ง");
   const safeNote = String(pickupNote == null ? "" : pickupNote).trim().substring(0, 120);
+  const nextStatus = resolvePickupStatusFromDeliveryMode_(deliveryMode);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
   try {
@@ -1474,11 +1516,9 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
     const values = getOrderSheetValues_(orderSheet);
     let changed = 0;
-    let nextStatus = "";
     for (let i = 1; i < values.length; i++) {
       const row = values[i];
       if (String(row[1] || "") !== targetOrderId) continue;
-      if (!nextStatus) nextStatus = resolvePickupStatusAfterRecord_(row[8]);
       const rowNo = i + 1;
       orderSheet.getRange(rowNo, 19).setNumberFormat("@");
       orderSheet.getRange(rowNo, 20).setNumberFormat("@");
@@ -1623,9 +1663,10 @@ function acceptOrderPayment(token, orderId) {
     if (!hasSlip) throw new Error("ยังไม่มีสลิปแนบ ไม่สามารถยอมรับการชำระได้");
     targetRows.forEach(row => {
       orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.VERIFIED);
+      orderSheet.getRange(row, 9).setValue(ORDER_STATUS_AWAITING);
     });
     invalidateDataCache_();
-    return { ok: true, orderId: targetOrderId, paymentStatus: PAYMENT_STATUS.VERIFIED, rows: targetRows.length };
+    return { ok: true, orderId: targetOrderId, paymentStatus: PAYMENT_STATUS.VERIFIED, status: ORDER_STATUS_AWAITING, rows: targetRows.length };
   } finally {
     lock.releaseLock();
   }
@@ -1659,12 +1700,14 @@ function markOrderFreeGiveaway(token, orderId) {
     if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
     targetRows.forEach(function (row) {
       orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.FREE_GIVEAWAY);
+      orderSheet.getRange(row, 9).setValue(ORDER_STATUS_AWAITING);
     });
     invalidateDataCache_();
     return {
       ok: true,
       orderId: targetOrderId,
       paymentStatus: PAYMENT_STATUS.FREE_GIVEAWAY,
+      status: ORDER_STATUS_AWAITING,
       rows: targetRows.length
     };
   } finally {
@@ -2411,6 +2454,7 @@ function initializeSheets_() {
 
   // Migrate Orders sheet if it has the old schema (11 cols without OrderId)
   migrateOrdersSheet_(ss);
+  migrateOrderStatusesV2_(ss);
   migrateRoundSheet_(ss);
 
   if (!String(getSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT) || "").trim()) {
@@ -2993,8 +3037,8 @@ function sanitizeOrderForClient_(order) {
     price: Number(order.price) || 0,
     payDate: formatPayDateFromSheet_(order.payDate),
     payTime: formatPayTimeFromSheet_(order.payTime),
-    orderStatus: String(order.orderStatus || order.status || ORDER_STATUS_ORDERED),
-    status: String(order.status || order.orderStatus || ORDER_STATUS_ORDERED),
+    orderStatus: normalizeOrderStatus_(order.orderStatus || order.status),
+    status: normalizeOrderStatus_(order.status || order.orderStatus),
     note: String(order.note || ""),
     timestamp: String(formatOrderTimestampFromSheet_(order.timestamp) || ""),
     slipName: String(order.slipName || ""),
@@ -3039,8 +3083,8 @@ function getOrders_(ss) {
     price: Number(r[5]) || 0,
     payDate: r[6],
     payTime: r[7],
-    orderStatus: String(r[8] || ORDER_STATUS_ORDERED),
-    status: String(r[8] || ORDER_STATUS_ORDERED),
+    orderStatus: normalizeOrderStatus_(r[8] || ORDER_STATUS_ORDERED),
+    status: normalizeOrderStatus_(r[8] || ORDER_STATUS_ORDERED),
     note: String(r[9] || ""),
     timestamp: r[10],
     slipName: String(r[11] || ""),

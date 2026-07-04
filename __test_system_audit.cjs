@@ -406,7 +406,8 @@ assert("order list pickup delivery column", () => {
   if (!html.includes("openPickupModal")) throw new Error("missing pickup modal");
   if (!html.includes("updateOrderPickupByOrderId")) throw new Error("missing pickup RPC client call");
   if (!code.includes("วันที่รับ/จัดส่ง")) throw new Error("missing pickup sheet columns");
-  if (!code.includes("resolvePickupStatusAfterRecord_")) throw new Error("missing pickup status resolver");
+  if (!code.includes("resolvePickupStatusFromDeliveryMode_")) throw new Error("missing pickup status resolver");
+  if (!html.includes('value="จัดส่ง"')) throw new Error("missing delivery mode radio");
 });
 
 assert("order form has optional slip upload with datetime", () => {

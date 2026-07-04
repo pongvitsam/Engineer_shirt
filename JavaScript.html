@@ -1334,14 +1334,30 @@ function isDataUrl(url){return /^data:/i.test(String(url||"").trim())}
 function sizeClass(s){return "size-"+String(s).replace(/\s/g,"")}
 function orderCartStatus(){return (appData&&appData.cartStatus)||"อยู่ในตะกร้า"}
 function isCartStatus(s){return String(s||"").trim()===orderCartStatus()}
+const ORDER_STATUS_ORDERED = "สั่งออเดอร์แล้วรอตรวจสอบการชำระ";
+const ORDER_STATUS_AWAITING = "รอจัดส่ง/เข้ามารับ";
+const ORDER_STATUS_SHIPPED = "จัดส่งแล้ว";
+const ORDER_STATUS_RECEIVED = "ได้รับแล้ว";
+const ORDER_STATUS_LEGACY_MAP_ = {
+  "สั่งออเดอร์แล้ว": ORDER_STATUS_ORDERED,
+  "รอโอน": ORDER_STATUS_ORDERED,
+  "รอส่ง": ORDER_STATUS_AWAITING,
+  "รอรับ": ORDER_STATUS_AWAITING,
+  "รับแล้ว": ORDER_STATUS_RECEIVED
+};
+function normalizeOrderStatus_(status){
+  const s=String(status||"").trim();
+  if(!s)return ORDER_STATUS_ORDERED;
+  if(ORDER_STATUS_LEGACY_MAP_[s])return ORDER_STATUS_LEGACY_MAP_[s];
+  return s;
+}
 function isUserEditableOrderStatus(s){
   if(isCartStatus(s))return true;
-  const v=String(s||"").trim();
-  return v==="สั่งออเดอร์แล้ว"||v==="รอโอน";
+  return normalizeOrderStatus_(s)===ORDER_STATUS_ORDERED;
 }
 function isUserLockedOrderStatus(s){
-  const v=String(s||"").trim();
-  return v==="รอส่ง"||v==="จัดส่งแล้ว"||v==="รอรับ"||v==="รับแล้ว";
+  const v=normalizeOrderStatus_(s);
+  return v===ORDER_STATUS_AWAITING||v===ORDER_STATUS_SHIPPED||v===ORDER_STATUS_RECEIVED;
 }
 const ADMIN_NOTE_HIDDEN_REGION="สำนักงานใหญ่";
 function isAdminHiddenNoteRegion(region){
@@ -1476,10 +1492,12 @@ function canUserDeleteOrderGroup(g,ownsOrder){
 }
 function statusClass(s){
   if(isCartStatus(s))return "status-ตะกร้า";
-  if(s==="รับแล้ว")return "status-รับแล้ว";
-  if(s==="รอโอน")return "status-รอโอน";
-  if(s==="รอส่ง"||s==="จัดส่งแล้ว")return "status-รอรับ";
-  return "status-รอรับ";
+  const v=normalizeOrderStatus_(s);
+  if(v===ORDER_STATUS_RECEIVED)return "status-ได้รับแล้ว";
+  if(v===ORDER_STATUS_ORDERED)return "status-รอตรวจชำระ";
+  if(v===ORDER_STATUS_SHIPPED)return "status-จัดส่งแล้ว";
+  if(v===ORDER_STATUS_AWAITING)return "status-รอจัดส่ง";
+  return "status-รอจัดส่ง";
 }
 function regionShort(r){return String(r||"").trim()}
 function fmtMoney(n){return Number(n||0).toLocaleString()}
@@ -1799,8 +1817,8 @@ function updateRoundImageElements(displayUrl, sourceRef, bustStamp){
   return src||SHIRT_PLACEHOLDER_URL;
 }
 
-const PICKUP_STATUS_OPTS=["รอโอน","รอส่ง","จัดส่งแล้ว","รอรับ","รับแล้ว"];
-const ADMIN_ORDER_STATUS_OPTS=["สั่งออเดอร์แล้ว"].concat(PICKUP_STATUS_OPTS);
+const PICKUP_STATUS_OPTS=[ORDER_STATUS_AWAITING,ORDER_STATUS_SHIPPED,ORDER_STATUS_RECEIVED];
+const ADMIN_ORDER_STATUS_OPTS=[ORDER_STATUS_ORDERED].concat(PICKUP_STATUS_OPTS);
 function statusOptions(selected){
   return (appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS).map(s=>
     `<option value="${s}" ${selected===s?"selected":""}>${s}</option>`).join("");
@@ -1870,7 +1888,7 @@ function applyLocalOrderCreate_(result,payload,items){
   if(!appData||!result||!result.orderId||!Array.isArray(items)||items.length===0)return;
   if(!Array.isArray(appData.orders))appData.orders=[];
   const unitPrice=Number(result.unitPrice||appData.unitPrice||0);
-  const status=String(result.status||payload.status||(isAdmin()?"สั่งออเดอร์แล้ว":orderCartStatus()));
+  const status=String(result.status||payload.status||(isAdmin()?ORDER_STATUS_ORDERED:orderCartStatus()));
   const note=String(result.note||payload.note||"");
   const now=result.timestamp||formatBangkokTimestampLiteral_(new Date());
   let nextNo=appData.orders.reduce((m,o)=>Math.max(m,Number(o.no)||0),0);
@@ -2016,9 +2034,9 @@ function computeDashboard(regionFilter){
       const cartSt=String(appData?.cartStatus||"อยู่ในตะกร้า");
       const st=String(o.status||"").trim();
       const ps=String(o.paymentStatus||"").trim();
-      if(st!==cartSt&&!isPaymentVerified(ps))pendingPayment+=qty;
-      if(o.status==="รอรับ")pendingPickup+=qty;
-      else if(o.status==="รับแล้ว")pickedUp+=qty;
+      if(normalizeOrderStatus_(o.status)===ORDER_STATUS_ORDERED)pendingPayment+=qty;
+      if(normalizeOrderStatus_(o.status)===ORDER_STATUS_AWAITING)pendingPickup+=qty;
+      else if(normalizeOrderStatus_(o.status)===ORDER_STATUS_RECEIVED)pickedUp+=qty;
     }
   }
   return {
@@ -2073,7 +2091,7 @@ function computeSalesReport(){
     }else{
       totalQty+=o.qty;
       totalAmount+=o.price;
-      if(o.status==="รอโอน"){pendingCount++;pendingQty+=o.qty}
+      if(normalizeOrderStatus_(o.status)===ORDER_STATUS_ORDERED){pendingCount++;pendingQty+=o.qty}
       if(acc){
         acc.totalQty+=o.qty;
         acc.totalAmount+=o.price;
@@ -2723,7 +2741,7 @@ const app = {
           <div>
             <label class="glass-label">สถานะ</label>
             ${isAdm
-              ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS)})
+              ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:ORDER_STATUS_ORDERED,options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS)})
               : `<input id="order-status-fixed" class="glass-input glass-input-readonly" value="${escHtml(orderCartStatus())}" readonly>`}
           </div>
           ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
@@ -3020,7 +3038,7 @@ const app = {
         <td data-label="วันที่สั่ง" class="py-2 px-2 text-center text-xs">${formatOrderTimestampCell(g.timestamp)}</td>
         <td data-label="สถานะ" class="py-2 px-2 text-center">
           ${canEditStatus
-            ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:g.status||"สั่งออเดอร์แล้ว",options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
+            ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:normalizeOrderStatus_(g.status)||ORDER_STATUS_ORDERED,options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
             : `<span class="inline-block px-2 py-1 rounded-lg text-xs ${statusCls}" style="border:1px solid rgba(255,255,255,.25)">${escHtml(g.status||orderCartStatus())}</span>`}
           ${noteBlock}
           ${orderEditActions}
@@ -3202,8 +3220,15 @@ const app = {
       <div class="login-overlay slip-upload-overlay" id="pickup-modal" onclick="if(event.target===this)app.closePickupModal()">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">วันที่เข้ามารับ/จัดส่ง #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
-          <p class="login-sub text-xs">บันทึกวันที่รับ/จัดส่ง · ระบบจะอัปเดตสถานะเป็น <b>รับแล้ว</b> หรือ <b>จัดส่งแล้ว</b> อัตโนมัติ</p>
+          <p class="login-sub text-xs">เลือกประเภท · บันทึกแล้วระบบจะตั้งสถานะเป็น <b>จัดส่งแล้ว</b> หรือ <b>ได้รับแล้ว</b> อัตโนมัติ</p>
           <div class="slip-upload-body space-y-2">
+            <div>
+              <span class="glass-label">ประเภท</span>
+              <div class="grid grid-cols-2 gap-2 mt-1">
+                <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="มารับ" checked> เข้ามารับ</label>
+                <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="จัดส่ง"> จัดส่ง</label>
+              </div>
+            </div>
             ${buildPickupDateTimeFieldsHtml_(safeOid,initDate,initTime)}
             <div>
               <label class="glass-label" for="pickup-note-${safeOid}">หมายเหตุ (ไม่บังคับ)</label>
@@ -3244,17 +3269,17 @@ const app = {
     const pickupDate=String(document.getElementById("pickup-pay-date-"+safeOid)?.value||"").trim();
     const pickupTime=String(document.getElementById("pickup-pay-time-"+safeOid)?.value||"").trim();
     const pickupNote=String(document.getElementById("pickup-note-"+safeOid)?.value||"").trim();
+    const deliveryMode=String(document.querySelector('input[name="pickup-mode-'+safeOid+'"]:checked')?.value||"มารับ").trim();
     if(!pickupDate||!pickupTime)return this.showPickupModalMsg("กรุณาเลือกวันที่และเวลา","error");
     const snap=snapshotOrderGroup_(orderId);
-    const prevStatus=snap&&snap[0]?String(snap[0].status||""):"";
-    const nextStatus=prevStatus==="รอส่ง"?"จัดส่งแล้ว":"รับแล้ว";
+    const nextStatus=deliveryMode==="จัดส่ง"?ORDER_STATUS_SHIPPED:ORDER_STATUS_RECEIVED;
     applyLocalOrderPickupUpdate_(orderId,{pickupDate:pickupDate,pickupTime:pickupTime,pickupNote:pickupNote,status:nextStatus});
     this.closePickupModal();
     refreshAfterMutation_({ keepLocal: true });
     await new Promise(function(r){setTimeout(r,0);});
     try{
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
-        return await callAuthed("updateOrderPickupByOrderId",orderId,pickupDate,pickupTime,pickupNote);
+        return await callAuthed("updateOrderPickupByOrderId",orderId,pickupDate,pickupTime,pickupNote,deliveryMode);
       });
       applyLocalOrderPickupUpdate_(orderId,res);
       this.showMsg("บันทึกวันที่รับ/จัดส่งแล้ว · สถานะ: "+escHtml(res.status||nextStatus),"success");
@@ -3357,7 +3382,10 @@ const app = {
   async acceptOrderPayment(orderId,btn){
     if(!confirm("ยอมรับว่าชำระเงินถูกต้องแล้ว?"))return;
     const prevPay=getOrderGroupPaymentStatus_(orderId);
+    const snap=snapshotOrderGroup_(orderId);
+    const prevStatus=snap&&snap[0]?String(snap[0].status||snap[0].orderStatus||""):"";
     applyLocalOrderPaymentStatus_(orderId,"ชำระเงินแล้ว");
+    applyLocalOrderStatusUpdate_(orderId,ORDER_STATUS_AWAITING);
     this.closePaymentReviewModal();
     refreshAfterMutation_({ keepLocal: true });
     try{
@@ -3368,6 +3396,7 @@ const app = {
       scheduleBackgroundBootstrapSync_();
     }catch(e){
       applyLocalOrderPaymentStatus_(orderId,prevPay);
+      applyLocalOrderStatusUpdate_(orderId,prevStatus);
       refreshAfterMutation_({ keepLocal: true });
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
@@ -3380,7 +3409,10 @@ const app = {
     if(g&&isPaymentVerified(g.paymentStatus))return this.showMsg("ออเดอร์ชำระเงินแล้ว ไม่สามารถเปลี่ยนเป็นแจกฟรีได้","warning");
     if(!confirm("บันทึกเป็นเสื้อแจกฟรี (ผู้บริหาร)?\nยอดนี้จะไม่รวมกับเสื้อที่สั่งซื้อ และแสดงเป็นขาดทุนในแดชบอร์ด"))return;
     const prevPay=getOrderGroupPaymentStatus_(orderId);
+    const snap=snapshotOrderGroup_(orderId);
+    const prevStatus=snap&&snap[0]?String(snap[0].status||snap[0].orderStatus||""):"";
     applyLocalOrderPaymentStatus_(orderId,PAYMENT_FREE_GIVEAWAY);
+    applyLocalOrderStatusUpdate_(orderId,ORDER_STATUS_AWAITING);
     this.closePaymentReviewModal();
     refreshAfterMutation_({ keepLocal: true });
     try{
@@ -3391,6 +3423,7 @@ const app = {
       scheduleBackgroundBootstrapSync_();
     }catch(e){
       applyLocalOrderPaymentStatus_(orderId,prevPay);
+      applyLocalOrderStatusUpdate_(orderId,prevStatus);
       refreshAfterMutation_({ keepLocal: true });
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
@@ -3615,7 +3648,7 @@ const app = {
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
     muteNotifyForOrder_(orderId,120000,"user");
-    const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||"สั่งออเดอร์แล้ว";
+    const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||ORDER_STATUS_ORDERED;
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
     const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):"";
     applyLocalOrderStatusUpdate_(orderId,orderedStatus);
@@ -3665,9 +3698,9 @@ const app = {
         <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">สั่งแล้ว (ตัว)</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
         <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
         ${giveawayCards}
-        <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
-        <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอรับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
-        <div class="glass-stat glass-stat-green"><div class="glass-stat-label">รับแล้ว</div><div class="glass-stat-value text-2xl">${dash.pickedUp}</div></div>`;
+        <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอตรวจสอบการชำระ</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
+        <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอจัดส่ง/เข้ามารับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
+        <div class="glass-stat glass-stat-green"><div class="glass-stat-label">ได้รับแล้ว</div><div class="glass-stat-value text-2xl">${dash.pickedUp}</div></div>`;
     }
     const stockHtml=dash.stock.map(s=>
       `<div class="glass-stock-cell ${s.remaining<=5?'low':''}"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><div class="text-xs mt-1 text-glass-muted">เหลือ <b class="${s.remaining<=5?'text-red-glass':'text-green-glass'}">${s.remaining}</b>/${s.delivered}</div></div>`
@@ -3774,7 +3807,7 @@ const app = {
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${t.freeQty||0}</div></div>
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.freeLoss||0)}</div></div>`:""}
       <div class="glass-stat glass-stat-green"><div class="glass-stat-label">สต็อกคงเหลือ</div><div class="glass-stat-value">${r.stockTotalRemaining}</div><div class="glass-stat-sub">ตัว</div></div>
-      <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอโอน</div><div class="glass-stat-value text-xl">${p.count} รายการ</div><div class="glass-stat-sub">${p.totalQty} ตัว</div></div>`;
+      <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอตรวจสอบการชำระ</div><div class="glass-stat-value text-xl">${p.count} รายการ</div><div class="glass-stat-sub">${p.totalQty} ตัว</div></div>`;
     const sizes=appData?.stockSizes||[];
     const rows=r.byRegion.map(x=>{
       const parts=sizes.filter(s=>x.bySize[s]>0).length
@@ -4408,7 +4441,7 @@ const app = {
       const label=document.getElementById(ddId+"-label");
       if(label)label.textContent=val;
       if(cfg&&cfg.compact){
-        host.classList.remove("status-รับแล้ว","status-รอโอน","status-รอรับ");
+        host.classList.remove("status-ได้รับแล้ว","status-รอตรวจชำระ","status-รอจัดส่ง","status-จัดส่งแล้ว","status-รับแล้ว","status-รอโอน","status-รอรับ");
         host.classList.add(statusClass(val));
       }
     }

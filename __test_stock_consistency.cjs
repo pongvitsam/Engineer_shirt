@@ -138,7 +138,7 @@ function makeOrder(orderId, region, size, qty, status, paymentStatus) {
     region,
     size,
     qty,
-    status: status || "สั่งออเดอร์แล้ว",
+    status: status || "สั่งออเดอร์แล้วรอตรวจสอบการชำระ",
     paymentStatus: paymentStatus || ""
   };
 }
@@ -237,7 +237,7 @@ tests.push(runTest("viewer client recalc must not inflate remaining when free-gi
   const delivered = cloneDelivered();
   const allOrders = [
     makeOrder("O1", "กฟน.1", "M", 10),
-    makeOrder("O2", "กฟฉ.1", "M", 8, "สั่งออเดอร์แล้ว", PAYMENT_FREE_GIVEAWAY)
+    makeOrder("O2", "กฟฉ.1", "M", 8, "สั่งออเดอร์แล้วรอตรวจสอบการชำระ", PAYMENT_FREE_GIVEAWAY)
   ];
   const serverStock = getStockSummaryWithSold_(delivered, calcSoldFromOrders_(allOrders));
   const viewerOrders = allOrders.filter(o => o.paymentStatus !== PAYMENT_FREE_GIVEAWAY);
