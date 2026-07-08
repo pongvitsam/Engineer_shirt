@@ -1626,6 +1626,19 @@ function paymentStatusLabel(s){
   return v? v : "ยังไม่ชำระ";
 }
 
+function orderListPaymentFilterOptionsHtml_(){
+  const opts=[
+    {value:"all",label:"การชำระทั้งหมด"},
+    {value:"ยังไม่ชำระ",label:"ยังไม่ชำระ"},
+    {value:"รอตรวจสลิป",label:"รอตรวจสลิป"},
+    {value:"ชำระเงินแล้ว",label:"ชำระเงินแล้ว"},
+    {value:PAYMENT_FREE_GIVEAWAY,label:PAYMENT_FREE_GIVEAWAY}
+  ];
+  return opts.map(function(opt){
+    return `<option value="${escAttr(opt.value)}">${escHtml(opt.label)}</option>`;
+  }).join("");
+}
+
 function orderImageDisplaySrc(res){
   if(!res)return "";
   if(res.dataUrl)return String(res.dataUrl);
@@ -2940,6 +2953,7 @@ const app = {
       ? '<tr><td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
     const searchHtml=`<input id="list-search" type="search" class="glass-input order-list-search p-2 text-sm" placeholder="เลขออเดอร์ / วันที่สั่ง" oninput="app.filterList()" aria-label="ค้นหาออเดอร์">`;
+    const paymentFilterHtml=`<select id="list-payment-filter" onchange="app.filterList()" class="glass-select order-list-filter p-2 text-sm" aria-label="กรองตามการชำระเงิน">${orderListPaymentFilterOptionsHtml_()}</select>`;
     const filterHtml=showFilter
       ?`<select id="list-filter" onchange="app.filterList()" class="glass-select order-list-filter p-2 text-sm">${filterOpts}</select>`
       :"";
@@ -2953,7 +2967,7 @@ const app = {
             <h2 class="text-lg font-bold glass-section-title order-list-title"><i class="fas fa-list mr-1"></i>รายการสั่งซื้อ</h2>
             <span class="order-list-count">${grouped.length} ออเดอร์</span>
           </div>
-          <div class="order-list-actions">${searchHtml}${filterHtml}${addBtn}</div>
+          <div class="order-list-actions">${searchHtml}${filterHtml}${paymentFilterHtml}${addBtn}</div>
         </div>
         <div class="order-list-table-wrap overflow-x-auto glass-table-wrap">
           <table class="glass-table w-full text-xs" id="order-table">
@@ -3087,7 +3101,7 @@ const app = {
       :`<span class="text-glass-dim text-xs">-</span>`;
     const shortId=String(g.orderId).replace(/^ORD-?/,"").substring(0,8);
     return `
-      <tr data-region="${escHtml(g.region)}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}">
+      <tr data-region="${escHtml(g.region)}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}" data-payment-status="${escAttr(paymentStatusLabel(g.paymentStatus).toLowerCase())}">
         <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold">#${shortId}</td>
         <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
         <td data-label="รายการ" class="py-2 px-2">${itemsLabel}</td>
@@ -3115,14 +3129,16 @@ const app = {
   applyListFilter(){
     const regionEl=document.getElementById("list-filter");
     const region=regionEl?regionEl.value:"all";
+    const payment=String(document.getElementById("list-payment-filter")?.value||"all").trim().toLowerCase();
     const query=(document.getElementById("list-search")?.value||"").trim().toLowerCase();
     const rows=document.querySelectorAll("#order-table tbody tr[data-region]");
     let visible=0;
     rows.forEach(tr=>{
       const matchRegion=region==="all"||tr.getAttribute("data-region")===region;
+      const matchPayment=payment==="all"||(tr.getAttribute("data-payment-status")||"")===payment;
       const haystack=tr.getAttribute("data-order-search")||"";
       const matchSearch=!query||haystack.indexOf(query)>-1;
-      const show=matchRegion&&matchSearch;
+      const show=matchRegion&&matchPayment&&matchSearch;
       tr.style.display=show?"":"none";
       if(show)visible++;
     });
@@ -3136,8 +3152,9 @@ const app = {
         emptyRow.id="order-list-filter-empty";
         tbody.appendChild(emptyRow);
       }
+      const hasAdvancedFilter=region!=="all"||payment!=="all";
       emptyRow.innerHTML='<td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">'+
-        (query?"ไม่พบออเดอร์ที่ค้นหา":"ไม่พบออเดอร์ในเขตที่เลือก")+'</td>';
+        (query?"ไม่พบออเดอร์ที่ค้นหา":(hasAdvancedFilter?"ไม่พบออเดอร์ตามตัวกรองที่เลือก":"ไม่พบออเดอร์"))+'</td>';
       emptyRow.style.display="";
     }else if(emptyRow){
       emptyRow.remove();

@@ -220,9 +220,15 @@ assert("slip upload uses canManageOrderSlip not order edit gate", () => {
   }
 });
 
-assert("order list filter empty state for region and search", () => {
-  if (!html.includes("ไม่พบออเดอร์ในเขตที่เลือก")) {
-    throw new Error("missing region filter empty message");
+assert("order list filter supports region payment and search", () => {
+  if (!html.includes('id="list-payment-filter"')) {
+    throw new Error("missing payment filter select");
+  }
+  if (!html.includes("data-payment-status")) {
+    throw new Error("missing payment status row attribute");
+  }
+  if (!html.includes("ไม่พบออเดอร์ตามตัวกรองที่เลือก")) {
+    throw new Error("missing advanced filter empty message");
   }
   if (!html.includes("function buildOrderSearchHaystack_")) throw new Error("missing search haystack");
   if (!html.includes('id="list-search"')) throw new Error("missing list-search input");
