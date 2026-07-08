@@ -3384,21 +3384,23 @@ const app = {
     if(!g)return this.showMsg("ไม่พบออเดอร์","error");
     let imgHtml='<div class="text-xs text-glass-dim py-4 text-center">กำลังโหลดรูป…</div>';
     const html=`
-      <div class="login-overlay" id="payment-review-modal">
-        <div class="login-card" style="max-width:520px">
+      <div class="login-overlay slip-upload-overlay" id="payment-review-modal" onclick="if(event.target===this)app.closePaymentReviewModal()">
+        <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">ตรวจสอบการชำระ #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
-          <div class="text-xs space-y-1 mb-3">
-            <div><b>วันที่สั่ง:</b> ${formatOrderTimestampCell(g.timestamp)}</div>
-            <div><b>วันที่โอน (จากสลิป):</b> ${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>
-            <div><b>ยอด:</b> ${fmtMoney(g.totalPrice)} ฿ · <b>เขต:</b> ${escHtml(g.region||"")}</div>
+          <div class="slip-upload-body space-y-2">
+            <div class="text-xs space-y-1">
+              <div><b>วันที่สั่ง:</b> ${formatOrderTimestampCell(g.timestamp)}</div>
+              <div><b>วันที่โอน (จากสลิป):</b> ${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>
+              <div><b>ยอด:</b> ${fmtMoney(g.totalPrice)} ฿ · <b>เขต:</b> ${escHtml(g.region||"")}</div>
+            </div>
+            <div id="payment-review-img" class="payment-review-img">${imgHtml}</div>
+            <p class="text-xs text-glass-dim">เสื้อแจกฟรี: ไม่รวมยอดสั่งซื้อ · แสดงเป็นขาดทุนในแดชบอร์ด</p>
           </div>
-          <div id="payment-review-img" class="mb-3">${imgHtml}</div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div class="slip-modal-actions grid grid-cols-1 gap-2">
             <button onclick="app.closePaymentReviewModal()" class="glass-btn-secondary py-2">ปิด</button>
             <button id="payment-accept-btn" onclick="app.acceptOrderPayment('${escHtml(orderId)}',this)" class="glass-btn-primary py-2" ${String(g.paymentStatus||"")==="ชำระเงินแล้ว"||isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}>ยอมรับการชำระ</button>
             <button onclick="app.markOrderFreeGiveaway('${escHtml(orderId)}',this)" class="glass-btn py-2" style="background:rgba(109,40,217,.5)" ${isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}><i class="fas fa-gift mr-1"></i>เสื้อแจกฟรี</button>
           </div>
-          <p class="text-xs text-glass-dim mt-2">เสื้อแจกฟรี: ไม่รวมยอดสั่งซื้อ · แสดงเป็นขาดทุนในแดชบอร์ด</p>
         </div>
       </div>`;
     const wrap=document.createElement("div");
@@ -3410,7 +3412,7 @@ const app = {
       const src=orderImageDisplaySrc(res);
       if(box&&res&&res.ok&&src){
         const warn=res.warning?`<div class="text-xs text-glass-dim mb-1">${escHtml(res.warning)}</div>`:"";
-        box.innerHTML=warn+`<img src="${src}" class="w-full max-h-64 object-contain rounded-lg glass-image-wrap" alt="สลิป" onerror="app.onSlipImgError(this,'${escHtml(orderId)}')">`;
+        box.innerHTML=warn+`<img src="${src}" class="slip-preview-img w-full rounded-lg glass-image-wrap" alt="สลิป" onerror="app.onSlipImgError(this,'${escHtml(orderId)}')">`;
       }else if(box&&res&&res.slipUrl){
         box.innerHTML=`<div class="text-xs text-glass-dim mb-2">${escHtml(res.warning||"เปิดสลิปในแท็บใหม่")}</div>
           <a href="${escHtml(res.slipUrl)}" target="_blank" rel="noopener" class="glass-btn-secondary text-xs inline-block py-2 px-3">เปิดสลิปใน Google Drive</a>`;
