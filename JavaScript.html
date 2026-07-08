@@ -1457,19 +1457,23 @@ function shouldHideOrderNoteForViewer_(g){
   return canViewAllRegions()&&!isAdmin()&&isAdminHiddenNoteRegion(g&&g.region);
 }
 function renderPickupDeliveryCell_(g){
+  if(!isAdmin())return "";
   const hasPickup=!!(String(g.pickupDate||"").trim()&&String(g.pickupTime||"").trim());
   let display=hasPickup
     ?`<div class="text-xs">${formatThaiDateTimeCell(g.pickupDate,g.pickupTime)}</div>`
     :`<span class="text-glass-dim text-xs">-</span>`;
   const note=String(g.pickupNote||"").trim();
   if(note)display+=`<div class="order-pickup-note text-xs text-glass-dim mt-1">${escHtml(note)}</div>`;
-  if(!isAdmin())return `<div class="order-pickup-cell">${display}</div>`;
   const btnLabel=hasPickup?"แก้ไข":"บันทึก";
   const btnIcon=hasPickup?"fa-edit":"fa-calendar-plus";
   return `<div class="order-pickup-cell">
     ${display}
     <button type="button" onclick="app.openPickupModal('${escHtml(g.orderId)}')" class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .55rem"><i class="fas ${btnIcon}"></i> ${btnLabel}</button>
   </div>`;
+}
+
+function orderListColSpan_(){
+  return isAdmin()?10:9;
 }
 
 function renderOrderNoteBlock_(g,ownsOrder){
@@ -2933,7 +2937,7 @@ const app = {
     const showFilter=canViewAllRegions();
     const canAdd=!isViewer()&&!isGuest();
     const body=grouped.length===0
-      ? '<tr><td colspan="10" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
+      ? '<tr><td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
     const searchHtml=`<input id="list-search" type="search" class="glass-input order-list-search p-2 text-sm" placeholder="เลขออเดอร์ / วันที่สั่ง" oninput="app.filterList()" aria-label="ค้นหาออเดอร์">`;
     const filterHtml=showFilter
@@ -2962,7 +2966,7 @@ const app = {
               <th class="py-2 px-2">สถานะ</th>
               <th class="py-2 px-2">สลิปชำระ</th>
               <th class="py-2 px-2">ชำระเงิน</th>
-              <th class="py-2 px-2">วันที่รับ/จัดส่ง</th>
+              ${isAdmin()?'<th class="py-2 px-2">วันที่รับ/จัดส่ง</th>':""}
               <th class="py-2 px-1"></th>
             </tr></thead>
             <tbody id="order-tbody">${body}</tbody>
@@ -3022,7 +3026,7 @@ const app = {
     const orders=(appData&&Array.isArray(appData.orders))?appData.orders:[];
     const grouped=sortOrderGroupsForList_(groupOrdersByOrderId(orders));
     if(grouped.length===0){
-      tbody.innerHTML='<tr><td colspan="10" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
+      tbody.innerHTML='<tr><td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
       return;
     }
     // Render each order group independently so one malformed order can never
@@ -3031,7 +3035,7 @@ const app = {
       try{return this.orderGroupRowHtml(g);}
       catch(e){
         const oid=escHtml((g&&g.orderId)||"?");
-        return `<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="10" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
+        return `<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="${orderListColSpan_()}" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
       }
     }).join("");
     this.applyListFilter();
@@ -3098,7 +3102,7 @@ const app = {
         </td>
         <td data-label="สลิปชำระ" class="py-2 px-2 text-center">${slipCell}</td>
         <td data-label="ชำระเงิน" class="py-2 px-2 text-center">${paymentCell}</td>
-        <td data-label="วันที่รับ/จัดส่ง" class="py-2 px-2 text-center">${renderPickupDeliveryCell_(g)}</td>
+        ${isAdmin()?`<td data-label="วันที่รับ/จัดส่ง" class="py-2 px-2 text-center">${renderPickupDeliveryCell_(g)}</td>`:""}
         <td data-label="ลบ" class="py-2 px-1 text-center">${deleteBtn}</td>
       </tr>`;
   },
@@ -3132,7 +3136,7 @@ const app = {
         emptyRow.id="order-list-filter-empty";
         tbody.appendChild(emptyRow);
       }
-      emptyRow.innerHTML='<td colspan="10" class="text-center py-8 text-glass-dim">'+
+      emptyRow.innerHTML='<td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">'+
         (query?"ไม่พบออเดอร์ที่ค้นหา":"ไม่พบออเดอร์ในเขตที่เลือก")+'</td>';
       emptyRow.style.display="";
     }else if(emptyRow){
