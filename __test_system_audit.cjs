@@ -458,6 +458,17 @@ assert("dashboard cards show paid amount and regional unpaid breakdown", () => {
   if (!html.includes("dash-stat-wide")) throw new Error("missing wide dashboard stat cards");
 });
 
+assert("order form uses contact phone instead of status field", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!html.includes('id="order-contact"')) throw new Error("missing order-contact input");
+  if (!html.includes("เบอร์ติดต่อ")) throw new Error("missing contact phone label");
+  if (html.includes('id="order-status-fixed"')) throw new Error("order form should not show readonly status field");
+  if (!code.includes("เบอร์ติดต่อ")) throw new Error("missing contact phone column in ORDERS_HEADERS");
+  if (!code.includes("updateOrderContactByOrderId")) throw new Error("missing updateOrderContactByOrderId RPC");
+  if (!code.includes("normalizeContactPhone_")) throw new Error("missing normalizeContactPhone_");
+});
+
 assert("password set/login uses normalized trim", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("function normalizePasswordInput_")) throw new Error("missing normalizePasswordInput_");

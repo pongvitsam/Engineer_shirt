@@ -149,6 +149,7 @@ function invokeRpc_(method, args, options) {
     updateOrderPickupByOrderId: updateOrderPickupByOrderId,
     updateOrderPayDateTimeByOrderId: updateOrderPayDateTimeByOrderId,
     updateOrderNoteByOrderId: updateOrderNoteByOrderId,
+    updateOrderContactByOrderId: updateOrderContactByOrderId,
     uploadOrderImage: uploadOrderImage,
     deleteOrderImage: deleteOrderImage,
     getOrderImage: getOrderImage,
@@ -233,7 +234,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "205";
+const APP_BUILD = "207";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1147,6 +1148,7 @@ function addMultiSizeOrder(token, payload) {
     const payDate = orderDt.payDate;
     const payTime = orderDt.payTime;
     const note = String(payload.note || "").trim().substring(0, 120);
+    const contactPhone = normalizeContactPhone_(payload.contactPhone);
     const requestedStatus = String(payload.status || "").trim();
     const status = resolveNewOrderStatus_(session, requestedStatus);
     const unitPrice = Number(payload.unitPrice) || getRoundInfo_(ss).unitPrice;
@@ -1182,7 +1184,8 @@ function addMultiSizeOrder(token, payload) {
         PAYMENT_STATUS.NONE,
         "",
         "",
-        ""
+        "",
+        contactPhone
       ]);
     });
     orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
@@ -1198,6 +1201,7 @@ function addMultiSizeOrder(token, payload) {
       region: region,
       status: status,
       note: note,
+      contactPhone: contactPhone,
       payDate: payDate,
       payTime: payTime,
       timestamp: formatOrderTimestampFromSheet_(now),
@@ -1227,6 +1231,9 @@ function updateCartOrderByOrderId(token, orderId, payload) {
     const payDate = String(payload && payload.payDate != null ? payload.payDate : templateRow[6] || "").trim();
     const payTime = String(payload && payload.payTime != null ? payload.payTime : templateRow[7] || "").trim();
     const note = String(payload && payload.note != null ? payload.note : templateRow[9] || "").trim().substring(0, 120);
+    const contactPhone = payload && payload.contactPhone != null
+      ? normalizeContactPhone_(payload.contactPhone)
+      : normalizeContactPhone_(templateRow[21]);
     const slipName = String(templateRow[11] || "");
     const slipUrl = String(templateRow[12] || "");
     const createdBy = String(templateRow[13] || session.username);
@@ -1264,13 +1271,14 @@ function updateCartOrderByOrderId(token, orderId, payload) {
         paymentStatus,
         pickupDate,
         pickupTime,
-        pickupNote
+        pickupNote,
+        contactPhone
       ]);
     });
     orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
     renumberOrders_(orderSheet);
     invalidateDataCache_();
-    return { ok: true, orderId: meta.orderId, totalQty: Object.keys(agg).reduce((s, k) => s + agg[k], 0), status: preserveStatus };
+    return { ok: true, orderId: meta.orderId, totalQty: Object.keys(agg).reduce((s, k) => s + agg[k], 0), status: preserveStatus, contactPhone: contactPhone };
   } finally {
     lock.releaseLock();
   }
@@ -1313,6 +1321,7 @@ function addOrder(token, payload) {
     payTime: payload.payTime,
     status: payload.status,
     note: payload.note,
+    contactPhone: payload.contactPhone,
     slipBase64: payload.slipBase64,
     unitPrice: payload.price && payload.qty ? Number(payload.price) / Number(payload.qty) : undefined,
     items: [{ size: payload.size, qty: Number(payload.qty) || 0 }]
@@ -1649,6 +1658,10 @@ function updateOrderPayDateTimeByOrderId(token, orderId, payDate, payTime) {
   }
 }
 
+function normalizeContactPhone_(value) {
+  return String(value == null ? "" : value).trim().substring(0, 30);
+}
+
 function updateOrderNoteByOrderId(token, orderId, note) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
@@ -1670,6 +1683,29 @@ function updateOrderNoteByOrderId(token, orderId, note) {
   if (changed === 0) throw new Error("ไม่พบออเดอร์ " + orderId);
   invalidateDataCache_();
   return { ok: true, changed: changed, note: safeNote };
+}
+
+function updateOrderContactByOrderId(token, orderId, contactPhone) {
+  const session = requireUserOrAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const orderSheet = ss.getSheetByName(ORDER_SHEET);
+  const meta = getOrderGroupMeta_(orderSheet, orderId, session);
+  assertUserCanModifyOrderNote_(session, meta.paymentStatus);
+  const values = getOrderSheetValues_(orderSheet);
+  const safePhone = normalizeContactPhone_(contactPhone);
+  let changed = 0;
+  for (let i = 1; i < values.length; i++) {
+    const rowOrderId = String(values[i][1] || values[i][0]);
+    if (rowOrderId === String(orderId)) {
+      if (!sessionCanModifyRegion_(session, values[i][2])) continue;
+      orderSheet.getRange(i + 1, 22).setValue(safePhone);
+      changed++;
+    }
+  }
+  if (changed === 0) throw new Error("ไม่พบออเดอร์ " + orderId);
+  invalidateDataCache_();
+  return { ok: true, changed: changed, contactPhone: safePhone };
 }
 
 // === Per-order attached image (slip) management ========================
@@ -2186,7 +2222,8 @@ function reviewOrderChangeRequest(token, orderId, action, note) {
           String(row0[17] || PAYMENT_STATUS.NONE),
           String(row0[18] || ""),
           String(row0[19] || ""),
-          String(row0[20] || "")
+          String(row0[20] || ""),
+          String(row0[21] || "")
         ]);
       });
       if (extraRows.length > 0) {
@@ -2271,7 +2308,8 @@ function orderToCsvRow_(order, session) {
     o.payDate, o.payTime, o.status, o.note, o.timestamp,
     o.slipName, o.slipUrl, o.createdBy,
     o.requestedChange, o.changeRequestStatus, o.changeRequestNote,
-    o.paymentStatus
+    o.paymentStatus, o.pickupDate, o.pickupTime, o.pickupNote,
+    o.contactPhone
   ];
 }
 
@@ -2534,7 +2572,7 @@ const ORDERS_HEADERS = [
   "ลำดับ", "OrderId", "เขตที่สั่ง", "ไซส์", "จำนวน(ตัว)", "ราคา",
   "วันที่โอน", "เวลาโอน", "สถานะรับสินค้า", "หมายเหตุเพิ่มเติม", "Timestamp", "สลิป (ชื่อ)", "สลิป (URL)", "ผู้บันทึก",
   "requestedChange", "changeRequestStatus", "changeRequestNote", "สถานะชำระเงิน",
-  "วันที่รับ/จัดส่ง", "เวลารับ/จัดส่ง", "หมายเหตุรับ/จัดส่ง"
+  "วันที่รับ/จัดส่ง", "เวลารับ/จัดส่ง", "หมายเหตุรับ/จัดส่ง", "เบอร์ติดต่อ"
 ];
 
 function ensureSheetsInitialized_() {
@@ -2639,6 +2677,7 @@ function migrateOrdersSheet_(ss) {
   const hasChangeRequestNote = headerRow.indexOf("changeRequestNote") > -1;
   const hasPaymentStatus = headerRow.some(h => String(h || "").trim() === "สถานะชำระเงิน");
   const hasPickupCols = headerRow.some(h => String(h || "").trim() === "วันที่รับ/จัดส่ง");
+  const hasContactPhone = headerRow.some(h => String(h || "").trim() === "เบอร์ติดต่อ");
   const isLatestSchema = hasOrderId &&
     hasNoteColumn &&
     hasRequestedChange &&
@@ -2646,8 +2685,15 @@ function migrateOrdersSheet_(ss) {
     hasChangeRequestNote &&
     hasPaymentStatus &&
     hasPickupCols &&
+    hasContactPhone &&
     sheet.getLastColumn() >= ORDERS_HEADERS.length;
   if (isLatestSchema) return;
+
+  if (hasPickupCols && !hasContactPhone) {
+    const contactCol = sheet.getLastColumn() + 1;
+    sheet.getRange(1, contactCol).setValue("เบอร์ติดต่อ").setFontWeight("bold");
+    return;
+  }
 
   if (hasPaymentStatus && !hasPickupCols) {
     const pickupCol = sheet.getLastColumn() + 1;
@@ -2707,7 +2753,8 @@ function migrateOrdersSheet_(ss) {
         PAYMENT_STATUS.NONE,           // paymentStatus
         "",                            // pickupDate
         "",                            // pickupTime
-        ""                             // pickupNote
+        "",                            // pickupNote
+        ""                             // contactPhone
       ];
     }
     const baseChangeIdx = hasNoteColumn ? 14 : 13;
@@ -2732,7 +2779,8 @@ function migrateOrdersSheet_(ss) {
       String(r[baseChangeIdx + 3] || PAYMENT_STATUS.NONE), // paymentStatus
       String(r[baseChangeIdx + 4] || ""),                  // pickupDate
       String(r[baseChangeIdx + 5] || ""),                  // pickupTime
-      String(r[baseChangeIdx + 6] || "")                   // pickupNote
+      String(r[baseChangeIdx + 6] || ""),                   // pickupNote
+      ""                                                     // contactPhone
     ];
   });
 
@@ -3157,7 +3205,8 @@ function sanitizeOrderForClient_(order) {
     paymentStatus: String(order.paymentStatus || PAYMENT_STATUS.NONE),
     pickupDate: formatPayDateFromSheet_(order.pickupDate),
     pickupTime: formatPayTimeFromSheet_(order.pickupTime),
-    pickupNote: String(order.pickupNote || "")
+    pickupNote: String(order.pickupNote || ""),
+    contactPhone: String(order.contactPhone || "")
   };
 }
 
@@ -3203,7 +3252,8 @@ function getOrders_(ss) {
     paymentStatus: String(r[17] || PAYMENT_STATUS.NONE),
     pickupDate: r[18],
     pickupTime: r[19],
-    pickupNote: String(r[20] || "")
+    pickupNote: String(r[20] || ""),
+    contactPhone: String(r[21] || "")
   }));
 }
 

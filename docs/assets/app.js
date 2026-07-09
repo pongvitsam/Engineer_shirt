@@ -564,6 +564,14 @@ function applyLocalOrderNoteUpdate_(orderId, note) {
   });
 }
 
+function applyLocalOrderContactUpdate_(orderId, contactPhone) {
+  if (!appData || !orderId) return;
+  const safe = normalizeContactPhoneInput_(contactPhone);
+  (appData.orders || []).forEach(function (o) {
+    if (String(o.orderId) === String(orderId)) o.contactPhone = safe;
+  });
+}
+
 function applyLocalOrderStatusUpdate_(orderId, status) {
   if (!appData || !orderId) return;
   const st = String(status || "");
@@ -1519,6 +1527,16 @@ function orderListColSpan_(){
   return canViewAdminData()?10:9;
 }
 
+function normalizeContactPhoneInput_(v){
+  return String(v==null?"":v).trim().substring(0,30);
+}
+
+function renderOrderContactBlock_(g){
+  const phone=String(g&&g.contactPhone||"").trim();
+  if(!phone)return "";
+  return `<div class="order-contact-display mt-1 text-xs"><span class="opacity-70">เบอร์:</span> <span class="font-semibold">${escHtml(phone)}</span></div>`;
+}
+
 function renderOrderNoteBlock_(g,ownsOrder){
   if(shouldHideOrderNoteForViewer_(g))return `<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
   const note=String(g&&g.note||"").trim();
@@ -1640,6 +1658,8 @@ function buildOrderSearchHaystack_(g){
     parts.push(oid.replace(/^ORD-?/i,""));
     parts.push(shortOrderLabel_(oid));
   }
+  const phone=String(g&&g.contactPhone||"").trim();
+  if(phone)parts.push(phone);
   const ts=String(g&&g.timestamp||"").trim();
   if(ts){
     parts.push(ts);
@@ -2043,6 +2063,7 @@ function applyLocalOrderCreate_(result,payload,items){
   const unitPrice=Number(result.unitPrice||appData.unitPrice||0);
   const status=String(result.status||payload.status||(isAdmin()?ORDER_STATUS_ORDERED:orderCartStatus()));
   const note=String(result.note||payload.note||"");
+  const contactPhone=normalizeContactPhoneInput_(result.contactPhone||payload.contactPhone||"");
   const now=result.timestamp||formatBangkokTimestampLiteral_(new Date());
   let nextNo=appData.orders.reduce((m,o)=>Math.max(m,Number(o.no)||0),0);
   items.forEach(it=>{
@@ -2059,6 +2080,7 @@ function applyLocalOrderCreate_(result,payload,items){
       orderStatus:status,
       status:status,
       note:note,
+      contactPhone:contactPhone,
       timestamp:now,
       slipName:String(result.slipName||""),
       slipUrl:String(result.slipUrl||""),
@@ -2072,12 +2094,13 @@ function applyLocalOrderCreate_(result,payload,items){
   recalcStockFromOrders();
 }
 
-function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote){
+function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote,savedContactPhone){
   if(!appData||!orderId||!Array.isArray(items)||items.length===0||!orderGroup)return;
   if(!Array.isArray(appData.orders))appData.orders=[];
   const unitPrice=Number(appData.unitPrice||0)||(orderGroup.totalQty?orderGroup.totalPrice/orderGroup.totalQty:0);
   const status=String(result&&result.status||orderGroup.status||"");
   const note=savedNote!=null?String(savedNote).trim():String(orderGroup.note||"");
+  const contactPhone=savedContactPhone!=null?normalizeContactPhoneInput_(savedContactPhone):normalizeContactPhoneInput_(orderGroup.contactPhone||"");
   appData.orders=appData.orders.filter(o=>o.orderId!==orderId);
   let nextNo=appData.orders.reduce((m,o)=>Math.max(m,Number(o.no)||0),0);
   items.forEach(it=>{
@@ -2094,6 +2117,7 @@ function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote){
       orderStatus:status,
       status:status,
       note:note,
+      contactPhone:contactPhone,
       timestamp:orderGroup.timestamp||formatBangkokTimestampLiteral_(new Date()),
       slipName:orderGroup.slipName||"",
       slipUrl:orderGroup.slipUrl||"",
@@ -2121,6 +2145,7 @@ function groupOrdersByOrderId(orders){
         payTime:o.payTime,
         status:o.orderStatus||o.status,
         note:o.note||"",
+        contactPhone:o.contactPhone||"",
         requestedChange:o.requestedChange||"",
         changeRequestStatus:o.changeRequestStatus||"none",
         changeRequestNote:o.changeRequestNote||"",
@@ -3186,13 +3211,6 @@ function renderUserChip(){
     ?`<button onclick="openChangePasswordModal()" title="เปลี่ยนรหัสผ่าน" class="chip-logout" type="button"><i class="fas fa-key"></i></button>`
     :"";
   chip.innerHTML=`<span class="${roleCls}">${roleLabel}</span><span class="chip-name" style="font-weight:700">${escHtml(me.displayName||me.username)}</span><span class="chip-region">${escHtml(regionLabel)}</span>${pwdBtn}<button onclick="doLogout()" title="ออกจากระบบ" class="chip-logout" type="button"><i class="fas fa-sign-out-alt"></i></button>`;
-  const adminBtn=document.getElementById("header-admin-btn");
-  const hdrBtns=document.getElementById("header-buttons");
-  if(hdrBtns)hdrBtns.style.display=isGuest()?"none":"flex";
-  if(adminBtn){
-    if(me.role==="admin")adminBtn.classList.remove("hidden");
-    else adminBtn.classList.add("hidden");
-  }
   renderNotifyBell_();
 }
 
@@ -3485,10 +3503,8 @@ const app = {
           </div>
           <p class="text-xs text-glass-dim">วันที่/เวลาสั่งซื้อบันทึกอัตโนมัติ</p>
           <div>
-            <label class="glass-label">สถานะ</label>
-            ${isAdm
-              ? buildGlassDropdown({ddId:"order-status-dd",valueInputId:"order-status",value:ORDER_STATUS_ORDERED,options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS)})
-              : `<input id="order-status-fixed" class="glass-input glass-input-readonly" value="${escHtml(orderCartStatus())}" readonly>`}
+            <label class="glass-label">เบอร์ติดต่อ</label>
+            <input id="order-contact" type="tel" class="glass-input text-sm" maxlength="30" inputmode="tel" placeholder="เช่น 081-234-5678">
           </div>
           ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
           <div>
@@ -3561,11 +3577,9 @@ const app = {
       const payload={
         region:region,
         items:items,
-        note:(document.getElementById("order-note")?.value||"").trim()
+        note:(document.getElementById("order-note")?.value||"").trim(),
+        contactPhone:normalizeContactPhoneInput_(document.getElementById("order-contact")?.value||"")
       };
-      if(isAdmin()){
-        payload.status=document.getElementById("order-status").value;
-      }
       const slipFile=document.getElementById("order-slip-file")?.files?.[0];
       let payDate="",payTime="";
       if(slipFile){
@@ -3770,6 +3784,7 @@ const app = {
       </div>`;
     }
     const noteBlock=renderOrderNoteBlock_(g,ownsOrder);
+    const contactBlock=renderOrderContactBlock_(g);
     const orderEditActions=showEditBtn
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
           <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-edit"></i> แก้ไข</button>
@@ -3792,6 +3807,7 @@ const app = {
           ${canEditStatus
             ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:normalizeOrderStatus_(g.status)||ORDER_STATUS_ORDERED,options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
             : `<span class="inline-block px-2 py-1 rounded-lg text-xs ${statusCls}" style="border:1px solid rgba(255,255,255,.25)">${escHtml(g.status||orderCartStatus())}</span>`}
+          ${contactBlock}
           ${noteBlock}
           ${orderEditActions}
         </td>
@@ -4420,6 +4436,12 @@ const app = {
       </tr>`;
     }).filter(Boolean).join("");
     const noteValue=escHtml(String(orderGroup.note||""));
+    const contactValue=escHtml(String(orderGroup.contactPhone||""));
+    const contactField=`<div class="cart-edit-note-block">
+          <label class="glass-label text-sm font-bold" for="cart-edit-contact-${safeId}"><i class="fas fa-phone mr-1"></i>เบอร์ติดต่อ</label>
+          <input id="cart-edit-contact-${safeId}" type="tel" class="glass-input text-sm" maxlength="30" inputmode="tel"
+            placeholder="เช่น 081-234-5678" value="${contactValue}" ${canEditNoteInModal?"":"readonly"}>
+        </div>`;
     const noteField=`<div class="cart-edit-note-block">
           <label class="glass-label text-sm font-bold" for="cart-edit-note-${safeId}"><i class="fas fa-sticky-note mr-1"></i>หมายเหตุ</label>
           <textarea id="cart-edit-note-${safeId}" class="glass-input text-sm cart-edit-note-input" maxlength="120" rows="2"
@@ -4433,6 +4455,7 @@ const app = {
             ?(inCart?"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าจะยืนยันส่งออเดอร์":"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าแอดมินจะล็อกสถานะ")
             :"เพิ่มหมายเหตุได้จนกว่าจะชำระเงินแล้ว (ไซส์/จำนวนล็อกแล้ว)"}<br><span class="opacity-80">${canEditOrder?"คอลัมน์ «คงเหลือ» = ตามหน้าสต็อก · ช่องจำนวนปรับได้สูงสุด = คงเหลือ + จำนวนเดิมในออเดอร์นี้":""}</span></p>
           <div class="space-y-2">
+            ${contactField}
             ${noteField}
             <div class="glass-table-wrap">
               <table class="order-size-table text-xs">
@@ -4467,21 +4490,29 @@ const app = {
     const canEditNoteInModal=canEditNoteInModal_(orderGroup,ownsOrder);
     const safeId=ddSafeId(orderId);
     const noteEl=document.getElementById("cart-edit-note-"+safeId);
+    const contactEl=document.getElementById("cart-edit-contact-"+safeId);
     const note=noteEl?String(noteEl.value||"").trim():String(orderGroup.note||"");
+    const contactPhone=contactEl?normalizeContactPhoneInput_(contactEl.value||""):normalizeContactPhoneInput_(orderGroup.contactPhone||"");
     const inCart=isCartStatus(orderGroup.status);
     if(!canEditOrder&&canEditNoteInModal){
       const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
-      const prev=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
+      const prevNote=ordersInGroup.length?String(ordersInGroup[0].note||""):"";
+      const prevContact=ordersInGroup.length?String(ordersInGroup[0].contactPhone||""):"";
       applyLocalOrderNoteUpdate_(orderId,note);
+      applyLocalOrderContactUpdate_(orderId,contactPhone);
       try{
-        await runSaving({btn:btn,busyText:"กำลังบันทึกหมายเหตุ…"},()=>callAuthed("updateOrderNoteByOrderId",orderId,note));
+        await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
+          await callAuthed("updateOrderNoteByOrderId",orderId,note);
+          await callAuthed("updateOrderContactByOrderId",orderId,contactPhone);
+        });
         this.closeCartEditModal();
-        this.showMsg("บันทึกหมายเหตุแล้ว","success");
+        this.showMsg("บันทึกแล้ว","success");
         refreshAfterMutation_({ keepLocal: true });
       }catch(e){
-        applyLocalOrderNoteUpdate_(orderId,prev);
+        applyLocalOrderNoteUpdate_(orderId,prevNote);
+        applyLocalOrderContactUpdate_(orderId,prevContact);
         this.fillOrderListBody();
-        this.showMsg(e.message||"บันทึกหมายเหตุไม่สำเร็จ","error");
+        this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
       }
       return;
     }
@@ -4493,14 +4524,16 @@ const app = {
     if(items.length===0){this.showMsg("กรุณาเลือกอย่างน้อย 1 ไซส์","warning");return;}
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderNoteUpdate_(orderId,note);
-    applyLocalOrderCartUpdate_(orderId,{status:orderGroup.status},items,orderGroup,note);
+    applyLocalOrderContactUpdate_(orderId,contactPhone);
+    applyLocalOrderCartUpdate_(orderId,{status:orderGroup.status},items,orderGroup,note,contactPhone);
     this.closeCartEditModal();
     refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,busyText:inCart?"กำลังบันทึกตะกร้า…":"กำลังบันทึก…"},async()=>{
-        const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note});
+        const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note,contactPhone:contactPhone});
         applyLocalOrderNoteUpdate_(orderId,note);
-        applyLocalOrderCartUpdate_(orderId,r,items,orderGroup,note);
+        applyLocalOrderContactUpdate_(orderId,contactPhone);
+        applyLocalOrderCartUpdate_(orderId,r,items,orderGroup,note,contactPhone);
         return r;
       });
       this.showMsg(inCart?"บันทึกตะกร้าแล้ว":"บันทึกจำนวนแล้ว","success");
