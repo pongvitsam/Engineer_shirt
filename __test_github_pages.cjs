@@ -27,19 +27,22 @@ assert("docs/index.html exists", () => {
   if (!fs.existsSync(path.join(DOCS, "index.html"))) throw new Error("missing");
 });
 
-assert("index loads versioned config and app assets", () => {
+assert("index loads same-origin config and app assets", () => {
   const html = read("index.html");
   const m = html.match(/peace-build" content="(\d+)"/);
   if (!m) throw new Error("peace-build meta missing");
   const build = m[1];
-  if (!html.includes("config.b" + build + ".js")) throw new Error("versioned config.js missing");
-  if (!html.includes("assets/app.b" + build + ".js")) throw new Error("versioned app.js missing");
-  if (!html.includes("assets/app.b" + build + ".css")) throw new Error("versioned app.css missing");
+  if (!html.includes("config.js?v=" + build)) throw new Error("config.js cache-bust missing");
+  if (!html.includes("assets/app.js?v=" + build)) throw new Error("app.js cache-bust missing");
+  if (!html.includes("assets/app.css?v=" + build)) throw new Error("app.css cache-bust missing");
+  if (html.includes("asset=js") || html.includes("asset=css")) throw new Error("must not load JS/CSS from GAS on Pages");
   if (html.includes("peaceGate_") || html.includes('searchParams.set("_ra"')) {
     throw new Error("auto-reload boot guard must not ship in static HTML");
   }
   if (html.includes("google.script.run")) throw new Error("should not use GAS bridge in static HTML");
-  if (!fs.existsSync(path.join(DOCS, "config.b" + build + ".js"))) throw new Error("config.b file missing");
+  if (!fs.existsSync(path.join(DOCS, "config.js"))) throw new Error("config.js missing");
+  if (!fs.existsSync(path.join(DOCS, "assets", "app.js"))) throw new Error("app.js missing");
+  if (!fs.existsSync(path.join(DOCS, "assets", "app.css"))) throw new Error("app.css missing");
   if (!fs.existsSync(path.join(DOCS, "assets", "app.b" + build + ".js"))) throw new Error("app.b bundle file missing");
 });
 
@@ -68,6 +71,8 @@ assert("build number synced across Code, Pages index, versioned config", () => {
   if (metaCount !== 1) throw new Error("expected 1 peace-build meta in head, got " + metaCount);
   const cfg = read("config.b" + build + ".js");
   if (!new RegExp('build:\\s*"' + build + '"').test(cfg)) throw new Error("versioned config build mismatch");
+  const cfgMain = read("config.js");
+  if (!new RegExp('build:\\s*"' + build + '"').test(cfgMain)) throw new Error("config.js build mismatch");
 });
 
 assert("versioned app bundle matches source build", () => {

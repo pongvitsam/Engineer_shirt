@@ -181,14 +181,14 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss, 
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  ${crit}<link id="peace-app-css" rel="stylesheet" href="assets/app.b${v}.css">
+  ${crit}<link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=${v}">
   ${headExtras}
 </head>
 <body class="peace-login-active">
 ${bodyInner}
   ${LEGACY_HERO_STUB}
-  <script src="config.b${v}.js"></script>
-  <script src="assets/app.b${v}.js"></script>${patch}
+  <script src="config.js?v=${v}"></script>
+  <script src="assets/app.js?v=${v}"></script>${patch}
 </body>
 </html>
 `;
