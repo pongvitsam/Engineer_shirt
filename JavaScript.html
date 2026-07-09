@@ -3429,7 +3429,10 @@ const app = {
       const src=orderImageDisplaySrc(res);
       if(box&&res&&res.ok&&src){
         const warn=res.warning?`<div class="text-xs text-glass-dim mb-1">${escHtml(res.warning)}</div>`:"";
-        box.innerHTML=warn+`<img src="${src}" class="slip-preview-img w-full rounded-lg glass-image-wrap" alt="สลิป" onerror="app.onSlipImgError(this,'${escHtml(orderId)}')">`;
+        box.innerHTML=warn+`<img src="${src}" class="slip-preview-img w-full rounded-lg glass-image-wrap" alt="สลิป" style="cursor:zoom-in" onerror="app.onSlipImgError(this,'${escHtml(orderId)}')">
+          <div class="text-xs text-glass-dim text-center mt-1"><i class="fas fa-search-plus mr-1"></i>แตะรูปเพื่อดูภาพใหญ่</div>`;
+        const zoomImg=box.querySelector("img");
+        if(zoomImg)zoomImg.addEventListener("click",function(){app.openImageLightbox(src,res.slipUrl||src);});
       }else if(box&&res&&res.slipUrl){
         box.innerHTML=`<div class="text-xs text-glass-dim mb-2">${escHtml(res.warning||"เปิดสลิปในแท็บใหม่")}</div>
           <a href="${escHtml(res.slipUrl)}" target="_blank" rel="noopener" class="glass-btn-secondary text-xs inline-block py-2 px-3">เปิดสลิปใน Google Drive</a>`;
