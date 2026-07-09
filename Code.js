@@ -233,7 +233,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "189";
+const APP_BUILD = "190";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1112,7 +1112,7 @@ function addMultiSizeOrder(token, payload) {
     const status = resolveNewOrderStatus_(session, requestedStatus);
     const unitPrice = Number(payload.unitPrice) || getRoundInfo_(ss).unitPrice;
 
-    const orderId = "ORD" + now.getTime() + Math.floor(Math.random() * 1000);
+    const orderId = generateUniqueOrderId_(orderSheet);
     const slipName = "";
     const slipUrl = "";
 
@@ -1302,6 +1302,26 @@ function orderDateTimeParts_(d) {
     payDate: Utilities.formatDate(dt, tz, "yyyy-MM-dd"),
     payTime: Utilities.formatDate(dt, tz, "HH:mm")
   };
+}
+
+function generateUniqueOrderId_(orderSheet) {
+  const last = orderSheet.getLastRow();
+  const existing = {};
+  if (last > 1) {
+    const ids = orderSheet.getRange(2, 2, last - 1, 1).getValues();
+    ids.forEach(function (r) {
+      const id = String(r[0] || "").trim();
+      if (id) existing[id] = true;
+    });
+  }
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const rnd = Math.floor(Math.random() * 1000);
+    const orderId = "ORD" + Date.now() + ("00" + rnd).slice(-3);
+    if (!existing[orderId]) return orderId;
+    Utilities.sleep(2);
+  }
+  return "ORD" + Date.now() + ("00" + Math.floor(Math.random() * 1000)).slice(-3) +
+    Utilities.getUuid().replace(/-/g, "").slice(0, 4);
 }
 
 function isUserLockedOrderStatus_(status) {

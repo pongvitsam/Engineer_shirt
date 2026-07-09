@@ -1097,7 +1097,13 @@ function ensureAppData(force, opts) {
 }
 
 function shortOrderLabel_(orderId){
-  return String(orderId||"").replace(/^ORD-?/i,"").substring(0,8)||"?";
+  const raw=String(orderId||"").trim();
+  if(!raw)return "?";
+  if(/^ORD-LEGACY-/i.test(raw))return "L"+raw.replace(/^ORD-LEGACY-/i,"");
+  const s=raw.replace(/^ORD-?/i,"");
+  if(/^\d{10,}$/.test(s))return s.slice(-10);
+  if(s.length<=12)return s;
+  return s.slice(-10);
 }
 function muteNotifyForOrder_(orderId,ms,scope){
   if(!orderId)return;
@@ -1608,6 +1614,7 @@ function buildOrderSearchHaystack_(g){
   if(oid){
     parts.push(oid);
     parts.push(oid.replace(/^ORD-?/i,""));
+    parts.push(shortOrderLabel_(oid));
   }
   const ts=String(g&&g.timestamp||"").trim();
   if(ts){
@@ -2936,8 +2943,8 @@ const app = {
         return r;
       });
       let okMsg=isAdmin()
-        ?`บันทึกออเดอร์ ${total} ตัว (${items.length} ไซส์) เรียบร้อย`
-        :`เพิ่มลงตะกร้า ${total} ตัว (${items.length} ไซส์) แล้ว — ไปรายการสั่งซื้อเพื่อแก้ไขหรือยืนยันส่งออเดอร์`;
+        ?`บันทึกออเดอร์ #${shortOrderLabel_(result&&result.orderId||"")} ${total} ตัว (${items.length} ไซส์) เรียบร้อย`
+        :`เพิ่มลงตะกร้า #${shortOrderLabel_(result&&result.orderId||"")} ${total} ตัว (${items.length} ไซส์) แล้ว — ไปรายการสั่งซื้อเพื่อแก้ไขหรือยืนยันส่งออเดอร์`;
       if(slipFile)okMsg+=" · บันทึกสลิปแล้ว รอแอดมินตรวจสอบ";
       this.showMsg(okMsg,"success");
       if(result&&result.warning){
@@ -3112,10 +3119,10 @@ const app = {
     const deleteBtn=canDeleteOrder
       ?`<button onclick="app.removeOrderGroup('${escHtml(g.orderId)}',${inCart?"true":"false"},this)" class="glass-btn-danger" title="ลบออเดอร์" style="padding:.35rem .55rem"><i class="fas fa-trash"></i></button>`
       :`<span class="text-glass-dim text-xs">-</span>`;
-    const shortId=String(g.orderId).replace(/^ORD-?/,"").substring(0,8);
+    const shortId=shortOrderLabel_(g.orderId);
     return `
       <tr data-region="${escHtml(g.region)}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}" data-payment-status="${escAttr(paymentStatusLabel(g.paymentStatus).toLowerCase())}">
-        <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold">#${shortId}</td>
+        <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold" title="${escAttr(g.orderId)}">#${escHtml(shortId)}</td>
         <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
         <td data-label="รายการ" class="py-2 px-2">${itemsLabel}</td>
         <td data-label="รวม" class="py-2 px-2 text-center"><div class="font-bold">${g.totalQty} ตัว</div>${isFreeGiveawayPayment(g.paymentStatus)?`<div class="text-xs" style="color:#C4B5FD">แจกฟรี (ไม่รวมยอดสั่งซื้อ)</div>`:`<div class="text-xs opacity-80">${fmtMoney(g.totalPrice)} ฿</div>`}</td>
@@ -3253,7 +3260,7 @@ const app = {
     const html=`
       <div class="login-overlay slip-upload-overlay" id="slip-upload-modal" onclick="if(event.target===this)app.closeSlipUploadModal()">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
-          <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
+          <div class="login-title">${isReplace?"เปลี่ยนสลิป":"แนบสลิปชำระเงิน"} #${escHtml(shortOrderLabel_(orderId))}</div>
           <p class="login-sub text-xs">วันที่สั่ง: ${formatOrderTimestampCell(orderGroup.timestamp)} · กรอกวันที่/เวลาที่โอนตามสลิป</p>
           <div class="slip-upload-body space-y-2">
             <div><label class="glass-label">รูปสลิป *</label><input id="slip-file-${safeOid}" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs"></div>
@@ -3313,7 +3320,7 @@ const app = {
     const html=`
       <div class="login-overlay slip-upload-overlay" id="pickup-modal" onclick="if(event.target===this)app.closePickupModal()">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
-          <div class="login-title">วันที่เข้ามารับ/จัดส่ง #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
+          <div class="login-title">วันที่เข้ามารับ/จัดส่ง #${escHtml(shortOrderLabel_(orderId))}</div>
           <p class="login-sub text-xs">บันทึกหมายเหตุอย่างเดียวได้ · ถ้าระบุวันที่/เวลา ระบบจะตั้งสถานะเป็น <b>จัดส่งแล้ว</b> หรือ <b>ได้รับแล้ว</b> อัตโนมัติ</p>
           <div class="slip-upload-body space-y-2">
             <div>
@@ -3443,7 +3450,7 @@ const app = {
     const html=`
       <div class="login-overlay slip-upload-overlay" id="payment-review-modal" onclick="if(event.target===this)app.closePaymentReviewModal()">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
-          <div class="login-title">ตรวจสอบการชำระ #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
+          <div class="login-title">ตรวจสอบการชำระ #${escHtml(shortOrderLabel_(orderId))}</div>
           <div class="slip-upload-body space-y-3">
             <div class="text-xs space-y-1">
               <div><b>วันที่สั่ง:</b> ${formatOrderTimestampCell(g.timestamp)}</div>
@@ -3759,7 +3766,7 @@ const app = {
     const html=`
       <div class="login-overlay" id="cart-edit-modal">
         <div class="login-card" style="max-width:560px">
-          <div class="login-title">${inCart?"แก้ไขตะกร้า":"แก้ไขออเดอร์"} #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
+          <div class="login-title">${inCart?"แก้ไขตะกร้า":"แก้ไขออเดอร์"} #${escHtml(shortOrderLabel_(orderId))}</div>
           <p class="login-sub text-xs">${canEditOrder
             ?(inCart?"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าจะยืนยันส่งออเดอร์":"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าแอดมินจะล็อกสถานะ")
             :"เพิ่มหมายเหตุได้จนกว่าจะชำระเงินแล้ว (ไซส์/จำนวนล็อกแล้ว)"}<br><span class="opacity-80">${canEditOrder?"คอลัมน์ «คงเหลือ» = ตามหน้าสต็อก · ช่องจำนวนปรับได้สูงสุด = คงเหลือ + จำนวนเดิมในออเดอร์นี้":""}</span></p>
