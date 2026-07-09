@@ -56,7 +56,7 @@ const dropdownRegistry = {};
 const FILTER_DEBOUNCE_MS = 200;
 const BOOTSTRAP_SYNC_DEBOUNCE_MS = 50;
 const REALTIME_POLL_MS = 20000;
-const REALTIME_POLL_MODULES_ = { list: true, dashboard: true, admin: true, stock: true, orders: true, report: true };
+const REALTIME_POLL_PAUSED_MODULES_ = { list: true, dashboard: true, report: true };
 const NOTIFY_STORE_KEY = "peace_notif_v1";
 const NOTIFY_READ_KEY = "peace_notif_read_v1";
 const NOTIFY_MAX = 80;
@@ -647,11 +647,22 @@ function scheduleBackgroundBootstrapSync_() {
   }, BOOTSTRAP_SYNC_DEBOUNCE_MS);
 }
 
+function isRealtimePollPausedForModule_(module){
+  return !!(module&&REALTIME_POLL_PAUSED_MODULES_[module]);
+}
+
+function updateRealtimePollForModule_(module){
+  if(isRealtimePollPausedForModule_(module))stopRealtimePoll_();
+  else if(authToken&&!guestMode)startRealtimePoll_();
+}
+
 function startRealtimePoll_() {
   stopRealtimePoll_();
   realtimePollTimer = setInterval(function () {
     if (document.hidden || guestMode || !authToken) return;
     if (bootstrapSyncInFlight || bootstrapSyncTimer) return;
+    const mod=(typeof app!=="undefined"&&app)?app.currentModule:"";
+    if(isRealtimePollPausedForModule_(mod))return;
     runBackgroundBootstrapSync_();
   }, REALTIME_POLL_MS);
 }
@@ -2465,7 +2476,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
   const title=escHtml(data.title||paidTransferReportTitle_());
   if(opts.print){
     const headCell=function(label){
-      return `<th ${pdfPrintCellStyle_({center:true,bold:true})} style="border:1px solid #444;padding:6px 8px;color:#000000;background:#e2efda;font-family:Sarabun,sans-serif;font-size:12px;font-weight:700;text-align:center;">${label}</th>`;
+      return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
     };
     return `<table style="width:100%;border-collapse:collapse;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;">
       <thead><tr>
@@ -2939,11 +2950,13 @@ const app = {
     if(module==="admin"&&!isAdmin())module="stock";
     if(module==="guide"){
       this.currentModule=module;
+      updateRealtimePollForModule_(module);
       this.renderNav();
       this.paintModule(module);
       return;
     }
     this.currentModule=module;
+    updateRealtimePollForModule_(module);
     this.renderNav();
     const fresh=appData&&!appDataStale&&!forceRefresh;
     if(!fresh)this.container.innerHTML=skeletonHtml(module);

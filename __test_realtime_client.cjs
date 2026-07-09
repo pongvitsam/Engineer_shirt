@@ -54,6 +54,13 @@ assert("realtime polling enabled", () => {
   if (!html.includes("startRealtimePoll_();")) throw new Error("poll not started on boot");
 });
 
+assert("realtime polling paused on list dashboard report", () => {
+  if (!html.includes("REALTIME_POLL_PAUSED_MODULES_")) throw new Error("missing paused modules map");
+  if (!html.includes("list: true, dashboard: true, report: true")) throw new Error("expected list/dashboard/report paused");
+  if (!html.includes("function updateRealtimePollForModule_")) throw new Error("missing updateRealtimePollForModule_");
+  if (!html.includes("updateRealtimePollForModule_(module)")) throw new Error("navigate must update poll by module");
+});
+
 assert("snapshot rollback helpers", () => {
   if (!html.includes("function snapshotOrderGroup_")) throw new Error("missing snapshotOrderGroup_");
   if (!html.includes("function restoreOrderGroupSnapshot_")) throw new Error("missing restoreOrderGroupSnapshot_");
