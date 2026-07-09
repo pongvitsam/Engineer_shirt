@@ -809,9 +809,14 @@ function buildPayReviewDateTimeFieldsHtml_(safeOid, initDate, initTime) {
   return buildDateTimePickerFieldsHtml_(safeOid, initDate, initTime, {
     prefix: "payrev",
     icon: "fa-receipt",
-    labelDate: "วันที่โอน (แก้ไขได้) *",
-    labelTime: "เวลาโอน (แก้ไขได้) *"
+    labelDate: "วันที่โอน *",
+    labelTime: "เวลาโอน *"
   });
+}
+
+function updatePaymentReviewPayDateView_(safeOid, payDate, payTime) {
+  const el = document.getElementById("payrev-dt-view-text-" + safeOid);
+  if (el) el.innerHTML = formatThaiDateTimeCell(payDate, payTime);
 }
 
 function bindDateTimePicker_(safeOid, prefix) {
@@ -3419,18 +3424,27 @@ const app = {
           <div class="slip-upload-body space-y-3">
             <div class="text-xs space-y-1">
               <div><b>วันที่สั่ง:</b> ${formatOrderTimestampCell(g.timestamp)}</div>
-              <div><b>ยอด:</b> ${fmtMoney(g.totalPrice)} ฿ · <b>เขต:</b> ${escHtml(g.region||"")}</div>
+              <div><b>ยอด:</b> ${fmtMoney(g.totalPrice)} ฿ · <b>จำนวน:</b> ${g.totalQty} ตัว · <b>เขต:</b> ${escHtml(g.region||"")}</div>
             </div>
             <div class="payment-review-paydt-section">
-              <div class="text-sm font-semibold mb-2"><i class="fas fa-edit mr-1"></i>วันเวลาที่โอน <span class="text-glass-dim font-normal text-xs">(แอดมินแก้ไขได้)</span></div>
-              ${buildPayReviewDateTimeFieldsHtml_(safeOid,initDate,initTime)}
+              <div class="text-sm font-semibold mb-2"><i class="fas fa-clock mr-1"></i>วันเวลาที่โอน</div>
+              <div id="payrev-dt-view-${safeOid}" class="payment-review-paydt-view">
+                <div id="payrev-dt-view-text-${safeOid}" class="text-sm">${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>
+                <button type="button" onclick="app.startPaymentReviewPayDateEdit('${escHtml(orderId)}')" class="glass-btn-secondary text-xs mt-2" style="padding:.3rem .55rem"><i class="fas fa-edit"></i> แก้ไข</button>
+              </div>
+              <div id="payrev-dt-edit-${safeOid}" class="payment-review-paydt-edit" style="display:none">
+                ${buildPayReviewDateTimeFieldsHtml_(safeOid,initDate,initTime)}
+                <div class="payment-review-paydt-edit-actions grid grid-cols-2 gap-2 mt-2">
+                  <button type="button" onclick="app.savePaymentReviewPayDateTime('${escHtml(orderId)}',this)" class="glass-btn-secondary py-2"><i class="fas fa-save mr-1"></i>บันทึก</button>
+                  <button type="button" onclick="app.cancelPaymentReviewPayDateEdit('${escHtml(orderId)}')" class="glass-btn-secondary py-2">ยกเลิก</button>
+                </div>
+              </div>
               <div id="payment-review-msg" class="modal-inline-msg text-sm text-center mt-2" style="display:none" role="alert"></div>
             </div>
             <div id="payment-review-img" class="payment-review-img">${imgHtml}</div>
             <p class="text-xs text-glass-dim">เสื้อแจกฟรี: ไม่รวมยอดสั่งซื้อ · แสดงเป็นขาดทุนในแดชบอร์ด</p>
           </div>
           <div class="slip-modal-actions grid grid-cols-1 gap-2">
-            <button onclick="app.savePaymentReviewPayDateTime('${escHtml(orderId)}',this)" class="glass-btn-secondary py-2"><i class="fas fa-save mr-1"></i>บันทึกวันเวลาโอน</button>
             <button onclick="app.closePaymentReviewModal()" class="glass-btn-secondary py-2">ปิด</button>
             <button id="payment-accept-btn" onclick="app.acceptOrderPayment('${escHtml(orderId)}',this)" class="glass-btn-primary py-2" ${String(g.paymentStatus||"")==="ชำระเงินแล้ว"||isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}>ยอมรับการชำระ</button>
             <button onclick="app.markOrderFreeGiveaway('${escHtml(orderId)}',this)" class="glass-btn py-2" style="background:rgba(109,40,217,.5)" ${isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}><i class="fas fa-gift mr-1"></i>เสื้อแจกฟรี</button>
@@ -3440,7 +3454,6 @@ const app = {
     const wrap=document.createElement("div");
     wrap.innerHTML=html;
     document.body.appendChild(wrap.firstElementChild);
-    bindDateTimePicker_(safeOid,"payrev");
     try{
       const res=await callAuthed("getOrderImage",orderId);
       const box=document.getElementById("payment-review-img");
@@ -3490,6 +3503,30 @@ const app = {
     if(el){el.style.display="none";el.textContent="";}
   },
 
+  startPaymentReviewPayDateEdit(orderId){
+    if(!isAdmin())return this.showPaymentReviewModalMsg("เฉพาะแอดมินเท่านั้น","error");
+    const safeOid=ddSafeId(orderId);
+    const viewEl=document.getElementById("payrev-dt-view-"+safeOid);
+    const editEl=document.getElementById("payrev-dt-edit-"+safeOid);
+    if(!viewEl||!editEl)return;
+    this.clearPaymentReviewModalMsg();
+    viewEl.style.display="none";
+    editEl.style.display="block";
+    bindDateTimePicker_(safeOid,"payrev");
+  },
+
+  cancelPaymentReviewPayDateEdit(orderId){
+    const safeOid=ddSafeId(orderId);
+    const g=groupOrdersByOrderId(appData?.orders||[]).find(x=>x.orderId===orderId);
+    const viewEl=document.getElementById("payrev-dt-view-"+safeOid);
+    const editEl=document.getElementById("payrev-dt-edit-"+safeOid);
+    if(!viewEl||!editEl)return;
+    if(g)updatePaymentReviewPayDateView_(safeOid,g.payDate,g.payTime);
+    editEl.style.display="none";
+    viewEl.style.display="block";
+    this.clearPaymentReviewModalMsg();
+  },
+
   async savePaymentReviewPayDateTime(orderId,btn){
     if(!isAdmin())return this.showPaymentReviewModalMsg("เฉพาะแอดมินเท่านั้น","error");
     const safeOid=ddSafeId(orderId);
@@ -3505,6 +3542,10 @@ const app = {
         return await callAuthed("updateOrderPayDateTimeByOrderId",orderId,payDate,payTime);
       });
       applyLocalOrderSlipUpdate_(orderId,res);
+      updatePaymentReviewPayDateView_(safeOid,payDate,payTime);
+      const viewEl=document.getElementById("payrev-dt-view-"+safeOid);
+      const editEl=document.getElementById("payrev-dt-edit-"+safeOid);
+      if(viewEl&&editEl){editEl.style.display="none";viewEl.style.display="block";}
       this.showPaymentReviewModalMsg("บันทึกวันเวลาโอนแล้ว","success");
       scheduleBackgroundBootstrapSync_();
     }catch(e){
