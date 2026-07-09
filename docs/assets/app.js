@@ -1147,7 +1147,7 @@ function notifyIsAdminReceiver_(){
   return isAdmin()||isEngineer();
 }
 function notifyIsUserReceiver_(g){
-  if(isGuest()||isViewer()||isAdmin())return false;
+  if(isGuest()||isReadOnlyUser()||isAdmin())return false;
   return ownsOrderRegion(g);
 }
 function loadNotifyList_(){
@@ -1442,14 +1442,14 @@ function shouldCountInDashboard_(o){
   return !isCartStatus(o.status||o.orderStatus);
 }
 function canEditOrderNote_(g,ownsOrder){
-  if(isViewer())return false;
+  if(isReadOnlyUser())return false;
   if(canViewAllRegions()&&!isAdmin()&&!ownsOrder)return false;
   if(isAdmin())return true;
   if(isPaymentLocked(g&&g.paymentStatus))return false;
   return !!ownsOrder;
 }
 function canEditNoteInModal_(g,ownsOrder){
-  if(isViewer())return false;
+  if(isReadOnlyUser())return false;
   if(isAdmin())return true;
   if(canViewAllRegions()&&!ownsOrder)return false;
   if(isPaymentLocked(g&&g.paymentStatus))return false;
@@ -1496,16 +1496,17 @@ function renderTransferAccountBlock_(opts){
 }
 
 function shouldHideOrderNoteForViewer_(g){
-  return canViewAllRegions()&&!isAdmin()&&isAdminHiddenNoteRegion(g&&g.region);
+  return canViewAllRegions()&&!canViewAdminData()&&isAdminHiddenNoteRegion(g&&g.region);
 }
 function renderPickupDeliveryCell_(g){
-  if(!isAdmin())return "";
+  if(!canViewAdminData())return "";
   const hasPickup=!!(String(g.pickupDate||"").trim()&&String(g.pickupTime||"").trim());
   const note=String(g.pickupNote||"").trim();
   let display=hasPickup
     ?`<div class="text-xs">${formatThaiDateTimeCell(g.pickupDate,g.pickupTime)}</div>`
     :(note?"":`<span class="text-glass-dim text-xs">-</span>`);
   if(note)display+=`<div class="order-pickup-note text-xs text-glass-dim mt-1">${escHtml(note)}</div>`;
+  if(!isAdmin())return `<div class="order-pickup-cell">${display}</div>`;
   const btnLabel=(hasPickup||note)?"แก้ไข":"บันทึก";
   const btnIcon=(hasPickup||note)?"fa-edit":"fa-calendar-plus";
   return `<div class="order-pickup-cell">
@@ -1515,13 +1516,13 @@ function renderPickupDeliveryCell_(g){
 }
 
 function orderListColSpan_(){
-  return isAdmin()?10:9;
+  return canViewAdminData()?10:9;
 }
 
 function renderOrderNoteBlock_(g,ownsOrder){
   if(shouldHideOrderNoteForViewer_(g))return `<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
   const note=String(g&&g.note||"").trim();
-  if(canViewAllRegions()&&!isAdmin()&&!ownsOrderRegion(g)&&!note)return "";
+  if(canViewAllRegions()&&!canViewAdminData()&&!ownsOrderRegion(g)&&!note)return "";
   return note
     ?`<div class="order-note-display mt-1 text-xs"><span class="opacity-70">หมายเหตุ:</span> <span class="font-semibold">${escHtml(note)}</span></div>`
     :`<div class="mt-1 text-xs text-glass-dim opacity-60">หมายเหตุ: -</div>`;
@@ -1806,6 +1807,8 @@ function normalizeMeClient_(userMe) {
 
 const ROLE_ENGINEER="engineer";
 const ROLE_ENGINEER_LABEL="ทีมงาน ชวศ";
+const ROLE_ENG_READONLY="eng_readonly";
+const ROLE_ENG_READONLY_LABEL="ทีมงาน ชวศ. ดูเท่านั้น";
 function isAdmin(){
   if (me) me = normalizeMeClient_(me);
   return me && me.role === "admin";
@@ -1818,8 +1821,18 @@ function isViewer(){
   if (me) me = normalizeMeClient_(me);
   return !!(me && me.role === "viewer");
 }
+function isEngReadonly(){
+  if (me) me = normalizeMeClient_(me);
+  return !!(me && me.role === ROLE_ENG_READONLY);
+}
+function isReadOnlyUser(){
+  return isViewer() || isEngReadonly();
+}
+function canViewAdminData(){
+  return isAdmin() || isEngReadonly();
+}
 function canViewAllRegions(){
-  return isAdmin() || isEngineer() || isViewer();
+  return isAdmin() || isEngineer() || isViewer() || isEngReadonly();
 }
 function ownsOrderRegion(g){
   return !isGuest()&&!!(me&&String(me.region)===String(g&&g.region));
@@ -1989,7 +2002,7 @@ function orderSizeKey_(size){
 }
 function canRecalcStockFromOrders_(){
   // Only roles that receive the full order list for stock math (viewers hide free-giveaway rows).
-  return isAdmin()||isEngineer();
+  return isAdmin()||isEngineer()||isEngReadonly();
 }
 function recalcStockFromOrders(){
   if(!appData?.stock||!appData?.orders)return;
@@ -2904,9 +2917,9 @@ function bootApp(){
 function renderUserChip(){
   const chip=document.getElementById("user-info-chip");
   if(!chip||!me)return;
-  const roleCls=me.role==="admin"?"role-badge-admin":(isEngineer()?"role-badge-engineer":(isViewer()?"role-badge-user":(isGuest()?"role-badge-guest":"role-badge-user")));
-  const roleLabel=me.role==="admin"?"แอดมิน":(isEngineer()?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(isViewer()?"ผู้ดูข้อมูล":(isGuest()?"Guest":"ผู้ใช้")));
-  const regionLabel=canViewAllRegions()?(isEngineer()?`ดูทุกเขต · สั่ง ${me.region||""}`:(isViewer()?"ดูทุกเขต (อ่านอย่างเดียว)":"ทุกเขต")):(isGuest()?"ดูสต็อกเท่านั้น":me.region);
+  const roleCls=me.role==="admin"?"role-badge-admin":(isEngineer()?"role-badge-engineer":(isEngReadonly()?"role-badge-eng-readonly":(isViewer()?"role-badge-user":(isGuest()?"role-badge-guest":"role-badge-user"))));
+  const roleLabel=me.role==="admin"?"แอดมิน":(isEngineer()?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(isEngReadonly()?ROLE_ENG_READONLY_LABEL:(isViewer()?"ผู้ดูข้อมูล":(isGuest()?"Guest":"ผู้ใช้"))));
+  const regionLabel=canViewAllRegions()?(isEngineer()?`ดูทุกเขต · สั่ง ${me.region||""}`:(isEngReadonly()?`ดูทุกเขต (${ROLE_ENG_READONLY_LABEL})`:(isViewer()?"ดูทุกเขต (อ่านอย่างเดียว)":"ทุกเขต"))):(isGuest()?"ดูสต็อกเท่านั้น":me.region);
   chip.className="user-chip";
   const pwdBtn=!isGuest()&&authToken
     ?`<button onclick="openChangePasswordModal()" title="เปลี่ยนรหัสผ่าน" class="chip-logout" type="button"><i class="fas fa-key"></i></button>`
@@ -2932,7 +2945,7 @@ const app = {
     if(!nav)return;
     nav.innerHTML=NAV.filter(n=>{
       if(isGuest())return n.id==="stock"||n.guestOk;
-      if(isViewer()&&n.id==="orders")return false;
+      if(isReadOnlyUser()&&n.id==="orders")return false;
       return !n.adminOnly||isAdmin();
     }).map(n=>
       `<button class="nav-tab ${this.currentModule===n.id?"active":""}" onclick="app.navigate('${n.id}')"><i class="fas ${n.icon} mr-1"></i>${n.label}</button>`).join("");
@@ -2940,7 +2953,7 @@ const app = {
 
   async navigate(module, forceRefresh){
     if(isGuest()&&module!=="stock"&&module!=="guide")module="stock";
-    if(isViewer()&&module==="orders")module="list";
+    if(isReadOnlyUser()&&module==="orders")module="list";
     if(module==="admin"&&!isAdmin())module="stock";
     if(module==="guide"){
       this.currentModule=module;
@@ -3347,7 +3360,7 @@ const app = {
     let filterOpts='<option value="all">ทุกเขต</option>';
     appData.regions.forEach(r=>{filterOpts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
     const showFilter=canViewAllRegions();
-    const canAdd=!isViewer()&&!isGuest();
+    const canAdd=!isReadOnlyUser()&&!isGuest();
     const body=grouped.length===0
       ? '<tr><td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
@@ -3379,7 +3392,7 @@ const app = {
               <th class="py-2 px-2">สถานะ</th>
               <th class="py-2 px-2">สลิปชำระ</th>
               <th class="py-2 px-2">ชำระเงิน</th>
-              ${isAdmin()?'<th class="py-2 px-2">วันที่รับ/จัดส่ง</th>':""}
+              ${canViewAdminData()?'<th class="py-2 px-2">วันที่รับ/จัดส่ง</th>':""}
               <th class="py-2 px-1"></th>
             </tr></thead>
             <tbody id="order-tbody">${body}</tbody>
@@ -3523,7 +3536,7 @@ const app = {
         </td>
         <td data-label="สลิปชำระ" class="py-2 px-2 text-center">${slipCell}</td>
         <td data-label="ชำระเงิน" class="py-2 px-2 text-center">${paymentCell}</td>
-        ${isAdmin()?`<td data-label="วันที่รับ/จัดส่ง" class="py-2 px-2 text-center">${renderPickupDeliveryCell_(g)}</td>`:""}
+        ${canViewAdminData()?`<td data-label="วันที่รับ/จัดส่ง" class="py-2 px-2 text-center">${renderPickupDeliveryCell_(g)}</td>`:""}
         <td data-label="ลบ" class="py-2 px-1 text-center">${deleteBtn}</td>
       </tr>`;
   },
@@ -4273,7 +4286,7 @@ const app = {
           <div class="glass-chart-box"><canvas id="regionChart"></canvas></div>
           <div class="glass-chart-box"><canvas id="sizeChart"></canvas></div>
         </div>
-      ${isAdmin()?`<div class="grid grid-cols-1 gap-4 mb-4">
+      ${canViewAdminData()?`<div class="grid grid-cols-1 gap-4 mb-4">
         <div class="glass-chart-box"><canvas id="giveawayChart"></canvas></div>
       </div>`:""}
         <div id="dash-stock"></div>
@@ -4285,7 +4298,7 @@ const app = {
     const dash=computeDashboard(region);
     const cardsEl=document.getElementById("dash-cards");
     if(cardsEl){
-      const giveawayCards=isAdmin()?`
+      const giveawayCards=canViewAdminData()?`
         <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${dash.freeGiveawayQty||0}</div></div>
         <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.freeGiveawayLoss||0)}</div></div>`:"";
       cardsEl.innerHTML=`
@@ -4316,10 +4329,10 @@ const app = {
     const datasets=[
       {label:"สั่งซื้อ (ตัว)",data:dash.regionQtys,backgroundColor:"#7F1D1D",borderRadius:4,maxBarThickness:40},
     ];
-    if(isAdmin()){
+    if(canViewAdminData()){
       datasets.push({label:"แจกฟรี (ตัว)",data:dash.regionFreeQtys,backgroundColor:"#6D28D9",borderRadius:4,maxBarThickness:40});
     }
-    const chartTitle=isAdmin()?"จำนวนเสื้อตามเขต (สั่งซื้อ vs แจกฟรี)":"จำนวนเสื้อตามเขต";
+    const chartTitle=canViewAdminData()?"จำนวนเสื้อตามเขต (สั่งซื้อ vs แจกฟรี)":"จำนวนเสื้อตามเขต";
     if(regionChart&&regionChart.canvas===canvas&&document.body.contains(canvas)){
       regionChart.data.labels=dash.regionLabels;
       regionChart.data.datasets=datasets;
@@ -4348,10 +4361,10 @@ const app = {
     const sizeDatasets=[
       sizeChartDataset_("สั่งซื้อ",dash.sizeQtys,"sale"),
     ];
-    if(isAdmin()){
+    if(canViewAdminData()){
       sizeDatasets.push(sizeChartDataset_("แจกฟรี",dash.sizeFreeQtys,"free"));
     }
-    const chartTitle=isAdmin()?"จำนวนตามไซส์ (สั่งซื้อ vs แจกฟรี)":"จำนวนตามไซส์";
+    const chartTitle=canViewAdminData()?"จำนวนตามไซส์ (สั่งซื้อ vs แจกฟรี)":"จำนวนตามไซส์";
     if(sizeChart&&sizeChart.canvas===canvas&&document.body.contains(canvas)){
       sizeChart.data.labels=dash.sizeLabels;
       sizeChart.data.datasets=sizeDatasets;
@@ -4375,7 +4388,7 @@ const app = {
                 <th class="py-2 px-2 text-left">เขต</th>
                 <th class="py-2 px-2 text-center">สั่งซื้อ (ตัว)</th>
                 <th class="py-2 px-2 text-right">ยอดสั่งซื้อ (฿)</th>
-                ${isAdmin()?`<th class="py-2 px-2 text-center">แจกฟรี</th>
+                ${canViewAdminData()?`<th class="py-2 px-2 text-center">แจกฟรี</th>
                 <th class="py-2 px-2 text-right">ขาดทุนแจก</th>`:""}
                 <th class="py-2 px-2 text-left">ไซส์ (สั่งซื้อ)</th>
                 <th class="py-2 px-2 text-left">สรุปสถานะ/ไซส์</th>
@@ -4416,7 +4429,7 @@ const app = {
     document.getElementById("report-cards").innerHTML=`
       <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดสั่งซื้อ (ตัว)</div><div class="glass-stat-value">${t.totalQty}</div></div>
       <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.totalAmount)}</div></div>
-      ${isAdmin()?`
+      ${canViewAdminData()?`
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${t.freeQty||0}</div></div>
       <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.freeLoss||0)}</div></div>`:""}
       <div class="glass-stat glass-stat-green"><div class="glass-stat-label">สต็อกคงเหลือ</div><div class="glass-stat-value">${r.stockTotalRemaining}</div><div class="glass-stat-sub">ตัว</div></div>
@@ -4428,11 +4441,11 @@ const app = {
         : '<span class="text-glass-dim">-</span>';
       const statusSummary=reportRegionStatusSummaryHtml_(x.byStatusSize);
       const cls=x.totalQty>0?"":"text-glass-dim";
-      const giveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td>`:"";
+      const giveawayCols=canViewAdminData()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td>`:"";
       return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td><td data-label="สรุปสถานะ/ไซส์" class="py-2 px-2 align-top">${statusSummary}</td></tr>`;
     }).join("");
     document.getElementById("report-region-body").innerHTML=rows;
-    const footGiveawayCols=isAdmin()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td>`:"";
+    const footGiveawayCols=canViewAdminData()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td>`:"";
     document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td><td data-label="สรุปสถานะ/ไซส์" class="py-2 px-2"></td></tr>`;
     const cells=r.stock.map(s=>{
       const cls=s.remaining<=5?"low":"";
@@ -4540,8 +4553,8 @@ const app = {
       if(!users||users.length===0){el.innerHTML='<div class="text-xs text-glass-muted text-center">ไม่มีผู้ใช้</div>';return}
       const myU=String(me&&me.username||"").trim().toLowerCase();
       el.innerHTML=users.map(u=>{
-        const roleCls=u.role==="admin"?"role-badge-admin":(u.role==="engineer"?"role-badge-engineer":"role-badge-user");
-        const roleLabel=u.role==="admin"?"แอดมิน":(u.role==="engineer"?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:"ผู้ใช้");
+        const roleCls=u.role==="admin"?"role-badge-admin":(u.role==="engineer"?"role-badge-engineer":(u.role===ROLE_ENG_READONLY?"role-badge-eng-readonly":(u.role==="viewer"?"role-badge-user":"role-badge-user")));
+        const roleLabel=u.role==="admin"?"แอดมิน":(u.role==="engineer"?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(u.role===ROLE_ENG_READONLY?ROLE_ENG_READONLY_LABEL:(u.role==="viewer"?"ผู้ดูข้อมูล":"ผู้ใช้")));
         const uKey=escAttr(u.username);
         const canDel=String(u.username||"").trim().toLowerCase()!==myU;
         return `<div class="glass-card-inner p-2 flex justify-between items-center gap-2 flex-wrap" data-admin-user="${uKey}">
@@ -4585,6 +4598,7 @@ const app = {
             <select id="nu-role" class="glass-select" onchange="app.toggleNewUserRegion(this.value)">
               <option value="user">ผู้ใช้</option>
               <option value="engineer">${ROLE_ENGINEER_LABEL} (แอดมินรอง)</option>
+              <option value="${ROLE_ENG_READONLY}">${ROLE_ENG_READONLY_LABEL}</option>
               <option value="admin">แอดมิน</option>
             </select>
             <p id="nu-role-hint" class="text-xs text-glass-dim hidden"></p>
@@ -4608,13 +4622,13 @@ const app = {
     if(!sel)return;
     const prev=sel.value;
     let html="";
-    if(role==="admin"){
-      html='<option value="*">* (ทุกเขต — แอดมิน)</option>';
+    if(role==="admin"||role===ROLE_ENG_READONLY){
+      html='<option value="*">* (ทุกเขต — '+(role==="admin"?"แอดมิน":ROLE_ENG_READONLY_LABEL)+')</option>';
     }else{
       (appData?.regions||[]).forEach(r=>{html+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
     }
     sel.innerHTML=html;
-    if(role==="admin")sel.value="*";
+    if(role==="admin"||role===ROLE_ENG_READONLY)sel.value="*";
     else if(prev&&prev!=="*"&&Array.from(sel.options).some(o=>o.value===prev))sel.value=prev;
     else if(role===ROLE_ENGINEER)sel.value="สำนักงานใหญ่";
     else if(sel.options.length)sel.value=sel.options[0].value;
@@ -4630,6 +4644,12 @@ const app = {
         hint.textContent="ดูข้อมูลทุกเขตได้ ไม่เข้าหน้าแอดมิน — เลือกเขตที่ใช้สั่งเสื้อ (ไม่ใช่ * ทุกเขต)";
       }
       if(label)label.textContent="เขตที่ใช้สั่งเสื้อ *";
+    }else if(role===ROLE_ENG_READONLY){
+      if(hint){
+        hint.classList.remove("hidden");
+        hint.textContent="ดูทุกอย่างเหมือนแอดมิน (รายงาน/แจกฟรี/รับ-จัดส่ง) แต่แก้ไขไม่ได้ — สิทธิ์เขต * ทุกเขต";
+      }
+      if(label)label.textContent="สิทธิ์เขต";
     }else if(role==="admin"){
       if(hint){
         hint.classList.remove("hidden");
@@ -4652,6 +4672,7 @@ const app = {
     try{
       const role=document.getElementById("nu-role").value;
       let region=document.getElementById("nu-region").value;
+      if(role===ROLE_ENG_READONLY)region="*";
       if(role===ROLE_ENGINEER&&(!region||region==="*")){
         region="สำนักงานใหญ่";
         const sel=document.getElementById("nu-region");
@@ -4665,6 +4686,7 @@ const app = {
         region:region
       };
       if(payload.password.length<4){alert("รหัสผ่านต้องอย่างน้อย 4 ตัว");return}
+      if(payload.role===ROLE_ENG_READONLY)payload.region="*";
       if(payload.role===ROLE_ENGINEER&&(!payload.region||payload.region==="*")){
         alert(ROLE_ENGINEER_LABEL+" ต้องเลือกเขตที่ใช้สั่งเสื้อ (เช่น สำนักงานใหญ่) ไม่ใช่ * ทุกเขต");
         return;

@@ -7,6 +7,7 @@ const path = require("path");
 
 const STOCK_SIZES = ["XS", "S", "M", "L", "XL", "2L", "3L", "5L", "7L"];
 const ROLE_ENGINEER = "engineer";
+const ROLE_ENG_READONLY = "eng_readonly";
 
 function calcSoldFromOrders_(orders) {
   const sold = {};
@@ -44,12 +45,14 @@ function validateStockForOrderItems_(orders, items, excludeOrderId, delivered) {
 }
 
 function canViewAllRegions_(session) {
-  return session.role === "admin" || session.role === ROLE_ENGINEER || session.region === "*";
+  return session.role === "admin" || session.role === ROLE_ENGINEER || session.role === "viewer" || session.role === ROLE_ENG_READONLY || session.region === "*";
 }
 
 function sessionCanModifyRegion_(session, rowRegion) {
   if (!session) return false;
-  if (session.role === "admin" || session.region === "*") return true;
+  if (session.role === "admin") return true;
+  if (session.role === ROLE_ENG_READONLY || session.role === "viewer") return false;
+  if (session.region === "*") return true;
   if (!session.region) return false;
   return String(rowRegion) === String(session.region);
 }
@@ -388,11 +391,47 @@ assert("HQ note hidden from engineer/viewer", () => {
 
 assert("viewer cannot open order form nav", () => {
   const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
-  if (!html.includes('isViewer()&&n.id==="orders"')) throw new Error("viewer must not see orders nav");
-  if (!html.includes('isViewer()&&module==="orders"')) throw new Error("viewer must redirect orders module");
+  if (!html.includes('isReadOnlyUser()&&n.id==="orders"')) throw new Error("read-only users must not see orders nav");
+  if (!html.includes('isReadOnlyUser()&&module==="orders"')) throw new Error("read-only users must redirect orders module");
+});
+
+assert("eng_readonly role constants and create-user option", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!code.includes('ROLE_ENG_READONLY = "eng_readonly"')) throw new Error("missing ROLE_ENG_READONLY in Code.js");
+  if (!code.includes("ทีมงาน ชวศ. ดูเท่านั้น")) throw new Error("missing eng_readonly label");
+  if (!html.includes('value="${ROLE_ENG_READONLY}"')) throw new Error("missing eng_readonly role option in create user");
+  if (!html.includes("canViewAdminData()")) throw new Error("missing canViewAdminData helper");
+  if (!html.includes("isEngReadonly()")) throw new Error("missing isEngReadonly helper");
+});
+
+assert("eng_readonly views all regions but cannot modify", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!code.includes("isEngReadonlyRole_")) throw new Error("missing isEngReadonlyRole_");
+  if (!code.includes("isReadOnlyRole_")) throw new Error("missing isReadOnlyRole_");
+  if (!code.includes("ensureDefaultEngReadonlyUser_")) throw new Error("missing ensureDefaultEngReadonlyUser_");
+  const ro = { role: "eng_readonly", region: "*" };
+  if (!canViewAllRegions_(ro)) throw new Error("eng_readonly should view all");
+  if (sessionCanModifyRegion_(ro, "กฟน.1")) throw new Error("eng_readonly must not modify orders");
+});
+
+assert("eng_readonly sees admin data columns client-side", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("canViewAdminData()?'<th class=\"py-2 px-2\">วันที่รับ/จัดส่ง</th>'") &&
+      !html.includes('canViewAdminData()?`<td data-label="วันที่รับ/จัดส่ง"')) {
+    throw new Error("pickup column should use canViewAdminData");
+  }
+  if (!html.includes("if(!canViewAdminData())return \"\"")) throw new Error("pickup cell should gate on canViewAdminData");
 });
 
 assert("change request RPC methods registered", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!code.includes("requestOrderChange: requestOrderChange")) throw new Error("missing requestOrderChange RPC");
+  if (!code.includes("updateUser: updateUser")) throw new Error("missing updateUser RPC");
+  if (!code.includes("updateOrderPickupByOrderId: updateOrderPickupByOrderId")) throw new Error("missing updateOrderPickupByOrderId RPC");
+});
+
+assert("viewer default user seeded", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("requestOrderChange: requestOrderChange")) throw new Error("missing requestOrderChange RPC");
   if (!code.includes("updateUser: updateUser")) throw new Error("missing updateUser RPC");

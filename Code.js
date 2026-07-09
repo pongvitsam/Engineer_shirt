@@ -233,13 +233,15 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "199";
+const APP_BUILD = "200";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
 const DEFAULT_SUPPORT_CONTACT = "แจ้งปัญหาการใช้งาน โทร 02-009-6703";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
+const ROLE_ENG_READONLY = "eng_readonly";
+const ROLE_ENG_READONLY_LABEL = "ทีมงาน ชวศ. ดูเท่านั้น";
 const SHEETS_READY_KEY = "SHEETS_READY_V5";
 
 const SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
@@ -320,6 +322,7 @@ const DEFAULT_USERS = [
   ["user_e3", "Peace@2569", "user",  "กฟก.3",        "ผู้ใช้งานเขต กฟก.3"],
   ["user_hq", "Peace@2569", "user",  "สำนักงานใหญ่", "ผู้ใช้งานสำนักงานใหญ่"],
   ["team_eng", "Peace@2569", "engineer", "สำนักงานใหญ่", "ทีมงาน ชวศ"],
+  ["team_eng_ro", "Peace@2569", ROLE_ENG_READONLY, "*", ROLE_ENG_READONLY_LABEL],
   ["viewer", "Peace@2569", "viewer", "*", "ผู้ดูข้อมูล (อ่านอย่างเดียว)"]
 ];
 
@@ -423,7 +426,8 @@ function normalizeRoleRegion_(username, roleValue, regionValue) {
   }
   if (role === "admin" && !region) region = "*";
   if (role === ROLE_ENGINEER && !region) region = "สำนักงานใหญ่";
-  if (role !== "admin" && role !== "user" && role !== "guest" && role !== ROLE_ENGINEER && role !== "viewer") role = "user";
+  if (role === ROLE_ENG_READONLY) region = "*";
+  if (role !== "admin" && role !== "user" && role !== "guest" && role !== ROLE_ENGINEER && role !== "viewer" && role !== ROLE_ENG_READONLY) role = "user";
   return { role: role, region: region };
 }
 
@@ -435,22 +439,30 @@ function isViewerRole_(session) {
   return !!session && session.role === "viewer";
 }
 
+function isEngReadonlyRole_(session) {
+  return !!session && session.role === ROLE_ENG_READONLY;
+}
+
+function isReadOnlyRole_(session) {
+  return isViewerRole_(session) || isEngReadonlyRole_(session);
+}
+
 function canViewAllRegions_(session) {
   if (!session) return false;
-  return session.role === "admin" || isEngineerRole_(session) || isViewerRole_(session) || session.region === "*";
+  return session.role === "admin" || isEngineerRole_(session) || isViewerRole_(session) || isEngReadonlyRole_(session) || session.region === "*";
 }
 
 function sessionCanViewRegion_(session, rowRegion) {
   if (!session) return false;
   if (session.role === "admin" || session.region === "*") return true;
-  if (isEngineerRole_(session)) return true;
+  if (isEngineerRole_(session) || isEngReadonlyRole_(session)) return true;
   if (!session.region) return false;
   return String(rowRegion) === String(session.region);
 }
 
 function sessionCanModifyRegion_(session, rowRegion) {
   if (!session) return false;
-  if (isViewerRole_(session)) return false;
+  if (isReadOnlyRole_(session)) return false;
   if (session.role === "admin" || session.region === "*") return true;
   if (!session.region) return false;
   return String(rowRegion) === String(session.region);
@@ -493,6 +505,7 @@ function login(username, password) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureUsersSheetMigrated_(ss);
   ensureDefaultViewerUser_(ss);
+  ensureDefaultEngReadonlyUser_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const width = Math.max(sheet.getLastColumn(), 7);
   const rows = getDataRows_(sheet, width);
@@ -674,6 +687,10 @@ function ensureDefaultEngineerUser_(ss) {
   ensureDefaultUserByUsername_(ss, "team_eng");
 }
 
+function ensureDefaultEngReadonlyUser_(ss) {
+  ensureDefaultUserByUsername_(ss, "team_eng_ro");
+}
+
 function ensureDefaultViewerUser_(ss) {
   ensureDefaultUserByUsername_(ss, "viewer");
 }
@@ -787,12 +804,15 @@ function createUser(token, payload) {
   const username = String(payload.username || "").trim();
   const password = String(payload.password || "");
   const role = String(payload.role || "user");
-  const region = String(payload.region || "");
+  let region = String(payload.region || "");
   const displayName = String(payload.displayName || username);
   if (!username || !password) throw new Error("กรอกชื่อผู้ใช้และรหัสผ่าน");
   if (password.length < 4) throw new Error("รหัสผ่านต้องอย่างน้อย 4 ตัว");
-  if (role !== "admin" && role !== "user" && role !== ROLE_ENGINEER && role !== "viewer") {
+  if (role !== "admin" && role !== "user" && role !== ROLE_ENGINEER && role !== "viewer" && role !== ROLE_ENG_READONLY) {
     throw new Error("ตำแหน่งไม่ถูกต้อง");
+  }
+  if (role === ROLE_ENG_READONLY) {
+    region = "*";
   }
   if (role === ROLE_ENGINEER) {
     if (!region || region === "*") region = "สำนักงานใหญ่";
@@ -1358,8 +1378,8 @@ function assertUserCanModifyOwnOrder_(session, groupStatus, paymentStatus) {
 
 function assertUserCanManageSlip_(session, paymentStatus) {
   if (!session || session.role === "admin") return;
-  if (isViewerRole_(session)) {
-    throw new Error("บัญชีผู้ดูข้อมูลแก้ไขสลิปไม่ได้");
+  if (isReadOnlyRole_(session)) {
+    throw new Error("บัญชีดูอย่างเดียว แก้ไขสลิปไม่ได้");
   }
   if (isFreeGiveawayPayment_(paymentStatus)) {
     throw new Error("เสื้อแจกฟรี แก้ไขสลิปไม่ได้");
@@ -1371,7 +1391,7 @@ function assertUserCanManageSlip_(session, paymentStatus) {
 
 function assertUserCanModifyOrderNote_(session, paymentStatus) {
   if (!session || session.role === "admin") return;
-  if (isViewerRole_(session)) {
+  if (isReadOnlyRole_(session)) {
     throw new Error("บัญชีผู้ดูข้อมูลแก้ไขหมายเหตุไม่ได้");
   }
   if (isPaymentLocked_(paymentStatus)) {
@@ -2565,6 +2585,7 @@ function initializeSheets_() {
   migrateUsersPasswordPlainColumn_(ss);
   ensureDefaultEngineerUser_(ss);
   ensureDefaultViewerUser_(ss);
+  ensureDefaultEngReadonlyUser_(ss);
 
   PropertiesService.getScriptProperties().setProperty(SHEETS_READY_KEY, "1");
 }
@@ -3124,7 +3145,7 @@ function sanitizeOrderForClient_(order) {
 function sanitizeOrderForViewer_(order, session) {
   const out = sanitizeOrderForClient_(order);
   if (!session || session.role === "admin") return out;
-  if ((isEngineerRole_(session) || isViewerRole_(session)) && isAdminHiddenNoteRegion_(out.region)) {
+  if ((isEngineerRole_(session) || isViewerRole_(session)) && !isEngReadonlyRole_(session) && isAdminHiddenNoteRegion_(out.region)) {
     out.note = "";
   }
   return out;
