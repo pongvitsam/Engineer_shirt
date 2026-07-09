@@ -2308,9 +2308,7 @@ function reportRegionStatusSummaryHtml_(byStatusSize){
 }
 
 function paidTransferReportTitle_(){
-  const round=appData?.round||{};
-  const y=String(round.year||"").trim();
-  return y?("ยอดสั่งครั้งที่ "+y):("ยอดสั่ง "+String(round.name||"").trim());
+  return "ยอดสั่งซื้อเสื้อเขต";
 }
 
 function isUnpaidTransferOrderGroup_(g){
