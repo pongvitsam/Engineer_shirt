@@ -611,6 +611,8 @@ function getOrderGroupPaymentStatus_(orderId) {
 
 function applyLocalMutationRefresh_() {
   recalcStockFromOrders();
+  const mod=(typeof app!=="undefined"&&app)?app.currentModule:"";
+  if(isRealtimePollPausedForModule_(mod))return;
   if (typeof app !== "undefined" && app && typeof app.refreshCurrentView_ === "function") {
     Promise.resolve(app.refreshCurrentView_({ keepLocal: true })).catch(function () {});
   }
@@ -622,9 +624,12 @@ let realtimePollTimer = null;
 
 function runBackgroundBootstrapSync_() {
   if (bootstrapSyncInFlight) return Promise.resolve();
+  const pausedMod=(typeof app!=="undefined"&&app)?app.currentModule:"";
+  const skipView=isRealtimePollPausedForModule_(pausedMod);
   bootstrapSyncInFlight = true;
   return ensureAppData(true, { skipImageResolve: true }).then(function () {
     appDataStale = false;
+    if (skipView) return;
     if (typeof app !== "undefined" && app && typeof app.refreshCurrentView_ === "function") {
       return app.refreshCurrentView_({ keepLocal: true });
     }
@@ -641,6 +646,8 @@ function runBackgroundBootstrapSync_() {
 function scheduleBackgroundBootstrapSync_() {
   appDataStale = true;
   if (bootstrapSyncTimer) clearTimeout(bootstrapSyncTimer);
+  const mod=(typeof app!=="undefined"&&app)?app.currentModule:"";
+  if(isRealtimePollPausedForModule_(mod))return;
   bootstrapSyncTimer = setTimeout(function () {
     bootstrapSyncTimer = null;
     runBackgroundBootstrapSync_();
@@ -652,8 +659,13 @@ function isRealtimePollPausedForModule_(module){
 }
 
 function updateRealtimePollForModule_(module){
-  if(isRealtimePollPausedForModule_(module))stopRealtimePoll_();
-  else if(authToken&&!guestMode)startRealtimePoll_();
+  if(isRealtimePollPausedForModule_(module)){
+    stopRealtimePoll_();
+    if(bootstrapSyncTimer){clearTimeout(bootstrapSyncTimer);bootstrapSyncTimer=null;}
+  }else{
+    if(authToken&&!guestMode)startRealtimePoll_();
+    if(appDataStale)scheduleBackgroundBootstrapSync_();
+  }
 }
 
 function startRealtimePoll_() {
@@ -2486,7 +2498,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
         ${headCell("เวลาที่โอน")}
         ${headCell("จำนวนเงิน(บาท)")}
         ${headCell("รวมยอด (บาท)")}
-        ${headCell("หมายเหตu")}
+        ${headCell("หมายเหตุ")}
       </tr></thead>
       <tbody>${renderPaidTransferReportRowsHtml_(data,{print:true})}</tbody>
     </table>`;
@@ -2501,7 +2513,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
       <th class="report-transfer-col-time">เวลาที่โอน</th>
       <th class="report-transfer-col-money">จำนวนเงิน(บาท)</th>
       <th class="report-transfer-col-total">รวมยอด (บาท)</th>
-      <th class="report-transfer-col-remark">หมายเหตu</th>
+      <th class="report-transfer-col-remark">หมายเหตุ</th>
     </tr></thead>
     <tbody>${body}</tbody>
   </table>`;
@@ -3401,6 +3413,7 @@ const app = {
     opts=opts||{};
     const m=this.currentModule;
     if(m==="list"){
+      if(opts.keepLocal&&document.getElementById("order-tbody"))return;
       if(!document.getElementById("order-tbody")){
         this.paintModule("list");
       }
@@ -3430,13 +3443,18 @@ const app = {
       return;
     }
     if(m==="dashboard"){
+      if(opts.keepLocal&&document.getElementById("dash-cards"))return;
       this.paintModule("dashboard");
       await this.initDashboard();
       return;
     }
     if(m==="report"){
-      this.paintModule("report");
+      if(opts.keepLocal&&document.getElementById("report-paid-transfer-table-host"))return;
+      if(!document.getElementById("report-cards")){
+        this.paintModule("report");
+      }
       await this.initReport();
+      return;
     }
   },
 
@@ -4396,7 +4414,7 @@ const app = {
               <button type="button" onclick="app.exportPaidTransferPdf(this)" class="glass-btn-primary text-xs report-transfer-pdf-btn"><i class="fas fa-file-pdf mr-1"></i> ดาวน์โหลด PDF</button>
             </div>
           </div>
-          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว · หมายเหตu จากช่องวันที่รับ/จัดส่ง · รวมยอดนับเฉพาะที่โอนแล้ว</p>
+          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว · หมายเหตุ จากช่องวันที่รับ/จัดส่ง · รวมยอดนับเฉพาะที่โอนแล้ว</p>
           <div class="overflow-x-auto report-transfer-table-wrap glass-table-wrap">
             <div id="report-paid-transfer-table-host"></div>
           </div>

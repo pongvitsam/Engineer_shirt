@@ -61,6 +61,15 @@ assert("realtime polling paused on list dashboard report", () => {
   if (!html.includes("updateRealtimePollForModule_(module)")) throw new Error("navigate must update poll by module");
 });
 
+assert("report keepLocal skips repaint on paused pages", () => {
+  const block = html.match(/async refreshCurrentView_[\s\S]*?^  \},/m);
+  if (!block) throw new Error("refreshCurrentView_ not found");
+  const body = block[0];
+  if (!body.includes('m==="report"')) throw new Error("missing report branch");
+  if (!body.includes("report-paid-transfer-table-host")) throw new Error("report must skip keepLocal repaint");
+  if (!html.includes("if(isRealtimePollPausedForModule_(mod))return")) throw new Error("scheduleBackgroundBootstrapSync must skip paused modules");
+});
+
 assert("snapshot rollback helpers", () => {
   if (!html.includes("function snapshotOrderGroup_")) throw new Error("missing snapshotOrderGroup_");
   if (!html.includes("function restoreOrderGroupSnapshot_")) throw new Error("missing restoreOrderGroupSnapshot_");
