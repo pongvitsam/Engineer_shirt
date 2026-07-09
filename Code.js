@@ -147,6 +147,7 @@ function invokeRpc_(method, args, options) {
     addMultiSizeOrder: addMultiSizeOrder,
     updateOrderStatusByOrderId: updateOrderStatusByOrderId,
     updateOrderPickupByOrderId: updateOrderPickupByOrderId,
+    updateOrderPayDateTimeByOrderId: updateOrderPayDateTimeByOrderId,
     updateOrderNoteByOrderId: updateOrderNoteByOrderId,
     uploadOrderImage: uploadOrderImage,
     deleteOrderImage: deleteOrderImage,
@@ -232,7 +233,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "179";
+const APP_BUILD = "180";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1536,6 +1537,41 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
       pickupTime: timeStr,
       pickupNote: safeNote,
       status: nextStatus,
+      changedRows: changed
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateOrderPayDateTimeByOrderId(token, orderId, payDate, payTime) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const targetOrderId = String(orderId || "").trim();
+  if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
+  const dateStr = formatPayDateFromSheet_(payDate) || String(payDate || "").trim();
+  const timeStr = formatPayTimeFromSheet_(payTime) || String(payTime || "").trim();
+  if (!dateStr || !timeStr) throw new Error("กรุณาระบุวันที่และเวลาโอน");
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const orderSheet = ss.getSheetByName(ORDER_SHEET);
+    const values = getOrderSheetValues_(orderSheet);
+    let changed = 0;
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      if (String(row[1] || "") !== targetOrderId) continue;
+      writeOrderPayDateTime_(orderSheet, i + 1, dateStr, timeStr);
+      changed++;
+    }
+    if (changed === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
+    invalidateDataCache_();
+    return {
+      ok: true,
+      orderId: targetOrderId,
+      payDate: dateStr,
+      payTime: timeStr,
       changedRows: changed
     };
   } finally {

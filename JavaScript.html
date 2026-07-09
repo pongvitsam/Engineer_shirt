@@ -805,6 +805,15 @@ function buildPickupDateTimeFieldsHtml_(safeOid, initDate, initTime) {
   });
 }
 
+function buildPayReviewDateTimeFieldsHtml_(safeOid, initDate, initTime) {
+  return buildDateTimePickerFieldsHtml_(safeOid, initDate, initTime, {
+    prefix: "payrev",
+    icon: "fa-receipt",
+    labelDate: "วันที่โอน (แก้ไขได้) *",
+    labelTime: "เวลาโอน (แก้ไขได้) *"
+  });
+}
+
 function bindDateTimePicker_(safeOid, prefix) {
   prefix = prefix || "slip";
   const dayEl = document.getElementById(prefix + "-dt-day-" + safeOid);
@@ -3399,6 +3408,13 @@ const app = {
   async openPaymentReviewModal(orderId){
     const g=groupOrdersByOrderId(appData?.orders||[]).find(x=>x.orderId===orderId);
     if(!g)return this.showMsg("ไม่พบออเดอร์","error");
+    const safeOid=ddSafeId(orderId);
+    const initDate=normalizePayDateForInput_(g.payDate)||todayStr();
+    const initTime=normalizePayTimeForInput_(g.payTime)||nowTimeStr();
+    const payDateTimeHtml=isAdmin()
+      ?`${buildPayReviewDateTimeFieldsHtml_(safeOid,initDate,initTime)}
+        <div id="payment-review-msg" class="modal-inline-msg text-sm text-center" style="display:none" role="alert"></div>`
+      :`<div><b>วันที่โอน (จากสลิป):</b> ${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>`;
     let imgHtml='<div class="text-xs text-glass-dim py-4 text-center">กำลังโหลดรูป…</div>';
     const html=`
       <div class="login-overlay slip-upload-overlay" id="payment-review-modal" onclick="if(event.target===this)app.closePaymentReviewModal()">
@@ -3407,13 +3423,14 @@ const app = {
           <div class="slip-upload-body space-y-2">
             <div class="text-xs space-y-1">
               <div><b>วันที่สั่ง:</b> ${formatOrderTimestampCell(g.timestamp)}</div>
-              <div><b>วันที่โอน (จากสลิป):</b> ${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>
+              ${payDateTimeHtml}
               <div><b>ยอด:</b> ${fmtMoney(g.totalPrice)} ฿ · <b>เขต:</b> ${escHtml(g.region||"")}</div>
             </div>
             <div id="payment-review-img" class="payment-review-img">${imgHtml}</div>
             <p class="text-xs text-glass-dim">เสื้อแจกฟรี: ไม่รวมยอดสั่งซื้อ · แสดงเป็นขาดทุนในแดชบอร์ด</p>
           </div>
           <div class="slip-modal-actions grid grid-cols-1 gap-2">
+            ${isAdmin()?`<button onclick="app.savePaymentReviewPayDateTime('${escHtml(orderId)}',this)" class="glass-btn-secondary py-2"><i class="fas fa-save mr-1"></i>บันทึกวันเวลาโอน</button>`:""}
             <button onclick="app.closePaymentReviewModal()" class="glass-btn-secondary py-2">ปิด</button>
             <button id="payment-accept-btn" onclick="app.acceptOrderPayment('${escHtml(orderId)}',this)" class="glass-btn-primary py-2" ${String(g.paymentStatus||"")==="ชำระเงินแล้ว"||isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}>ยอมรับการชำระ</button>
             <button onclick="app.markOrderFreeGiveaway('${escHtml(orderId)}',this)" class="glass-btn py-2" style="background:rgba(109,40,217,.5)" ${isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}><i class="fas fa-gift mr-1"></i>เสื้อแจกฟรี</button>
@@ -3423,6 +3440,7 @@ const app = {
     const wrap=document.createElement("div");
     wrap.innerHTML=html;
     document.body.appendChild(wrap.firstElementChild);
+    if(isAdmin())bindDateTimePicker_(safeOid,"payrev");
     try{
       const res=await callAuthed("getOrderImage",orderId);
       const box=document.getElementById("payment-review-img");
@@ -3456,6 +3474,44 @@ const app = {
   closePaymentReviewModal(){
     const m=document.getElementById("payment-review-modal");
     if(m)m.remove();
+  },
+
+  showPaymentReviewModalMsg(msg,type){
+    const el=document.getElementById("payment-review-msg");
+    if(!el){this.showMsg(msg,type);return;}
+    el.className="text-sm text-center font-semibold fade-in modal-inline-msg " +
+      (type==="success"?"glass-msg-success":(type==="warning"?"glass-msg-success":"glass-msg-error"));
+    el.style.display="block";
+    el.textContent=type==="warning"?"⚠️ "+msg:msg;
+  },
+
+  clearPaymentReviewModalMsg(){
+    const el=document.getElementById("payment-review-msg");
+    if(el){el.style.display="none";el.textContent="";}
+  },
+
+  async savePaymentReviewPayDateTime(orderId,btn){
+    if(!isAdmin())return;
+    const safeOid=ddSafeId(orderId);
+    const payDate=String(document.getElementById("payrev-pay-date-"+safeOid)?.value||"").trim();
+    const payTime=String(document.getElementById("payrev-pay-time-"+safeOid)?.value||"").trim();
+    this.clearPaymentReviewModalMsg();
+    if(!payDate||!payTime)return this.showPaymentReviewModalMsg("กรุณาเลือกวันที่และเวลาโอน","error");
+    const snap=snapshotOrderGroup_(orderId);
+    applyLocalOrderSlipUpdate_(orderId,{payDate:payDate,payTime:payTime});
+    refreshAfterMutation_({ keepLocal: true });
+    try{
+      const res=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
+        return await callAuthed("updateOrderPayDateTimeByOrderId",orderId,payDate,payTime);
+      });
+      applyLocalOrderSlipUpdate_(orderId,res);
+      this.showPaymentReviewModalMsg("บันทึกวันเวลาโอนแล้ว","success");
+      scheduleBackgroundBootstrapSync_();
+    }catch(e){
+      restoreOrderGroupSnapshot_(orderId,snap);
+      refreshAfterMutation_({ keepLocal: true });
+      this.showPaymentReviewModalMsg(e.message||"บันทึกไม่สำเร็จ","error");
+    }
   },
 
   async acceptOrderPayment(orderId,btn){
