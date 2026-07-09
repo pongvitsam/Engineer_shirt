@@ -233,7 +233,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "185";
+const APP_BUILD = "186";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1507,9 +1507,10 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
   if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
   const dateStr = formatPayDateFromSheet_(pickupDate) || String(pickupDate || "").trim();
   const timeStr = formatPayTimeFromSheet_(pickupTime) || String(pickupTime || "").trim();
-  if (!dateStr || !timeStr) throw new Error("กรุณาระบุวันที่และเวลารับ/จัดส่ง");
   const safeNote = String(pickupNote == null ? "" : pickupNote).trim().substring(0, 120);
-  const nextStatus = resolvePickupStatusFromDeliveryMode_(deliveryMode);
+  const hasDateTime = !!(dateStr && timeStr);
+  if (!hasDateTime && !safeNote) throw new Error("กรุณาระบุหมายเหตุ หรือวันที่และเวลารับ/จัดส่ง");
+  const nextStatus = hasDateTime ? resolvePickupStatusFromDeliveryMode_(deliveryMode) : null;
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
   try {
@@ -1517,15 +1518,24 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
     const values = getOrderSheetValues_(orderSheet);
     let changed = 0;
+    let savedDate = "";
+    let savedTime = "";
     for (let i = 1; i < values.length; i++) {
       const row = values[i];
       if (String(row[1] || "") !== targetOrderId) continue;
       const rowNo = i + 1;
-      orderSheet.getRange(rowNo, 19).setNumberFormat("@");
-      orderSheet.getRange(rowNo, 20).setNumberFormat("@");
-      orderSheet.getRange(rowNo, 19, 1, 2).setValues([[dateStr, timeStr]]);
+      if (hasDateTime) {
+        orderSheet.getRange(rowNo, 19).setNumberFormat("@");
+        orderSheet.getRange(rowNo, 20).setNumberFormat("@");
+        orderSheet.getRange(rowNo, 19, 1, 2).setValues([[dateStr, timeStr]]);
+        savedDate = dateStr;
+        savedTime = timeStr;
+      } else {
+        savedDate = formatPayDateFromSheet_(row[18]) || String(row[18] || "").trim();
+        savedTime = formatPayTimeFromSheet_(row[19]) || String(row[19] || "").trim();
+      }
       orderSheet.getRange(rowNo, 21).setValue(safeNote);
-      orderSheet.getRange(rowNo, 9).setValue(nextStatus);
+      if (hasDateTime) orderSheet.getRange(rowNo, 9).setValue(nextStatus);
       changed++;
     }
     if (changed === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
@@ -1533,10 +1543,11 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
     return {
       ok: true,
       orderId: targetOrderId,
-      pickupDate: dateStr,
-      pickupTime: timeStr,
+      pickupDate: savedDate,
+      pickupTime: savedTime,
       pickupNote: safeNote,
-      status: nextStatus,
+      status: hasDateTime ? nextStatus : undefined,
+      noteOnly: !hasDateTime,
       changedRows: changed
     };
   } finally {

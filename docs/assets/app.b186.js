@@ -799,8 +799,8 @@ function buildPickupDateTimeFieldsHtml_(safeOid, initDate, initTime) {
   return buildDateTimePickerFieldsHtml_(safeOid, initDate, initTime, {
     prefix: "pickup",
     icon: "fa-truck",
-    labelDate: "วันที่เข้ามารับ/จัดส่ง *",
-    labelTime: "เวลารับ/จัดส่ง *"
+    labelDate: "วันที่เข้ามารับ/จัดส่ง (ไม่บังคับ)",
+    labelTime: "เวลารับ/จัดส่ง (ไม่บังคับ)"
   });
 }
 
@@ -1472,13 +1472,13 @@ function shouldHideOrderNoteForViewer_(g){
 function renderPickupDeliveryCell_(g){
   if(!isAdmin())return "";
   const hasPickup=!!(String(g.pickupDate||"").trim()&&String(g.pickupTime||"").trim());
+  const note=String(g.pickupNote||"").trim();
   let display=hasPickup
     ?`<div class="text-xs">${formatThaiDateTimeCell(g.pickupDate,g.pickupTime)}</div>`
-    :`<span class="text-glass-dim text-xs">-</span>`;
-  const note=String(g.pickupNote||"").trim();
+    :(note?"":`<span class="text-glass-dim text-xs">-</span>`);
   if(note)display+=`<div class="order-pickup-note text-xs text-glass-dim mt-1">${escHtml(note)}</div>`;
-  const btnLabel=hasPickup?"แก้ไข":"บันทึก";
-  const btnIcon=hasPickup?"fa-edit":"fa-calendar-plus";
+  const btnLabel=(hasPickup||note)?"แก้ไข":"บันทึก";
+  const btnIcon=(hasPickup||note)?"fa-edit":"fa-calendar-plus";
   return `<div class="order-pickup-cell">
     ${display}
     <button type="button" onclick="app.openPickupModal('${escHtml(g.orderId)}')" class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .55rem"><i class="fas ${btnIcon}"></i> ${btnLabel}</button>
@@ -3300,14 +3300,21 @@ const app = {
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     this.closePickupModal();
     const safeOid=ddSafeId(orderId);
-    const initDate=normalizePayDateForInput_(orderGroup.pickupDate)||todayStr();
-    const initTime=normalizePayTimeForInput_(orderGroup.pickupTime)||nowTimeStr();
+    const hasExistingPickup=!!(String(orderGroup.pickupDate||"").trim()&&String(orderGroup.pickupTime||"").trim());
+    const initDate=hasExistingPickup?(normalizePayDateForInput_(orderGroup.pickupDate)||""):"";
+    const initTime=hasExistingPickup?(normalizePayTimeForInput_(orderGroup.pickupTime)||""):"";
     const initNote=String(orderGroup.pickupNote||"");
+    const dtFieldsHtml=hasExistingPickup
+      ?`<div id="pickup-dt-wrap-${safeOid}">${buildPickupDateTimeFieldsHtml_(safeOid,initDate,initTime)}</div>`
+      :`<input type="hidden" id="pickup-pay-date-${safeOid}" value="">
+            <input type="hidden" id="pickup-pay-time-${safeOid}" value="">
+            <div id="pickup-dt-wrap-${safeOid}" style="display:none"></div>
+            <button type="button" id="pickup-dt-toggle-${safeOid}" onclick="app.showPickupDateTimeFields('${escHtml(orderId)}')" class="glass-btn-secondary text-xs py-2 w-full"><i class="fas fa-calendar-plus"></i> ระบุวันที่/เวลา (ไม่บังคับ)</button>`;
     const html=`
       <div class="login-overlay slip-upload-overlay" id="pickup-modal" onclick="if(event.target===this)app.closePickupModal()">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">วันที่เข้ามารับ/จัดส่ง #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
-          <p class="login-sub text-xs">เลือกประเภท · บันทึกแล้วระบบจะตั้งสถานะเป็น <b>จัดส่งแล้ว</b> หรือ <b>ได้รับแล้ว</b> อัตโนมัติ</p>
+          <p class="login-sub text-xs">บันทึกหมายเหตุอย่างเดียวได้ · ถ้าระบุวันที่/เวลา ระบบจะตั้งสถานะเป็น <b>จัดส่งแล้ว</b> หรือ <b>ได้รับแล้ว</b> อัตโนมัติ</p>
           <div class="slip-upload-body space-y-2">
             <div>
               <span class="glass-label">ประเภท</span>
@@ -3316,7 +3323,7 @@ const app = {
                 <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="จัดส่ง"> จัดส่ง</label>
               </div>
             </div>
-            ${buildPickupDateTimeFieldsHtml_(safeOid,initDate,initTime)}
+            ${dtFieldsHtml}
             <div>
               <label class="glass-label" for="pickup-note-${safeOid}">หมายเหตุ (ไม่บังคับ)</label>
               <textarea id="pickup-note-${safeOid}" class="glass-input text-sm cart-edit-note-input" maxlength="120" rows="2" placeholder="เช่น ผู้มารับ, จุดส่ง">${escHtml(initNote)}</textarea>
@@ -3336,6 +3343,17 @@ const app = {
     document.addEventListener("keydown",escHandler);
     const m=document.getElementById("pickup-modal");
     if(m)m._escHandler=escHandler;
+    if(hasExistingPickup)bindPickupDateTimePicker_(safeOid);
+  },
+  showPickupDateTimeFields(orderId){
+    if(!isAdmin())return;
+    const safeOid=ddSafeId(orderId);
+    const wrap=document.getElementById("pickup-dt-wrap-"+safeOid);
+    const toggle=document.getElementById("pickup-dt-toggle-"+safeOid);
+    if(!wrap||wrap.querySelector(".glass-datetime-panel"))return;
+    wrap.style.display="block";
+    wrap.innerHTML=buildPickupDateTimeFieldsHtml_(safeOid,todayStr(),nowTimeStr());
+    if(toggle)toggle.style.display="none";
     bindPickupDateTimePicker_(safeOid);
   },
   closePickupModal(){
@@ -3357,10 +3375,14 @@ const app = {
     const pickupTime=String(document.getElementById("pickup-pay-time-"+safeOid)?.value||"").trim();
     const pickupNote=String(document.getElementById("pickup-note-"+safeOid)?.value||"").trim();
     const deliveryMode=String(document.querySelector('input[name="pickup-mode-'+safeOid+'"]:checked')?.value||"มารับ").trim();
-    if(!pickupDate||!pickupTime)return this.showPickupModalMsg("กรุณาเลือกวันที่และเวลา","error");
+    const hasDateTime=!!(pickupDate&&pickupTime);
+    if(!hasDateTime&&!pickupNote)return this.showPickupModalMsg("กรุณาระบุหมายเหตุ หรือวันที่และเวลา","error");
     const snap=snapshotOrderGroup_(orderId);
-    const nextStatus=deliveryMode==="จัดส่ง"?ORDER_STATUS_SHIPPED:ORDER_STATUS_RECEIVED;
-    applyLocalOrderPickupUpdate_(orderId,{pickupDate:pickupDate,pickupTime:pickupTime,pickupNote:pickupNote,status:nextStatus});
+    const nextStatus=hasDateTime?(deliveryMode==="จัดส่ง"?ORDER_STATUS_SHIPPED:ORDER_STATUS_RECEIVED):null;
+    const localPatch=hasDateTime
+      ?{pickupDate:pickupDate,pickupTime:pickupTime,pickupNote:pickupNote,status:nextStatus}
+      :{pickupNote:pickupNote};
+    applyLocalOrderPickupUpdate_(orderId,localPatch);
     this.closePickupModal();
     refreshAfterMutation_({ keepLocal: true });
     await new Promise(function(r){setTimeout(r,0);});
@@ -3369,7 +3391,9 @@ const app = {
         return await callAuthed("updateOrderPickupByOrderId",orderId,pickupDate,pickupTime,pickupNote,deliveryMode);
       });
       applyLocalOrderPickupUpdate_(orderId,res);
-      this.showMsg("บันทึกวันที่รับ/จัดส่งแล้ว · สถานะ: "+escHtml(res.status||nextStatus),"success");
+      this.showMsg(hasDateTime
+        ?("บันทึกวันที่รับ/จัดส่งแล้ว · สถานะ: "+escHtml(res.status||nextStatus))
+        :"บันทึกหมายเหตุรับ/จัดส่งแล้ว","success");
       scheduleBackgroundBootstrapSync_();
     }catch(e){
       restoreOrderGroupSnapshot_(orderId,snap);
