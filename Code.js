@@ -33,19 +33,19 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 
-  // Default GAS URL → GitHub Pages (primary app)
-  if (String(params.gas || "") !== "1") {
+  // ?pages=1 → static GitHub Pages mirror (may lag behind clasp deploy)
+  if (String(params.pages || "") === "1") {
     return redirectToGithubPages_();
   }
 
-  // ?gas=1 → GAS-hosted UI (uses google.script bridge)
+  // Default GAS URL → GAS-hosted UI (always current after clasp push + deploy)
   const tpl = HtmlService.createTemplateFromFile("Index");
   tpl.assetBaseUrl = ScriptApp.getService().getUrl();
   tpl.assetVersion = APP_BUILD;
-  tpl.peaceGasAdminOnly = "true";
+  tpl.peaceGasAdminOnly = String(params.gas || "") === "1" ? "true" : "false";
 
   return tpl.evaluate()
-    .setTitle("ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค (แอดมิน GAS)")
+    .setTitle("ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
 }
@@ -61,7 +61,7 @@ function redirectToGithubPages_() {
     "<script>location.replace(" + JSON.stringify(url) + ");</script></head>" +
     "<body style=\"font-family:sans-serif;text-align:center;padding:2rem\">" +
     "<p>กำลังไปยังแอปหลัก… <a href=\"" + url + "\">คลิกที่นี่</a></p>" +
-    "<p style=\"font-size:.85rem;opacity:.7\">แอดมิน GAS: เพิ่ม <code>?gas=1</code> ที่ท้าย URL</p>" +
+    "<p style=\"font-size:.85rem;opacity:.7\">แอปหลัก: ใช้ URL Google Apps Script โดยตรง (อัปเดตทันที)</p>" +
     "</body></html>";
   return HtmlService.createHtmlOutput(html)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -233,7 +233,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "187";
+const APP_BUILD = "188";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
