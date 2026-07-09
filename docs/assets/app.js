@@ -1659,6 +1659,80 @@ function orderListPaymentFilterOptionsHtml_(){
   }).join("");
 }
 
+function computeOrderListSummary_(orders){
+  const sizes=appData?.stockSizes||[];
+  const bySize={};
+  sizes.forEach(function(s){bySize[s]=0;});
+  let totalQty=0,totalMoney=0,receivedQty=0,waitingQty=0,notPaidQty=0;
+  (Array.isArray(orders)?orders:[]).forEach(function(o){
+    if(!shouldCountInDashboard_(o))return;
+    const qty=Number(o.qty)||0;
+    const price=Number(o.price)||0;
+    const size=String(o.size||"").trim();
+    const ps=String(o.paymentStatus||"").trim();
+    const st=normalizeOrderStatus_(o.status||o.orderStatus);
+    if(size){
+      if(bySize[size]===undefined)bySize[size]=0;
+      bySize[size]+=qty;
+    }
+    totalQty+=qty;
+    if(!isFreeGiveawayPayment(ps))totalMoney+=price;
+    if(!isPaymentVerified(ps)&&!isFreeGiveawayPayment(ps))notPaidQty+=qty;
+    else if(st===ORDER_STATUS_RECEIVED)receivedQty+=qty;
+    else waitingQty+=qty;
+  });
+  return {sizes:sizes,bySize:bySize,totalQty:totalQty,totalMoney:totalMoney,receivedQty:receivedQty,waitingQty:waitingQty,notPaidQty:notPaidQty};
+}
+
+function renderOrderListSummaryHtml_(summary){
+  summary=summary||{};
+  const colSpan=orderListColSpan_();
+  const sizeParts=(summary.sizes||[]).map(function(s){
+    const q=Number(summary.bySize&&summary.bySize[s])||0;
+    return q>0?`<span class="order-list-summary-size"><span class="size-badge ${sizeClass(s)}">${escHtml(s)}</span> ${q} ตัว</span>`:"";
+  }).filter(Boolean);
+  const sizeLine=sizeParts.length
+    ?`<div class="order-list-summary-line"><span class="order-list-summary-label">แยกไซส์:</span> ${sizeParts.join('<span class="order-list-summary-sep"> · </span>')}</div>`
+    :"";
+  return `<tr class="order-list-summary-row"><td colspan="${colSpan}" class="order-list-summary-cell">
+    <div class="order-list-summary">
+      <div class="order-list-summary-title"><i class="fas fa-calculator mr-1"></i>สรุปรายการที่แสดง</div>
+      ${sizeLine}
+      <div class="order-list-summary-line order-list-summary-totals">
+        <span><b>รวม</b> ${summary.totalQty||0} ตัว</span>
+        <span class="order-list-summary-sep">·</span>
+        <span><b>ยอด</b> ${fmtMoney(summary.totalMoney||0)} ฿</span>
+        <span class="order-list-summary-sep">·</span>
+        <span><b>รับแล้ว</b> ${summary.receivedQty||0} ตัว</span>
+        <span class="order-list-summary-sep">·</span>
+        <span><b>รอรับ</b> ${summary.waitingQty||0} ตัว</span>
+        <span class="order-list-summary-sep">·</span>
+        <span><b>ยังไม่โอน</b> ${summary.notPaidQty||0} ตัว</span>
+      </div>
+    </div>
+  </td></tr>`;
+}
+
+function updateOrderListSummary_(){
+  const tfoot=document.getElementById("order-list-summary");
+  if(!tfoot)return;
+  const visibleIds={};
+  document.querySelectorAll("#order-table tbody tr[data-order-id]").forEach(function(tr){
+    if(tr.style.display==="none")return;
+    const oid=tr.getAttribute("data-order-id");
+    if(oid)visibleIds[oid]=true;
+  });
+  const ids=Object.keys(visibleIds);
+  if(!ids.length){
+    tfoot.innerHTML="";
+    tfoot.style.display="none";
+    return;
+  }
+  const orders=(appData?.orders||[]).filter(function(o){return visibleIds[String(o.orderId)];});
+  tfoot.innerHTML=renderOrderListSummaryHtml_(computeOrderListSummary_(orders));
+  tfoot.style.display="";
+}
+
 function orderImageDisplaySrc(res){
   if(!res)return "";
   if(res.dataUrl)return String(res.dataUrl);
@@ -3004,6 +3078,7 @@ const app = {
               <th class="py-2 px-1"></th>
             </tr></thead>
             <tbody id="order-tbody">${body}</tbody>
+            <tfoot id="order-list-summary"></tfoot>
           </table>
         </div>
         ${renderTransferAccountBlock_({compact:true})}
@@ -3061,6 +3136,7 @@ const app = {
     const grouped=sortOrderGroupsForList_(groupOrdersByOrderId(orders));
     if(grouped.length===0){
       tbody.innerHTML='<tr><td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>';
+      updateOrderListSummary_();
       return;
     }
     // Render each order group independently so one malformed order can never
@@ -3121,7 +3197,7 @@ const app = {
       :`<span class="text-glass-dim text-xs">-</span>`;
     const shortId=shortOrderLabel_(g.orderId);
     return `
-      <tr data-region="${escHtml(g.region)}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}" data-payment-status="${escAttr(paymentStatusLabel(g.paymentStatus).toLowerCase())}">
+      <tr data-region="${escHtml(g.region)}" data-order-id="${escAttr(g.orderId)}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}" data-payment-status="${escAttr(paymentStatusLabel(g.paymentStatus).toLowerCase())}">
         <td data-label="ออเดอร์" class="py-2 px-2 text-center font-bold" title="${escAttr(g.orderId)}">#${escHtml(shortId)}</td>
         <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
         <td data-label="รายการ" class="py-2 px-2">${itemsLabel}</td>
@@ -3179,6 +3255,7 @@ const app = {
     }else if(emptyRow){
       emptyRow.remove();
     }
+    updateOrderListSummary_();
   },
 
   async changeGroupStatus(orderId,status){
