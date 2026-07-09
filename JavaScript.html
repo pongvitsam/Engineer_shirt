@@ -2331,6 +2331,92 @@ function isUnpaidTransferOrderGroup_(g){
   return !isPaymentVerified(g.paymentStatus);
 }
 
+function isAbnormalDuplicateEligible_(g){
+  if(!g||!shouldCountInDashboard_(g))return false;
+  if(isFreeGiveawayPayment(g.paymentStatus))return false;
+  const ps=String(g.paymentStatus||"").trim();
+  if(!isPaymentVerified(ps)&&ps!=="รอตรวจสลิป")return false;
+  const amount=Number(g.totalPrice)||0;
+  const qty=Number(g.totalQty)||0;
+  if(amount<=0||qty<=0)return false;
+  if(!normalizePayDateForInput_(g.payDate)||!normalizePayTimeForInput_(g.payTime))return false;
+  return true;
+}
+
+function buildAbnormalDuplicateKey_(g){
+  const amount=Number(g.totalPrice)||0;
+  const qty=Number(g.totalQty)||0;
+  const payDate=normalizePayDateForInput_(g.payDate)||"";
+  const payTime=normalizePayTimeForInput_(g.payTime)||"";
+  return amount+"|"+payDate+"|"+payTime+"|"+qty;
+}
+
+function computeAbnormalDuplicateOrders_(){
+  const groups=groupOrdersByOrderId(appData?.orders||[]).filter(isAbnormalDuplicateEligible_);
+  const byKey={};
+  groups.forEach(function(g){
+    const key=buildAbnormalDuplicateKey_(g);
+    if(!byKey[key]){
+      byKey[key]={
+        amount:Number(g.totalPrice)||0,
+        qty:Number(g.totalQty)||0,
+        payDate:g.payDate,
+        payTime:g.payTime,
+        orders:[]
+      };
+    }
+    byKey[key].orders.push(g);
+  });
+  return Object.values(byKey).filter(function(b){return b.orders.length>=2;}).sort(function(a,b){
+    const da=normalizePayDateForInput_(a.payDate)||"",db=normalizePayDateForInput_(b.payDate)||"";
+    if(da!==db)return da.localeCompare(db);
+    const ta=normalizePayTimeForInput_(a.payTime)||"",tb=normalizePayTimeForInput_(b.payTime)||"";
+    if(ta!==tb)return ta.localeCompare(tb);
+    return (Number(b.amount)||0)-(Number(a.amount)||0);
+  });
+}
+
+function renderAbnormalOrdersSectionHtml_(){
+  const groups=computeAbnormalDuplicateOrders_();
+  if(!groups.length){
+    return `<p class="report-abnormal-empty text-sm text-glass-dim">ไม่พบรายการที่ผิดปกติ</p>`;
+  }
+  const blocks=groups.map(function(grp,idx){
+    const dateLabel=formatThaiDate(grp.payDate);
+    const timeLabel=formatThaiTime(grp.payTime);
+    const summary=fmtMoney(grp.amount)+" ฿ · "+dateLabel+(timeLabel?" "+timeLabel:"")+" · "+grp.qty+" ตัว";
+    const rows=grp.orders.map(function(g){
+      const payCls=paymentStatusBadgeClass(g.paymentStatus);
+      const payLabel=paymentStatusLabel(g.paymentStatus);
+      return `<tr>
+        <td data-label="ออเดอร์" class="py-2 px-2 font-semibold">#${escHtml(shortOrderLabel_(g.orderId))}</td>
+        <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
+        <td data-label="การชำระ" class="py-2 px-2"><span class="status-badge ${payCls}">${escHtml(payLabel)}</span></td>
+        <td data-label="วันที่/เวลาโอน" class="py-2 px-2">${formatThaiDateTimeCell(g.payDate,g.payTime)}</td>
+        <td data-label="จำนวน" class="py-2 px-2 text-center font-bold">${g.totalQty}</td>
+        <td data-label="ยอด" class="py-2 px-2 text-right">${fmtMoney(g.totalPrice)}</td>
+      </tr>`;
+    }).join("");
+    return `<div class="report-abnormal-group">
+      <div class="report-abnormal-group-head">กลุ่ม ${idx+1}: ${escHtml(summary)} · ${grp.orders.length} ออเดอร์</div>
+      <div class="overflow-x-auto glass-table-wrap">
+        <table class="glass-table report-abnormal-table w-full text-xs">
+          <thead><tr>
+            <th class="py-2 px-2 text-left">ออเดอร์</th>
+            <th class="py-2 px-2 text-left">เขต</th>
+            <th class="py-2 px-2 text-left">การชำระ</th>
+            <th class="py-2 px-2 text-left">วันที่/เวลาโอน</th>
+            <th class="py-2 px-2 text-center">จำนวน</th>
+            <th class="py-2 px-2 text-right">ยอด (฿)</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join("");
+  return `<div class="report-abnormal-groups">${blocks}</div>`;
+}
+
 function formatPaidTransferReportRemark_(g){
   return String(g&&g.pickupNote||"").trim();
 }
@@ -4505,6 +4591,11 @@ const app = {
     return `
       <div class="glass-card p-4 space-y-4">
         <h2 class="text-lg font-bold glass-section-title border-b glass-divider pb-2"><i class="fas fa-file-alt mr-1"></i>รายงาน</h2>
+        ${isAdmin()?`<div class="report-abnormal-wrap">
+          <h3 class="text-sm font-bold glass-section-title mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> รายการที่ผิดปกติ</h3>
+          <p class="text-xs text-glass-dim mb-2">ออเดอร์ที่มียอด วันเวลาโอน และจำนวนเสื้อตรงกัน (ชำระแล้วหรือรอตรวจสลิป) — อาจเป็นสลิปซ้ำ</p>
+          <div id="report-abnormal-host"></div>
+        </div>`:""}
         <div id="report-cards"></div>
         <div>
           <h3 class="text-sm font-bold glass-section-title mb-2"><i class="fas fa-map-marker-alt mr-1"></i> ยอดสั่งตามเขต</h3>
@@ -4552,6 +4643,10 @@ const app = {
   initReport(){
     const r=computeSalesReport();
     const t=r.totals, p=r.pendingPayment;
+    if(isAdmin()){
+      const abHost=document.getElementById("report-abnormal-host");
+      if(abHost)abHost.innerHTML=renderAbnormalOrdersSectionHtml_();
+    }
     document.getElementById("report-cards").innerHTML=`
       <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดสั่งซื้อ (ตัว)</div><div class="glass-stat-value">${t.totalQty}</div></div>
       <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-xl">${fmtMoney(t.totalAmount)}</div></div>

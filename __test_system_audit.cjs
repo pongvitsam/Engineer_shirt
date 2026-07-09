@@ -434,6 +434,18 @@ assert("paid transfer report merges region and total cells", () => {
   if (!html.includes("renderPaidTransferReportFootHtml_")) throw new Error("missing transfer report footer row");
 });
 
+assert("abnormal duplicate orders section is admin-only on report", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("computeAbnormalDuplicateOrders_")) throw new Error("missing computeAbnormalDuplicateOrders_");
+  if (!html.includes("buildAbnormalDuplicateKey_")) throw new Error("missing buildAbnormalDuplicateKey_");
+  if (!html.includes("renderAbnormalOrdersSectionHtml_")) throw new Error("missing renderAbnormalOrdersSectionHtml_");
+  if (!html.includes("isAbnormalDuplicateEligible_")) throw new Error("missing isAbnormalDuplicateEligible_");
+  if (!html.includes("ไม่พบรายการที่ผิดปกติ")) throw new Error("missing abnormal orders empty message");
+  if (!html.includes('isAdmin()?`<div class="report-abnormal-wrap">')) throw new Error("abnormal section must gate on isAdmin()");
+  if (html.includes("canViewAdminData()?`<div class=\"report-abnormal-wrap\">")) throw new Error("abnormal section must not use canViewAdminData");
+  if (!html.includes('ps!=="รอตรวจสลิป"')) throw new Error("abnormal duplicate must include pending slip review");
+});
+
 assert("password set/login uses normalized trim", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("function normalizePasswordInput_")) throw new Error("missing normalizePasswordInput_");
