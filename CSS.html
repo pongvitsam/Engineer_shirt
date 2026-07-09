@@ -77,6 +77,34 @@
 .order-list-summary-totals{display:flex;flex-wrap:wrap;align-items:center;gap:.15rem .35rem;margin-top:.35rem}
 .order-list-summary-totals b{color:rgba(255,255,255,.75);font-weight:600}
 @media (max-width:480px){.order-list-toolbar{align-items:stretch}.order-list-actions{width:100%;justify-content:stretch}.order-list-filter,.order-list-search{flex:1 1 100%;min-width:0}.order-list-add{flex:0 0 auto;margin-left:auto}.order-list-summary-totals{flex-direction:column;align-items:flex-start;gap:.2rem}.order-list-summary-sep{display:none}}
+.report-transfer-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem}
+.report-transfer-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.65rem}
+.report-transfer-toggle{display:inline-flex;align-items:center;gap:.4rem;cursor:pointer;color:rgba(255,255,255,.88)}
+.report-transfer-toggle input{width:1rem;height:1rem;accent-color:#6D28D9}
+.report-transfer-pdf-btn{padding:.45rem .85rem;white-space:nowrap}
+.report-transfer-table-wrap{margin-bottom:.25rem}
+.report-transfer-table{width:100%;border-collapse:collapse;font-size:var(--fs-xs)}
+.report-transfer-table th,.report-transfer-table td{border:1px solid rgba(255,255,255,.22);padding:.45rem .5rem;vertical-align:middle}
+.report-transfer-table thead th{background:rgba(16,124,65,.82);color:#fff;font-weight:700;text-align:center;white-space:nowrap}
+.report-transfer-table tbody td{background:rgba(255,255,255,.06);color:rgba(255,255,255,.92)}
+.report-transfer-table tbody tr:nth-child(even) td{background:rgba(255,255,255,.1)}
+.report-transfer-region{font-weight:700;text-align:center;white-space:nowrap;background:rgba(255,255,255,.12)!important}
+.report-transfer-num{text-align:center;white-space:nowrap}
+.report-transfer-money,.report-transfer-total{text-align:right;font-variant-numeric:tabular-nums}
+.report-transfer-date,.report-transfer-time{text-align:center;white-space:nowrap}
+.report-transfer-remark{text-align:left;min-width:6rem;word-break:break-word}
+.report-transfer-qty-unpaid{color:#fca5a5!important;font-weight:700}
+.report-transfer-print-root{position:fixed;left:-10000px;top:0;width:1120px;background:#fff;color:#111;padding:16px;z-index:-1}
+.report-transfer-print-sheet{font-family:Sarabun,sans-serif;color:#111}
+.report-transfer-print-title{font-size:18px;font-weight:700;margin-bottom:4px}
+.report-transfer-print-meta{font-size:12px;color:#444;margin-bottom:10px}
+.report-transfer-print-foot{margin-top:10px;font-size:13px;font-weight:700;text-align:right}
+.report-transfer-table-print th,.report-transfer-table-print td{border:1px solid #666;color:#111;background:#fff}
+.report-transfer-table-print thead th{background:#107c41;color:#fff}
+.report-transfer-table-print tbody tr:nth-child(even) td{background:#eef6ff}
+.report-transfer-table-print .report-transfer-region{background:#f3f4f6!important}
+.report-transfer-table-print .report-transfer-qty-unpaid{color:#dc2626!important;font-weight:700}
+@media (max-width:640px){.report-transfer-toolbar{align-items:stretch}.report-transfer-actions{width:100%;justify-content:space-between}}
 .cart-edit-note-block{margin-bottom:.75rem;padding:.65rem .75rem;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);border-radius:.85rem}
 .cart-edit-note-block .glass-label{color:#FDE68A;margin-bottom:.4rem}
 .cart-edit-note-input{width:100%;min-height:3.25rem;resize:vertical;line-height:1.35}

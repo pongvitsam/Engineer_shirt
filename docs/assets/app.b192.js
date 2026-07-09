@@ -2284,6 +2284,207 @@ function reportRegionStatusSummaryHtml_(byStatusSize){
   return blocks.length?`<div class="report-status-summary">${blocks.join("")}</div>`:'<span class="text-glass-dim">-</span>';
 }
 
+function paidTransferReportTitle_(){
+  const round=appData?.round||{};
+  const y=String(round.year||"").trim();
+  return y?("ยอดสั่งครั้งที่ "+y):("ยอดสั่ง "+String(round.name||"").trim());
+}
+
+function isUnpaidTransferOrderGroup_(g){
+  if(!g||isCartStatus(g.status))return false;
+  if(isFreeGiveawayPayment(g.paymentStatus))return false;
+  return !isPaymentVerified(g.paymentStatus);
+}
+
+function formatPaidTransferReportRemark_(g){
+  return String(g&&g.pickupNote||"").trim();
+}
+
+function comparePaidTransferRows_(a,b){
+  if(!!a.unpaid!==!!b.unpaid)return a.unpaid?1:-1;
+  if(a.unpaid&&b.unpaid){
+    const ta=String(a.sortKey||""),tb=String(b.sortKey||"");
+    return ta.localeCompare(tb);
+  }
+  const da=normalizePayDateForInput_(a.payDate)||"",db=normalizePayDateForInput_(b.payDate)||"";
+  if(da!==db)return da.localeCompare(db);
+  const ta=normalizePayTimeForInput_(a.payTime)||"",tb=normalizePayTimeForInput_(b.payTime)||"";
+  if(ta!==tb)return ta.localeCompare(tb);
+  return String(a.sortKey||"").localeCompare(String(b.sortKey||""));
+}
+
+function computePaidTransferReport_(includeUnpaid){
+  const regions=appData?.regions||[];
+  const groups=groupOrdersByOrderId(appData?.orders||[]).filter(function(g){
+    return shouldCountInDashboard_(g)&&!isFreeGiveawayPayment(g.paymentStatus);
+  });
+  let grandTotal=0;
+  const byRegion=regions.map(function(region){
+    const inRegion=groups.filter(function(g){return g.region===region;});
+    const rows=[];
+    inRegion.forEach(function(g){
+      if(isPaymentVerified(g.paymentStatus)){
+        rows.push({
+          qty:g.totalQty||0,
+          payDate:g.payDate||"",
+          payTime:g.payTime||"",
+          amount:g.totalPrice||0,
+          remark:formatPaidTransferReportRemark_(g),
+          unpaid:false,
+          sortKey:String(g.timestamp||g.orderId||"")
+        });
+      }else if(includeUnpaid&&isUnpaidTransferOrderGroup_(g)){
+        rows.push({
+          qty:g.totalQty||0,
+          payDate:"",
+          payTime:"",
+          amount:0,
+          remark:formatPaidTransferReportRemark_(g),
+          unpaid:true,
+          sortKey:String(g.timestamp||g.orderId||"")
+        });
+      }
+    });
+    rows.sort(comparePaidTransferRows_);
+    const totalAmount=rows.filter(function(r){return !r.unpaid;}).reduce(function(s,r){return s+(Number(r.amount)||0);},0);
+    grandTotal+=totalAmount;
+    return {region:region,shortName:regionShort(region),rows:rows,totalAmount:totalAmount};
+  });
+  return {title:paidTransferReportTitle_(),byRegion:byRegion,grandTotal:grandTotal,includeUnpaid:!!includeUnpaid};
+}
+
+function renderPaidTransferReportRowsHtml_(data){
+  data=data||{};
+  const parts=[];
+  (data.byRegion||[]).forEach(function(block){
+    const rows=block.rows||[];
+    const regionLabel=escHtml(block.shortName||block.region||"");
+    const totalAmount=Number(block.totalAmount)||0;
+    if(!rows.length){
+      parts.push(`<tr>
+        <td class="report-transfer-region">${regionLabel}</td>
+        <td class="report-transfer-num">0</td>
+        <td class="report-transfer-date">-</td>
+        <td class="report-transfer-time">-</td>
+        <td class="report-transfer-money">-</td>
+        <td class="report-transfer-total report-transfer-num">${fmtMoney(0)}</td>
+        <td class="report-transfer-remark">-</td>
+      </tr>`);
+      return;
+    }
+    rows.forEach(function(row,i){
+      const qtyCls=row.unpaid?" report-transfer-qty-unpaid":"";
+      const qtyCell=`<td class="report-transfer-num${qtyCls}">${row.qty||0}</td>`;
+      const dateCell=`<td class="report-transfer-date">${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>`;
+      const timeCell=`<td class="report-transfer-time">${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>`;
+      const moneyCell=`<td class="report-transfer-money report-transfer-num">${row.unpaid?"-":fmtMoney(row.amount||0)}</td>`;
+      const remarkCell=`<td class="report-transfer-remark">${row.remark?escHtml(row.remark):"-"}</td>`;
+      if(i===0){
+        parts.push(`<tr>
+          <td class="report-transfer-region" rowspan="${rows.length}">${regionLabel}</td>
+          ${qtyCell}
+          ${dateCell}
+          ${timeCell}
+          ${moneyCell}
+          <td class="report-transfer-total report-transfer-num" rowspan="${rows.length}">${fmtMoney(totalAmount)}</td>
+          ${remarkCell}
+        </tr>`);
+      }else{
+        parts.push(`<tr>${qtyCell}${dateCell}${timeCell}${moneyCell}${remarkCell}</tr>`);
+      }
+    });
+  });
+  return parts.join("");
+}
+
+function renderPaidTransferReportTableHtml_(data,opts){
+  opts=opts||{};
+  data=data||{};
+  const title=escHtml(data.title||paidTransferReportTitle_());
+  const body=renderPaidTransferReportRowsHtml_(data);
+  const tableCls=opts.print?"report-transfer-table report-transfer-table-print":"report-transfer-table glass-table report-table";
+  return `<table class="${tableCls}">
+    <thead><tr>
+      <th class="report-transfer-col-region">${title}</th>
+      <th class="report-transfer-col-qty">จำนวนที่สั่ง(ตัว)</th>
+      <th class="report-transfer-col-date">วันที่โอนตามสลิป</th>
+      <th class="report-transfer-col-time">เวลาที่โอน</th>
+      <th class="report-transfer-col-money">จำนวนเงิน(บาท)</th>
+      <th class="report-transfer-col-total">รวมยอด (บาท)</th>
+      <th class="report-transfer-col-remark">หมายเหตu</th>
+    </tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+function buildPaidTransferReportPrintHtml_(data){
+  const generated=formatThaiDate(new Date())+" "+(formatThaiTime(new Date())||"");
+  return `<div class="report-transfer-print-sheet">
+    <div class="report-transfer-print-title">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}</div>
+    <div class="report-transfer-print-meta">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน (สีแดง)":""}</div>
+    ${renderPaidTransferReportTableHtml_(data,{print:true})}
+    <div class="report-transfer-print-foot">รวมยอดโอนแล้วทั้งหมด: ${fmtMoney(data.grandTotal||0)} บาท</div>
+  </div>`;
+}
+
+function loadExternalScript_(url,id){
+  if(id&&document.getElementById(id))return Promise.resolve();
+  return new Promise(function(resolve,reject){
+    const s=document.createElement("script");
+    if(id)s.id=id;
+    s.src=url;
+    s.onload=resolve;
+    s.onerror=function(){reject(new Error("โหลดไม่สำเร็จ: "+url));};
+    document.head.appendChild(s);
+  });
+}
+
+async function ensurePdfExportLibs_(){
+  await loadExternalScript_("https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js","lib-html2canvas");
+  await loadExternalScript_("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js","lib-jspdf");
+}
+
+async function exportPaidTransferReportPdf_(btn){
+  const includeUnpaid=!!document.getElementById("report-show-unpaid")?.checked;
+  const data=computePaidTransferReport_(includeUnpaid);
+  const host=document.getElementById("report-paid-transfer-print-host");
+  if(!host)throw new Error("ไม่พบพื้นที่สร้าง PDF");
+  await ensurePdfExportLibs_();
+  host.innerHTML=buildPaidTransferReportPrintHtml_(data);
+  host.className="report-transfer-print-root";
+  host.setAttribute("aria-hidden","false");
+  if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+  await new Promise(function(r){setTimeout(r,120);});
+  const canvas=await html2canvas(host,{scale:2,backgroundColor:"#ffffff",useCORS:true,logging:false});
+  host.innerHTML="";
+  host.className="hidden";
+  host.setAttribute("aria-hidden","true");
+  const jsPDF=window.jspdf&&window.jspdf.jsPDF;
+  if(!jsPDF)throw new Error("ไม่พบ jsPDF");
+  const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+  const pageW=pdf.internal.pageSize.getWidth();
+  const pageH=pdf.internal.pageSize.getHeight();
+  const margin=8;
+  const maxW=pageW-margin*2;
+  const maxHmm=pageH-margin*2;
+  const pxPerMm=canvas.width/maxW;
+  const pageHpx=Math.floor(maxHmm*pxPerMm);
+  let rendered=0,page=0;
+  while(rendered<canvas.height){
+    const sliceH=Math.min(pageHpx,canvas.height-rendered);
+    const slice=document.createElement("canvas");
+    slice.width=canvas.width;
+    slice.height=sliceH;
+    slice.getContext("2d").drawImage(canvas,0,rendered,canvas.width,sliceH,0,0,canvas.width,sliceH);
+    if(page>0)pdf.addPage();
+    pdf.addImage(slice.toDataURL("image/png"),"PNG",margin,margin,maxW,sliceH/pxPerMm);
+    rendered+=sliceH;
+    page++;
+  }
+  const stamp=new Date().toISOString().slice(0,10).replace(/-/g,"");
+  pdf.save("peace_transfer_"+String(appData?.round?.year||"report")+"_"+stamp+".pdf");
+}
+
 // ── Login screen ─────────────────────────────────────────────────────
 var clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_||function(){};
 window.clearLoginHeroSkeletonTimer_=clearLoginHeroSkeletonTimer_;
@@ -4075,6 +4276,23 @@ const app = {
           </div>
         </div>
         <div>
+          <div class="report-transfer-toolbar mb-2">
+            <h3 class="text-sm font-bold glass-section-title"><i class="fas fa-table mr-1"></i> สรุปยอดโอนแล้ว</h3>
+            <div class="report-transfer-actions">
+              <label class="report-transfer-toggle text-xs">
+                <input type="checkbox" id="report-show-unpaid" onchange="app.toggleReportUnpaid(this.checked)">
+                <span>แสดงรายการที่ยังไม่โอน (ตัวเลขสีแดง)</span>
+              </label>
+              <button type="button" onclick="app.exportPaidTransferPdf(this)" class="glass-btn-primary text-xs report-transfer-pdf-btn"><i class="fas fa-file-pdf mr-1"></i> ดาวน์โหลด PDF</button>
+            </div>
+          </div>
+          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว · หมายเหตu จากช่องวันที่รับ/จัดส่ง · รวมยอดนับเฉพาะที่โอนแล้ว</p>
+          <div class="overflow-x-auto report-transfer-table-wrap glass-table-wrap">
+            <div id="report-paid-transfer-table-host"></div>
+          </div>
+          <div id="report-paid-transfer-print-host" class="hidden" aria-hidden="true"></div>
+        </div>
+        <div>
           <h3 class="text-sm font-bold glass-section-title mb-2"><i class="fas fa-boxes mr-1"></i> สต็อกคงเหลือ</h3>
           <div id="report-stock"></div>
         </div>
@@ -4112,6 +4330,27 @@ const app = {
       return `<div class="glass-stock-cell ${cls}"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><div class="text-lg font-bold ${nc} mt-1">${s.remaining}</div><div class="text-xs text-glass-muted">/${s.delivered}</div></div>`;
     }).join("");
     document.getElementById("report-stock").innerHTML=`<div class="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2 mb-2">${cells}</div><div class="glass-total-bar">รวมคงเหลือทั้งหมด: <span class="text-lg">${r.stockTotalRemaining}</span> ตัว</div>`;
+    this.renderPaidTransferReport();
+  },
+
+  renderPaidTransferReport(){
+    const host=document.getElementById("report-paid-transfer-table-host");
+    if(!host)return;
+    const includeUnpaid=!!document.getElementById("report-show-unpaid")?.checked;
+    host.innerHTML=renderPaidTransferReportTableHtml_(computePaidTransferReport_(includeUnpaid));
+  },
+
+  toggleReportUnpaid(_checked){
+    this.renderPaidTransferReport();
+  },
+
+  async exportPaidTransferPdf(btn){
+    try{
+      await runSaving({btn:btn,busyText:"กำลังสร้าง PDF…",toast:false},()=>exportPaidTransferReportPdf_(btn));
+      this.showMsg("ดาวน์โหลด PDF แล้ว","success");
+    }catch(e){
+      this.showMsg(e.message||"สร้าง PDF ไม่สำเร็จ","error");
+    }
   },
 
   // ── Admin view ─────────────────────────────────────────────────────
