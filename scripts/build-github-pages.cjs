@@ -161,6 +161,8 @@ function pruneOldVersionedAssets_(keepBuild) {
 
 function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss, patchScript) {
   const v = build || readBuildFromCodeJs();
+  const d = deployStamp || String(Date.now());
+  const q = "v=" + v + "&amp;d=" + d;
   const crit = criticalCss ? "<style>\n" + criticalCss + "\n</style>\n  " : "";
   const patch = patchScript ? "\n  " + patchScript + "\n" : "";
   return `<!DOCTYPE html>
@@ -181,14 +183,14 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss, 
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  ${crit}<link id="peace-app-css" rel="stylesheet" href="assets/app.css?v=${v}">
+  ${crit}<link id="peace-app-css" rel="stylesheet" href="assets/app.css?${q}">
   ${headExtras}
 </head>
 <body class="peace-login-active">
 ${bodyInner}
   ${LEGACY_HERO_STUB}
-  <script src="config.js?v=${v}"></script>
-  <script src="assets/app.js?v=${v}"></script>${patch}
+  <script src="config.js?${q}"></script>
+  <script src="assets/app.js?${q}"></script>${patch}
 </body>
 </html>
 `;

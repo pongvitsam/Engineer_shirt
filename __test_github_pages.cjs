@@ -34,6 +34,7 @@ assert("index loads same-origin config and app assets", () => {
   const build = m[1];
   if (!html.includes("config.js?v=" + build)) throw new Error("config.js cache-bust missing");
   if (!html.includes("assets/app.js?v=" + build)) throw new Error("app.js cache-bust missing");
+  if (!html.includes("&amp;d=")) throw new Error("deployStamp cache-bust missing");
   if (!html.includes("assets/app.css?v=" + build)) throw new Error("app.css cache-bust missing");
   if (html.includes("asset=js") || html.includes("asset=css")) throw new Error("must not load JS/CSS from GAS on Pages");
   if (html.includes("peaceGate_") || html.includes('searchParams.set("_ra"')) {
