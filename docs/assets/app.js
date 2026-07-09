@@ -2421,7 +2421,7 @@ function buildPaidTransferReportPrintHtml_(data){
   const generated=formatThaiDate(new Date())+" "+(formatThaiTime(new Date())||"");
   return `<div class="report-transfer-print-sheet">
     <div class="report-transfer-print-title">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}</div>
-    <div class="report-transfer-print-meta">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน (สีแดง)":""}</div>
+    <div class="report-transfer-print-meta">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}</div>
     ${renderPaidTransferReportTableHtml_(data,{print:true})}
     <div class="report-transfer-print-foot">รวมยอดโอนแล้วทั้งหมด: ${fmtMoney(data.grandTotal||0)} บาท</div>
   </div>`;
