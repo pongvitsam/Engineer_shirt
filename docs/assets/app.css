@@ -83,12 +83,15 @@
 .report-transfer-toggle input{width:1rem;height:1rem;accent-color:#6D28D9}
 .report-transfer-pdf-btn{padding:.45rem .85rem;white-space:nowrap}
 .report-transfer-table-wrap{margin-bottom:.25rem}
-.report-transfer-table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid rgba(255,255,255,.35);font-size:var(--fs-xs);background:rgba(255,255,255,.04)}
+.report-transfer-table{width:100%;border-collapse:collapse;border:1px solid rgba(255,255,255,.35);font-size:var(--fs-xs);background:rgba(255,255,255,.04)}
 .report-transfer-table th,.report-transfer-table td{border:1px solid rgba(255,255,255,.35)!important;padding:.45rem .5rem;vertical-align:middle;box-sizing:border-box}
 .report-transfer-table thead th{background:rgba(16,124,65,.82);color:#fff;font-weight:700;text-align:center;white-space:nowrap}
 .report-transfer-table tbody td{color:rgba(255,255,255,.92);background:rgba(255,255,255,.06)}
 .report-transfer-table tbody tr.report-transfer-row-alt td{background:rgba(255,255,255,.1)}
-.report-transfer-region{font-weight:700;text-align:center;white-space:nowrap;background:rgba(255,255,255,.12)!important}
+.report-transfer-table tbody tr.report-transfer-row-alt td.report-transfer-region,
+.report-transfer-table tbody tr.report-transfer-row-alt td.report-transfer-total{background:rgba(255,255,255,.14)!important}
+.report-transfer-region{font-weight:700;text-align:center;white-space:nowrap;background:rgba(255,255,255,.12)!important;vertical-align:middle}
+.report-transfer-total{vertical-align:middle;font-weight:700}
 .report-transfer-num{text-align:center;white-space:nowrap}
 .report-transfer-money,.report-transfer-total{text-align:right;font-variant-numeric:tabular-nums}
 .report-transfer-date,.report-transfer-time{text-align:center;white-space:nowrap}

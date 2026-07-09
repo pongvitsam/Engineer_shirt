@@ -424,6 +424,16 @@ assert("eng_readonly sees admin data columns client-side", () => {
   if (!html.includes("if(!canViewAdminData())return \"\"")) throw new Error("pickup cell should gate on canViewAdminData");
 });
 
+assert("paid transfer report merges region and total cells", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("buildPaidTransferFlatRows_")) throw new Error("missing buildPaidTransferFlatRows_");
+  if (!html.includes("renderPaidTransferGroupedRowsHtml_")) throw new Error("missing grouped row renderer");
+  if (!html.includes('rowspan="${rowspan}"')) throw new Error("missing rowspan merge for region/total");
+  if (!html.includes("paginatePaidTransferFlatRows_")) throw new Error("missing PDF row pagination");
+  if (!html.includes("buildPaidTransferReportPrintPageHtml_")) throw new Error("missing per-page PDF print html");
+  if (!html.includes("border-collapse:collapse")) throw new Error("print table should collapse borders");
+});
+
 assert("password set/login uses normalized trim", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("function normalizePasswordInput_")) throw new Error("missing normalizePasswordInput_");

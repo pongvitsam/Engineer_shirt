@@ -2388,70 +2388,140 @@ function computePaidTransferReport_(includeUnpaid){
   return {title:paidTransferReportTitle_(),byRegion:byRegion,grandTotal:grandTotal,includeUnpaid:!!includeUnpaid};
 }
 
-function renderPaidTransferReportRowsHtml_(data,opts){
-  opts=opts||{};
-  data=data||{};
-  const parts=[];
+function buildPaidTransferFlatRows_(data){
+  const flat=[];
   (data.byRegion||[]).forEach(function(block){
     const rows=block.rows||[];
-    const regionLabel=escHtml(block.shortName||block.region||"");
+    const regionLabel=block.shortName||block.region||"";
     const totalAmount=Number(block.totalAmount)||0;
-    if(opts.print){
-      if(!rows.length){
-        parts.push(`<tr>
-          <td ${pdfPrintCellStyle_({region:true})}>${regionLabel}</td>
-          <td ${pdfPrintCellStyle_({center:true})}>0</td>
-          <td ${pdfPrintCellStyle_({center:true})}>-</td>
-          <td ${pdfPrintCellStyle_({center:true})}>-</td>
-          <td ${pdfPrintCellStyle_({center:true})}>-</td>
-          <td ${pdfPrintCellStyle_({right:true,bold:true})}>${fmtMoney(0)}</td>
-          <td ${pdfPrintCellStyle_()}>-</td>
-        </tr>`);
-        return;
-      }
-      rows.forEach(function(row,i){
-        const alt=i%2===1;
-        const isLast=i===rows.length-1;
-        parts.push(`<tr>
-          <td ${pdfPrintCellStyle_({region:true,alt:alt})}>${regionLabel}</td>
-          <td ${pdfPrintCellStyle_({center:true,bold:!!row.unpaid,alt:alt})}>${row.qty||0}</td>
-          <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
-          <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
-          <td ${pdfPrintCellStyle_({right:true,alt:alt})}>${row.unpaid?"-":fmtMoney(row.amount||0)}</td>
-          <td ${pdfPrintCellStyle_({right:true,bold:true,alt:alt})}>${isLast?fmtMoney(totalAmount):""}</td>
-          <td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):"-"}</td>
-        </tr>`);
+    const regionKey=String(block.region||regionLabel);
+    if(!rows.length){
+      flat.push({
+        regionKey:regionKey,
+        regionLabel:regionLabel,
+        totalAmount:totalAmount,
+        regionRowIndex:0,
+        regionRowCount:1,
+        row:null,
+        empty:true
       });
       return;
     }
-    if(!rows.length){
-      parts.push(`<tr>
-        <td class="report-transfer-region">${regionLabel}</td>
-        <td class="report-transfer-num">0</td>
-        <td class="report-transfer-date">-</td>
-        <td class="report-transfer-time">-</td>
-        <td class="report-transfer-money">-</td>
-        <td class="report-transfer-total report-transfer-num">${fmtMoney(0)}</td>
-        <td class="report-transfer-remark">-</td>
-      </tr>`);
-      return;
-    }
     rows.forEach(function(row,i){
-      const altCls=i%2===1?" report-transfer-row-alt":"";
-      const qtyCls=row.unpaid?" report-transfer-qty-unpaid":"";
-      const isLast=i===rows.length-1;
-      parts.push(`<tr class="report-transfer-row${altCls}">
-        <td class="report-transfer-region">${regionLabel}</td>
-        <td class="report-transfer-num${qtyCls}">${row.qty||0}</td>
-        <td class="report-transfer-date">${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
-        <td class="report-transfer-time">${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
-        <td class="report-transfer-money report-transfer-num">${row.unpaid?"-":fmtMoney(row.amount||0)}</td>
-        <td class="report-transfer-total report-transfer-num">${isLast?fmtMoney(totalAmount):""}</td>
-        <td class="report-transfer-remark">${row.remark?escHtml(row.remark):"-"}</td>
-      </tr>`);
+      flat.push({
+        regionKey:regionKey,
+        regionLabel:regionLabel,
+        totalAmount:totalAmount,
+        regionRowIndex:i,
+        regionRowCount:rows.length,
+        row:row,
+        empty:false
+      });
     });
   });
+  return flat;
+}
+
+function paginatePaidTransferFlatRows_(flatRows,rowsPerPage){
+  const per=Math.max(1,Number(rowsPerPage)||20);
+  const pages=[];
+  for(let i=0;i<flatRows.length;i+=per){
+    pages.push(flatRows.slice(i,i+per));
+  }
+  if(!pages.length)pages.push([]);
+  return pages;
+}
+
+function renderPaidTransferRowCells_(item,opts){
+  opts=opts||{};
+  const row=item.row;
+  const regionLabel=escHtml(item.regionLabel||"");
+  const totalAmount=Number(item.totalAmount)||0;
+  const rowspan=Math.max(1,Number(item.regionRowspan)||1);
+  const showRegion=!!item.showRegion;
+  const showTotal=!!item.showTotal;
+  const alt=!!item.alt;
+  const unpaid=row&&row.unpaid;
+  if(opts.print){
+    let html="";
+    if(showRegion){
+      html+=`<td ${pdfPrintCellStyle_({region:true,alt:alt,rowspan:rowspan})}>${regionLabel}</td>`;
+    }
+    if(item.empty){
+      html+=`<td ${pdfPrintCellStyle_({center:true,alt:alt})}>0</td>
+        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>-</td>
+        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>-</td>
+        <td ${pdfPrintCellStyle_({right:true,alt:alt})}>-</td>`;
+    }else{
+      html+=`<td ${pdfPrintCellStyle_({center:true,bold:unpaid,alt:alt})}>${row.qty||0}</td>
+        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
+        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
+        <td ${pdfPrintCellStyle_({right:true,alt:alt})}>${unpaid?"-":fmtMoney(row.amount||0)}</td>`;
+    }
+    if(showTotal){
+      html+=`<td ${pdfPrintCellStyle_({right:true,bold:true,alt:alt,rowspan:rowspan})}>${fmtMoney(totalAmount)}</td>`;
+    }
+    if(item.empty){
+      html+=`<td ${pdfPrintCellStyle_({alt:alt})}>-</td>`;
+    }else{
+      html+=`<td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):"-"}</td>`;
+    }
+    return html;
+  }
+  let html="";
+  if(showRegion){
+    html+=`<td class="report-transfer-region" rowspan="${rowspan}">${regionLabel}</td>`;
+  }
+  if(item.empty){
+    html+=`<td class="report-transfer-num">0</td>
+      <td class="report-transfer-date">-</td>
+      <td class="report-transfer-time">-</td>
+      <td class="report-transfer-money report-transfer-num">-</td>`;
+  }else{
+    const qtyCls=unpaid?" report-transfer-qty-unpaid":"";
+    html+=`<td class="report-transfer-num${qtyCls}">${row.qty||0}</td>
+      <td class="report-transfer-date">${unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
+      <td class="report-transfer-time">${unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
+      <td class="report-transfer-money report-transfer-num">${unpaid?"-":fmtMoney(row.amount||0)}</td>`;
+  }
+  if(showTotal){
+    html+=`<td class="report-transfer-total report-transfer-num" rowspan="${rowspan}">${fmtMoney(totalAmount)}</td>`;
+  }
+  if(item.empty){
+    html+=`<td class="report-transfer-remark">-</td>`;
+  }else{
+    html+=`<td class="report-transfer-remark">${row.remark?escHtml(row.remark):"-"}</td>`;
+  }
+  return html;
+}
+
+function renderPaidTransferGroupedRowsHtml_(rowItems,opts){
+  opts=opts||{};
+  const parts=[];
+  let g=0;
+  while(g<rowItems.length){
+    const key=rowItems[g].regionKey;
+    let span=1;
+    while(g+span<rowItems.length&&rowItems[g+span].regionKey===key)span++;
+    const group=rowItems.slice(g,g+span);
+    group.forEach(function(item,i){
+      const altCls=opts.print?"":((g+i)%2===1?" report-transfer-row-alt":"");
+      const cells=renderPaidTransferRowCells_(Object.assign({},item,{
+        regionRowspan:group.length,
+        showRegion:i===0,
+        showTotal:i===0,
+        alt:opts.print?((g+i)%2===1):false
+      }),opts);
+      parts.push(`<tr class="report-transfer-row${altCls}">${cells}</tr>`);
+    });
+    g+=span;
+  }
   return parts.join("");
+}
+
+function renderPaidTransferReportRowsHtml_(data,opts){
+  opts=opts||{};
+  return renderPaidTransferGroupedRowsHtml_(buildPaidTransferFlatRows_(data),opts);
 }
 
 function pdfPrintCellStyle_(opts){
@@ -2487,7 +2557,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
     const headCell=function(label){
       return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
     };
-    return `<table style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;">
+    return `<table style="width:100%;border-collapse:collapse;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;table-layout:fixed;">
       <thead><tr>
         ${headCell(title)}
         ${headCell("จำนวนที่สั่ง(ตัว)")}
@@ -2515,15 +2585,40 @@ function renderPaidTransferReportTableHtml_(data,opts){
   </table>`;
 }
 
-function buildPaidTransferReportPrintHtml_(data){
+function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount){
   const generated=formatThaiDate(new Date())+" "+(formatThaiTime(new Date())||"");
   const black='color:#000000;font-family:Sarabun,sans-serif;';
+  const pageLabel=pageCount>1?` · หน้า ${pageIndex}/${pageCount}`:"";
+  const body=renderPaidTransferGroupedRowsHtml_(pageRows,{print:true});
+  const headCell=function(label){
+    return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
+  };
+  const table=`<table style="width:100%;border-collapse:collapse;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;table-layout:fixed;">
+      <thead><tr>
+        ${headCell(data.title||paidTransferReportTitle_())}
+        ${headCell("จำนวนที่สั่ง(ตัว)")}
+        ${headCell("วันที่โอนตามสลิป")}
+        ${headCell("เวลาที่โอน")}
+        ${headCell("จำนวนเงิน(บาท)")}
+        ${headCell("รวมยอด (บาท)")}
+        ${headCell("หมายเหตุ")}
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+  const foot=pageIndex===pageCount
+    ?`<div style="margin-top:10px;font-size:13px;font-weight:700;text-align:right;${black}">รวมยอดโอนแล้วทั้งหมด: ${fmtMoney(data.grandTotal||0)} บาท</div>`
+    :"";
   return `<div style="background:#ffffff;${black}padding:8px;">
-    <div style="font-size:18px;font-weight:700;margin-bottom:4px;${black}">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:4px;${black}">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}${escHtml(pageLabel)}</div>
     <div style="font-size:12px;margin-bottom:10px;${black}">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}</div>
-    ${renderPaidTransferReportTableHtml_(data,{print:true})}
-    <div style="margin-top:10px;font-size:13px;font-weight:700;text-align:right;${black}">รวมยอดโอนแล้วทั้งหมด: ${fmtMoney(data.grandTotal||0)} บาท</div>
+    ${table}
+    ${foot}
   </div>`;
+}
+
+function buildPaidTransferReportPrintHtml_(data){
+  const flat=buildPaidTransferFlatRows_(data);
+  return buildPaidTransferReportPrintPageHtml_(data,flat,1,1);
 }
 
 function loadExternalScript_(url,id){
@@ -2549,32 +2644,8 @@ async function exportPaidTransferReportPdf_(btn){
   const host=document.getElementById("report-paid-transfer-print-host");
   if(!host)throw new Error("ไม่พบพื้นที่สร้าง PDF");
   await ensurePdfExportLibs_();
-  host.innerHTML=buildPaidTransferReportPrintHtml_(data);
-  host.className="report-transfer-print-root";
-  host.style.cssText="position:fixed;left:-10000px;top:0;width:1120px;background:#ffffff;color:#000000;padding:16px;z-index:-1;";
-  host.setAttribute("aria-hidden","false");
-  if(document.fonts&&document.fonts.ready)await document.fonts.ready;
-  await new Promise(function(r){setTimeout(r,120);});
-  const canvas=await html2canvas(host,{
-    scale:2,
-    backgroundColor:"#ffffff",
-    useCORS:true,
-    logging:false,
-    onclone:function(doc){
-      const root=doc.getElementById("report-paid-transfer-print-host");
-      if(!root)return;
-      root.style.background="#ffffff";
-      root.style.color="#000000";
-      root.querySelectorAll("th,td,div,span").forEach(function(el){
-        el.style.color="#000000";
-        el.style.webkitTextFillColor="#000000";
-      });
-    }
-  });
-  host.innerHTML="";
-  host.className="hidden";
-  host.style.cssText="";
-  host.setAttribute("aria-hidden","true");
+  const flat=buildPaidTransferFlatRows_(data);
+  const pages=paginatePaidTransferFlatRows_(flat,20);
   const jsPDF=window.jspdf&&window.jspdf.jsPDF;
   if(!jsPDF)throw new Error("ไม่พบ jsPDF");
   const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
@@ -2583,20 +2654,39 @@ async function exportPaidTransferReportPdf_(btn){
   const margin=8;
   const maxW=pageW-margin*2;
   const maxHmm=pageH-margin*2;
-  const pxPerMm=canvas.width/maxW;
-  const pageHpx=Math.floor(maxHmm*pxPerMm);
-  let rendered=0,page=0;
-  while(rendered<canvas.height){
-    const sliceH=Math.min(pageHpx,canvas.height-rendered);
-    const slice=document.createElement("canvas");
-    slice.width=canvas.width;
-    slice.height=sliceH;
-    slice.getContext("2d").drawImage(canvas,0,rendered,canvas.width,sliceH,0,0,canvas.width,sliceH);
-    if(page>0)pdf.addPage();
-    pdf.addImage(slice.toDataURL("image/png"),"PNG",margin,margin,maxW,sliceH/pxPerMm);
-    rendered+=sliceH;
-    page++;
+  host.className="report-transfer-print-root";
+  host.style.cssText="position:fixed;left:-10000px;top:0;width:1120px;background:#ffffff;color:#000000;padding:16px;z-index:-1;";
+  host.setAttribute("aria-hidden","false");
+  if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+  for(let pi=0;pi<pages.length;pi++){
+    host.innerHTML=buildPaidTransferReportPrintPageHtml_(data,pages[pi],pi+1,pages.length);
+    await new Promise(function(r){setTimeout(r,120);});
+    const canvas=await html2canvas(host,{
+      scale:2,
+      backgroundColor:"#ffffff",
+      useCORS:true,
+      logging:false,
+      onclone:function(doc){
+        const root=doc.getElementById("report-paid-transfer-print-host");
+        if(!root)return;
+        root.style.background="#ffffff";
+        root.style.color="#000000";
+        root.querySelectorAll("th,td,div,span,table").forEach(function(el){
+          el.style.color="#000000";
+          el.style.webkitTextFillColor="#000000";
+        });
+      }
+    });
+    const imgW=maxW;
+    let imgH=canvas.height/canvas.width*imgW;
+    if(imgH>maxHmm)imgH=maxHmm;
+    if(pi>0)pdf.addPage();
+    pdf.addImage(canvas.toDataURL("image/png"),"PNG",margin,margin,imgW,imgH);
   }
+  host.innerHTML="";
+  host.className="hidden";
+  host.style.cssText="";
+  host.setAttribute("aria-hidden","true");
   const stamp=new Date().toISOString().slice(0,10).replace(/-/g,"");
   pdf.save("peace_transfer_"+String(appData?.round?.year||"report")+"_"+stamp+".pdf");
 }
