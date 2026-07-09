@@ -2549,6 +2549,42 @@ function pdfPrintCellStyle_(opts){
   return attr;
 }
 
+function paidTransferReportGrandQty_(data){
+  let grandQty=0;
+  (data.byRegion||[]).forEach(function(block){
+    (block.rows||[]).forEach(function(row){
+      if(!row.unpaid)grandQty+=Number(row.qty)||0;
+    });
+  });
+  return grandQty;
+}
+
+function renderPaidTransferReportFootHtml_(data,opts){
+  opts=opts||{};
+  const grandQty=paidTransferReportGrandQty_(data);
+  const grandTotal=Number(data.grandTotal)||0;
+  if(opts.print){
+    return `<tr>
+      <td ${pdfPrintCellStyle_({header:true})}>รวมทั้งหมด</td>
+      <td ${pdfPrintCellStyle_({header:true,center:true})}>${grandQty}</td>
+      <td ${pdfPrintCellStyle_({center:true,header:true})}>-</td>
+      <td ${pdfPrintCellStyle_({center:true,header:true})}>-</td>
+      <td ${pdfPrintCellStyle_({right:true,header:true})}>-</td>
+      <td ${pdfPrintCellStyle_({right:true,bold:true,header:true})}>${fmtMoney(grandTotal)}</td>
+      <td ${pdfPrintCellStyle_({header:true})}>-</td>
+    </tr>`;
+  }
+  return `<tr class="report-transfer-foot">
+    <td class="report-transfer-foot-label">รวมทั้งหมด</td>
+    <td class="report-transfer-num report-transfer-foot-qty">${grandQty}</td>
+    <td class="report-transfer-date">-</td>
+    <td class="report-transfer-time">-</td>
+    <td class="report-transfer-money">-</td>
+    <td class="report-transfer-total report-transfer-num">${fmtMoney(grandTotal)}</td>
+    <td class="report-transfer-remark">-</td>
+  </tr>`;
+}
+
 function renderPaidTransferReportTableHtml_(data,opts){
   opts=opts||{};
   data=data||{};
@@ -2568,6 +2604,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
         ${headCell("หมายเหตุ")}
       </tr></thead>
       <tbody>${renderPaidTransferReportRowsHtml_(data,{print:true})}</tbody>
+      <tfoot>${renderPaidTransferReportFootHtml_(data,{print:true})}</tfoot>
     </table>`;
   }
   const body=renderPaidTransferReportRowsHtml_(data);
@@ -2582,6 +2619,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
       <th class="report-transfer-col-remark">หมายเหตุ</th>
     </tr></thead>
     <tbody>${body}</tbody>
+    <tfoot>${renderPaidTransferReportFootHtml_(data)}</tfoot>
   </table>`;
 }
 
@@ -2604,15 +2642,12 @@ function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount
         ${headCell("หมายเหตุ")}
       </tr></thead>
       <tbody>${body}</tbody>
+      ${pageIndex===pageCount?`<tfoot>${renderPaidTransferReportFootHtml_(data,{print:true})}</tfoot>`:""}
     </table>`;
-  const foot=pageIndex===pageCount
-    ?`<div style="margin-top:10px;font-size:13px;font-weight:700;text-align:right;${black}">รวมยอดโอนแล้วทั้งหมด: ${fmtMoney(data.grandTotal||0)} บาท</div>`
-    :"";
   return `<div style="background:#ffffff;${black}padding:8px;">
     <div style="font-size:18px;font-weight:700;margin-bottom:4px;${black}">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}${escHtml(pageLabel)}</div>
     <div style="font-size:12px;margin-bottom:10px;${black}">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}</div>
     ${table}
-    ${foot}
   </div>`;
 }
 
