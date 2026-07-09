@@ -233,7 +233,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "200";
+const APP_BUILD = "201";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -327,6 +327,32 @@ const DEFAULT_USERS = [
 ];
 
 // === Auth: hashing / sessions =========================================
+function normalizePasswordInput_(password) {
+  return String(password || "").trim();
+}
+
+function writeUserPassword_(sheet, rowIndexOneBased, password) {
+  const p = normalizePasswordInput_(password);
+  sheet.getRange(rowIndexOneBased, 2).setValue(hashPassword_(p));
+  sheet.getRange(rowIndexOneBased, 7).setValue(p);
+}
+
+function applyPasswordToAllUserRows_(sheet, username, password) {
+  const uLower = String(username || "").trim().toLowerCase();
+  const p = normalizePasswordInput_(password);
+  if (!uLower) return 0;
+  const values = sheet.getDataRange().getValues();
+  let n = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0] || "").trim().toLowerCase() === uLower) {
+      writeUserPassword_(sheet, i + 1, p);
+      n++;
+    }
+  }
+  if (n > 0) SpreadsheetApp.flush();
+  return n;
+}
+
 function hashPassword_(plain) {
   const bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
@@ -347,13 +373,13 @@ function isSha256Hex_(value) {
 
 /** ตรวจรหัสผ่าน — รองรับ hash ปกติ, คอลัมน์ PasswordPlain และแถวเก่าที่เก็บ plain ในคอลัมน์ hash */
 function passwordMatchesUserRow_(row, password) {
-  const p = String(password || "");
+  const p = normalizePasswordInput_(password);
   const hash = hashPassword_(p);
   const storedHash = String(row[1] || "").trim();
   if (storedHash && storedHash === hash) return { ok: true, repair: false };
-  const plainCol = String(row[6] || "").trim();
+  const plainCol = normalizePasswordInput_(row[6]);
   if (plainCol && plainCol === p) return { ok: true, repair: true };
-  if (storedHash && !isSha256Hex_(storedHash) && storedHash === p) {
+  if (storedHash && !isSha256Hex_(storedHash) && normalizePasswordInput_(storedHash) === p) {
     return { ok: true, repair: true };
   }
   return { ok: false, repair: false };
@@ -499,7 +525,7 @@ function sessionCanAccessRegion_(session, rowRegion) {
 function login(username, password) {
   ensureSheetsInitialized_();
   const u = String(username || "").trim();
-  const p = String(password || "");
+  const p = normalizePasswordInput_(password);
   if (!u || !p) throw new Error("กรอกชื่อผู้ใช้และรหัสผ่าน");
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -518,8 +544,7 @@ function login(username, password) {
     const check = passwordMatchesUserRow_(r, p);
     if (!check.ok) continue;
     if (check.repair) {
-      sheet.getRange(i + 2, 2).setValue(hashPassword_(p));
-      sheet.getRange(i + 2, 7).setValue(p);
+      writeUserPassword_(sheet, i + 2, p);
     }
     const normalized = normalizeRoleRegion_(uname, r[2], r[3]);
     const role = normalized.role;
@@ -709,15 +734,14 @@ function ensureDefaultUserByUsername_(ss, username) {
 /** ถ้ามีแถวผู้ใช้มาตรฐานแต่ hash/plain เพี้ยน — ซ่อมเมื่อกรอกรหัสตาม DEFAULT_USERS */
 function repairDefaultUserCredentials_(sheet, username, password) {
   const uLower = String(username || "").trim().toLowerCase();
-  const p = String(password || "");
+  const p = normalizePasswordInput_(password);
   const def = DEFAULT_USERS.filter(function (u) {
     return String(u[0] || "").trim().toLowerCase() === uLower;
   })[0];
   if (!def || String(def[1]) !== p) return false;
   const idx = findUserRowIndex_(username);
   if (idx < 0) return false;
-  sheet.getRange(idx + 2, 2).setValue(hashPassword_(p));
-  sheet.getRange(idx + 2, 7).setValue(p);
+  writeUserPassword_(sheet, idx + 2, p);
   sheet.getRange(idx + 2, 3, 1, 3).setValues([[def[2], def[3], def[4]]]);
   sheet.getRange(idx + 2, 6).setValue(true);
   return true;
@@ -752,22 +776,23 @@ function getUserPassword(token, username) {
   ensureSheetsInitialized_();
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureUsersSheetMigrated_(ss);
-  const u = String(username || "").trim();
-  if (!u) throw new Error("ระบุชื่อผู้ใช้");
+  const uLower = String(username || "").trim().toLowerCase();
+  if (!uLower) throw new Error("ระบุชื่อผู้ใช้");
   const sheet = ss.getSheetByName(USERS_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0]).trim() === u) {
+    if (String(values[i][0] || "").trim().toLowerCase() === uLower) {
       const plain = String(values[i][6] || "").trim();
+      const uname = String(values[i][0] || "").trim();
       return {
-        username: u,
+        username: uname,
         region: String(values[i][3] || ""),
         password: plain,
         hasPassword: !!plain
       };
     }
   }
-  throw new Error("ไม่พบผู้ใช้ " + u);
+  throw new Error("ไม่พบผู้ใช้ " + username);
 }
 
 function listUsers(token) {
@@ -802,7 +827,7 @@ function listUsers(token) {
 function createUser(token, payload) {
   requireAdmin_(token);
   const username = String(payload.username || "").trim();
-  const password = String(payload.password || "");
+  const password = normalizePasswordInput_(payload.password);
   const role = String(payload.role || "user");
   let region = String(payload.region || "");
   const displayName = String(payload.displayName || username);
@@ -829,6 +854,7 @@ function createUser(token, payload) {
     throw new Error("มีชื่อผู้ใช้นี้แล้ว");
   }
   sheet.appendRow([username, hashPassword_(password), role, region, displayName, true, password]);
+  SpreadsheetApp.flush();
   return { ok: true };
 }
 
@@ -879,49 +905,42 @@ function deleteUser(token, username) {
 
 function resetPassword(token, username, newPassword) {
   requireAdmin_(token);
-  const np = String(newPassword || "");
+  const np = normalizePasswordInput_(newPassword);
   if (np.length < 4) throw new Error("รหัสผ่านต้องอย่างน้อย 4 ตัว");
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
-  const values = sheet.getDataRange().getValues();
-  const uLower = String(username || "").trim().toLowerCase();
-  for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0] || "").trim().toLowerCase() === uLower) {
-      sheet.getRange(i + 1, 2).setValue(hashPassword_(np));
-      sheet.getRange(i + 1, 7).setValue(np);
-      return { ok: true };
-    }
-  }
-  throw new Error("ไม่พบผู้ใช้ " + username);
+  const updated = applyPasswordToAllUserRows_(sheet, username, np);
+  if (updated <= 0) throw new Error("ไม่พบผู้ใช้ " + username);
+  return { ok: true, updated: updated };
 }
 
 /** ผู้ใช้แต่ละเขต (และแอดมิน) เปลี่ยนรหัสผ่านของตัวเอง — ต้องใส่รหัสเดิมถูกต้อง */
 function changeOwnPassword(token, currentPassword, newPassword) {
   const session = requireUserOrAdmin_(token);
-  const cur = String(currentPassword || "");
-  const np = String(newPassword || "");
+  const cur = normalizePasswordInput_(currentPassword);
+  const np = normalizePasswordInput_(newPassword);
   if (!cur || !np) throw new Error("กรอกรหัสผ่านปัจจุบันและรหัสใหม่");
   if (np.length < 4) throw new Error("รหัสผ่านใหม่ต้องอย่างน้อย 4 ตัว");
   if (cur === np) throw new Error("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม");
 
   const username = String(session.username || "").trim();
-  const hashCur = hashPassword_(cur);
+  const uLower = username.toLowerCase();
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const values = sheet.getDataRange().getValues();
+  let matched = false;
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0]).trim() === username) {
-      if (String(values[i][1]) !== hashCur) {
-        throw new Error("รหัสผ่านปัจจุบันไม่ถูกต้อง");
-      }
-      sheet.getRange(i + 1, 2).setValue(hashPassword_(np));
-      sheet.getRange(i + 1, 7).setValue(np);
-      return { ok: true };
-    }
+    if (String(values[i][0] || "").trim().toLowerCase() !== uLower) continue;
+    const check = passwordMatchesUserRow_(values[i], cur);
+    if (!check.ok) throw new Error("รหัสผ่านปัจจุบันไม่ถูกต้อง");
+    matched = true;
+    break;
   }
-  throw new Error("ไม่พบบัญชีผู้ใช้");
+  if (!matched) throw new Error("ไม่พบบัญชีผู้ใช้");
+  applyPasswordToAllUserRows_(sheet, username, np);
+  return { ok: true };
 }
 
 // === Bootstrap (single round-trip endpoint) ============================

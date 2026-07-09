@@ -424,6 +424,16 @@ assert("eng_readonly sees admin data columns client-side", () => {
   if (!html.includes("if(!canViewAdminData())return \"\"")) throw new Error("pickup cell should gate on canViewAdminData");
 });
 
+assert("password set/login uses normalized trim", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!code.includes("function normalizePasswordInput_")) throw new Error("missing normalizePasswordInput_");
+  if (!code.includes("applyPasswordToAllUserRows_")) throw new Error("missing applyPasswordToAllUserRows_");
+  if (!code.includes("passwordMatchesUserRow_(values[i], cur)")) throw new Error("changeOwnPassword must use passwordMatchesUserRow_");
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes('login-password")?.value||"").trim()')) throw new Error("login password must trim");
+  if (!html.includes('nu-password").value||"").trim()')) throw new Error("create user password must trim");
+});
+
 assert("change request RPC methods registered", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("requestOrderChange: requestOrderChange")) throw new Error("missing requestOrderChange RPC");

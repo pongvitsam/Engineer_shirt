@@ -2829,9 +2829,9 @@ function closeChangePasswordModal(){
 }
 
 async function submitChangePassword(btn){
-  const cur=String(document.getElementById("pwd-change-current")?.value||"");
-  const np=String(document.getElementById("pwd-change-new")?.value||"");
-  const cf=String(document.getElementById("pwd-change-confirm")?.value||"");
+  const cur=String(document.getElementById("pwd-change-current")?.value||"").trim();
+  const np=String(document.getElementById("pwd-change-new")?.value||"").trim();
+  const cf=String(document.getElementById("pwd-change-confirm")?.value||"").trim();
   if(!cur||!np||!cf){
     if(typeof app!=="undefined"&&app.showMsg)app.showMsg("กรอกข้อมูลให้ครบ","error");
     else alert("กรอกข้อมูลให้ครบ");
@@ -4681,7 +4681,7 @@ const app = {
       const payload={
         username:document.getElementById("nu-username").value.trim(),
         displayName:document.getElementById("nu-display").value.trim(),
-        password:document.getElementById("nu-password").value,
+        password:String(document.getElementById("nu-password").value||"").trim(),
         role:role,
         region:region
       };
@@ -4745,7 +4745,7 @@ const app = {
 
   async resetUserPwd(username,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
-    const np=prompt("รหัสผ่านใหม่สำหรับ "+username+" (อย่างน้อย 4 ตัว):");
+    const np=String(prompt("รหัสผ่านใหม่สำหรับ "+username+" (อย่างน้อย 4 ตัว):")||"").trim();
     if(!np)return;
     if(np.length<4){this.showMsg("รหัสผ่านต้องอย่างน้อย 4 ตัว","error");return}
     try{
