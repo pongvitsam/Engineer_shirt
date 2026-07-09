@@ -33,19 +33,26 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 
-  // Default GAS URL → GitHub Pages (primary app)
-  if (String(params.gas || "") !== "1") {
+  if (asset === "css") {
+    return ContentService
+      .createTextOutput(getClientCss_())
+      .setMimeType(ContentService.MimeType.CSS);
+  }
+
+  // ?pages=1 → redirect to GitHub Pages (static CDN)
+  if (String(params.pages || "") === "1") {
     return redirectToGithubPages_();
   }
 
-  // ?gas=1 → legacy GAS-hosted UI (admin login only)
+  // Default GAS URL → serve live app (always latest build)
   const tpl = HtmlService.createTemplateFromFile("Index");
   tpl.assetBaseUrl = ScriptApp.getService().getUrl();
   tpl.assetVersion = APP_BUILD;
-  tpl.gasAdminOnly = true;
+  tpl.gasAdminOnly = String(params.gas || "") === "1";
 
   return tpl.evaluate()
-    .setTitle("ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค (แอดมิน GAS)")
+    .setTitle("ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค" +
+      (tpl.gasAdminOnly ? " (แอดมิน GAS)" : ""))
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
 }
@@ -207,6 +214,11 @@ function getClientJs_() {
   return stripSingleTag_(raw, "script");
 }
 
+function getClientCss_() {
+  const raw = HtmlService.createHtmlOutputFromFile("CSS").getContent();
+  return stripSingleTag_(raw, "style");
+}
+
 function stripSingleTag_(html, tagName) {
   const re = new RegExp("<" + tagName + "[^>]*>([\\s\\S]*)<\\/" + tagName + ">", "i");
   const m = String(html || "").match(re);
@@ -233,7 +245,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "181";
+const APP_BUILD = "182";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
