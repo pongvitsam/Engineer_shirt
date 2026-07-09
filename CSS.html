@@ -120,6 +120,15 @@
 .report-abnormal-group-head{padding:.45rem .65rem;font-size:var(--fs-xs);font-weight:700;color:#fde68a;background:rgba(251,191,36,.15);border-bottom:1px solid rgba(255,255,255,.15)}
 .report-abnormal-table{margin:0}
 .report-abnormal-table thead th{background:rgba(127,29,29,.55)!important;color:#fff;font-weight:700}
+@media (min-width:768px){#dash-cards{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.dash-stat-wide{grid-column:1/-1;text-align:left}
+@media (min-width:768px){.dash-stat-wide{grid-column:span 2}}
+.dash-stat-wide-head{display:flex;align-items:baseline;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:.35rem}
+.dash-stat-wide .glass-stat-value{margin-left:auto}
+.dash-region-lines{display:flex;flex-direction:column;gap:.25rem;margin-top:.15rem;padding-top:.45rem;border-top:1px solid rgba(255,255,255,.18)}
+.dash-region-line{display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-size:var(--fs-xs);color:rgba(255,255,255,.88)}
+.dash-region-name{font-weight:600}
+.dash-region-val{font-variant-numeric:tabular-nums;white-space:nowrap}
 .cart-edit-note-block{margin-bottom:.75rem;padding:.65rem .75rem;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);border-radius:.85rem}
 .cart-edit-note-block .glass-label{color:#FDE68A;margin-bottom:.4rem}
 .cart-edit-note-input{width:100%;min-height:3.25rem;resize:vertical;line-height:1.35}

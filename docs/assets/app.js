@@ -2159,6 +2159,35 @@ function sortOrderGroupsForList_(groups){
 }
 
 // ── Dashboard / report compute ──────────────────────────────────────
+function renderDashRegionLinesHtml_(items, lineFn){
+  if(!items||!items.length)return "";
+  return `<div class="dash-region-lines">${items.map(function(x){return `<div class="dash-region-line">${lineFn(x)}</div>`;}).join("")}</div>`;
+}
+
+function renderDashboardCardsHtml_(dash, regionFilter){
+  const showBreakdown=!regionFilter||regionFilter==="all";
+  const unpaidQtyLines=showBreakdown?renderDashRegionLinesHtml_(dash.unpaidByRegion,function(x){
+    return `<span class="dash-region-name">${escHtml(regionShort(x.region))}</span><span class="dash-region-val">${x.qty} ตัว</span>`;
+  }):"";
+  const unpaidMoneyLines=showBreakdown?renderDashRegionLinesHtml_(dash.unpaidByRegion,function(x){
+    return `<span class="dash-region-name">${escHtml(regionShort(x.region))}</span><span class="dash-region-val">${fmtMoney(x.amount)} ฿</span>`;
+  }):"";
+  const deliveryLines=showBreakdown?renderDashRegionLinesHtml_(dash.pendingDeliveryByRegion,function(x){
+    return `<span class="dash-region-name">${escHtml(regionShort(x.region))}</span><span class="dash-region-val">${x.qty} ตัว</span>`;
+  }):"";
+  const adminCards=canViewAdminData()?`
+    <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${dash.freeGiveawayQty||0}</div></div>
+    <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.freeGiveawayLoss||0)}</div></div>`:"";
+  return `
+    <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">ยอดสั่งซื้อ (ตัว)</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
+    <div class="glass-stat glass-stat-green"><div class="glass-stat-label">ชำระแล้ว (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.paidAmount||0)}</div></div>
+    <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอตรวจสอบการชำระ</div><div class="glass-stat-value text-2xl">${dash.pendingSlipReviewCount||0}</div><div class="glass-stat-sub">ออเดอร์</div></div>
+    ${adminCards}
+    <div class="glass-stat dash-stat-wide glass-stat-orange"><div class="dash-stat-wide-head"><div class="glass-stat-label">รอชำระ (ตัว)</div><div class="glass-stat-value text-2xl">${dash.unpaidQty||0}</div></div>${unpaidQtyLines}</div>
+    <div class="glass-stat dash-stat-wide" style="background:linear-gradient(135deg,rgba(239,68,68,.32),rgba(127,29,29,.28))"><div class="dash-stat-wide-head"><div class="glass-stat-label">รอชำระเป็นเงิน (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.unpaidAmount||0)}</div></div>${unpaidMoneyLines}</div>
+    <div class="glass-stat dash-stat-wide glass-stat-yellow"><div class="dash-stat-wide-head"><div class="glass-stat-label">รอจัดส่ง (ตัว)</div><div class="glass-stat-value text-2xl">${dash.pendingDeliveryQty||0}</div></div>${deliveryLines}</div>`;
+}
+
 function computeDashboard(regionFilter){
   const all=appData?.orders||[];
   const orders=(regionFilter&&regionFilter!=="all")?all.filter(o=>o.region===regionFilter):all;
@@ -2166,16 +2195,21 @@ function computeDashboard(regionFilter){
   const byRegion={};
   const byRegionFree={};
   const byRegionFreeLoss={};
+  const byRegionUnpaid={};
+  const byRegionDelivery={};
   regions.forEach(r=>{
     byRegion[r]={qty:0,amount:0};
     byRegionFree[r]={qty:0,loss:0};
     byRegionFreeLoss[r]=0;
+    byRegionUnpaid[r]={qty:0,amount:0};
+    byRegionDelivery[r]={qty:0};
   });
   const bySize={};
   const bySizeFree={};
   (appData?.stockSizes||[]).forEach(s=>{bySize[s]=0;bySizeFree[s]=0});
   let saleQty=0,saleMoney=0,freeGiveawayQty=0,freeGiveawayLoss=0;
-  let pendingPayment=0,pendingPickup=0,pickedUp=0,paidQty=0;
+  let paidAmount=0,unpaidQty=0,unpaidAmount=0,pendingDeliveryQty=0;
+  const slipReviewOrderIds={};
   const orderIdSet={};
   for(let i=0;i<orders.length;i++){
     const o=orders[i];
@@ -2183,7 +2217,8 @@ function computeDashboard(regionFilter){
     const isFree=isFreeGiveawayPayment(o.paymentStatus);
     const price=Number(o.price)||0;
     const qty=Number(o.qty)||0;
-    orderIdSet[o.orderId||o.no]=1;
+    const oid=o.orderId||o.no;
+    orderIdSet[oid]=1;
     if(isFree){
       freeGiveawayQty+=qty;
       freeGiveawayLoss+=price;
@@ -2196,21 +2231,36 @@ function computeDashboard(regionFilter){
       byRegion[o.region].qty+=qty;
       byRegion[o.region].amount+=price;
       if(bySize[o.size]!==undefined)bySize[o.size]+=qty;
-      const cartSt=String(appData?.cartStatus||"อยู่ในตะกร้า");
-      const st=String(o.status||"").trim();
       const ps=String(o.paymentStatus||"").trim();
-      if(normalizeOrderStatus_(o.status)===ORDER_STATUS_ORDERED)pendingPayment+=qty;
-      if(isPaymentVerified(ps))paidQty+=qty;
-      if(normalizeOrderStatus_(o.status)===ORDER_STATUS_AWAITING)pendingPickup+=qty;
-      else if(normalizeOrderStatus_(o.status)===ORDER_STATUS_RECEIVED)pickedUp+=qty;
+      if(isPaymentVerified(ps)){
+        paidAmount+=price;
+      }else{
+        unpaidQty+=qty;
+        unpaidAmount+=price;
+        if(byRegionUnpaid[o.region]){
+          byRegionUnpaid[o.region].qty+=qty;
+          byRegionUnpaid[o.region].amount+=price;
+        }
+      }
+      if(ps==="รอตรวจสลิป")slipReviewOrderIds[oid]=1;
+      if(normalizeOrderStatus_(o.status)===ORDER_STATUS_AWAITING){
+        pendingDeliveryQty+=qty;
+        if(byRegionDelivery[o.region])byRegionDelivery[o.region].qty+=qty;
+      }
     }
   }
   return {
     totalShirts:saleQty,
     totalMoney:saleMoney,
+    paidAmount,
+    unpaidQty,
+    unpaidAmount,
+    unpaidByRegion:regions.map(function(r){return {region:r,qty:byRegionUnpaid[r].qty,amount:byRegionUnpaid[r].amount};}).filter(function(x){return x.qty>0;}),
+    pendingSlipReviewCount:Object.keys(slipReviewOrderIds).length,
+    pendingDeliveryQty,
+    pendingDeliveryByRegion:regions.map(function(r){return {region:r,qty:byRegionDelivery[r].qty};}).filter(function(x){return x.qty>0;}),
     freeGiveawayQty,
     freeGiveawayLoss,
-    pendingPayment,pendingPickup,pickedUp,paidQty,
     orderCount:Object.keys(orderIdSet).length,
     regionLabels:regions,
     regionQtys:regions.map(r=>byRegion[r].qty),
@@ -4509,17 +4559,7 @@ const app = {
     const dash=computeDashboard(region);
     const cardsEl=document.getElementById("dash-cards");
     if(cardsEl){
-      const giveawayCards=canViewAdminData()?`
-        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.35),rgba(79,70,229,.25))"><div class="glass-stat-label">แจกฟรี (ตัว)</div><div class="glass-stat-value">${dash.freeGiveawayQty||0}</div></div>
-        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(109,40,217,.45),rgba(127,29,29,.2))"><div class="glass-stat-label">ขาดทุนแจก (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.freeGiveawayLoss||0)}</div></div>`:"";
-      cardsEl.innerHTML=`
-        <div class="glass-stat glass-stat-purple"><div class="glass-stat-label">สั่งแล้ว (ตัว)</div><div class="glass-stat-value">${dash.totalShirts}</div></div>
-        <div class="glass-stat glass-stat-orange"><div class="glass-stat-label">ยอดสั่งซื้อ (฿)</div><div class="glass-stat-value text-2xl">${fmtMoney(dash.totalMoney)}</div></div>
-        ${giveawayCards}
-        <div class="glass-stat glass-stat-blue"><div class="glass-stat-label">รอตรวจสอบการชำระ</div><div class="glass-stat-value text-2xl">${dash.pendingPayment||0}</div></div>
-        <div class="glass-stat" style="background:linear-gradient(135deg,rgba(16,185,129,.35),rgba(5,150,105,.25))"><div class="glass-stat-label">ชำระเงินแล้ว</div><div class="glass-stat-value text-2xl">${dash.paidQty||0}</div><div class="glass-stat-sub">ตัว</div></div>
-        <div class="glass-stat glass-stat-yellow"><div class="glass-stat-label">รอจัดส่ง/เข้ามารับ</div><div class="glass-stat-value text-2xl">${dash.pendingPickup}</div></div>
-        <div class="glass-stat glass-stat-green"><div class="glass-stat-label">ได้รับแล้ว</div><div class="glass-stat-value text-2xl">${dash.pickedUp}</div></div>`;
+      cardsEl.innerHTML=renderDashboardCardsHtml_(dash,region);
     }
     const stockHtml=dash.stock.map(s=>
       `<div class="glass-stock-cell ${s.remaining<=5?'low':''}"><span class="size-badge ${sizeClass(s.size)}">${s.size}</span><div class="text-xs mt-1 text-glass-muted">เหลือ <b class="${s.remaining<=5?'text-red-glass':'text-green-glass'}">${s.remaining}</b>/${s.delivered}</div></div>`

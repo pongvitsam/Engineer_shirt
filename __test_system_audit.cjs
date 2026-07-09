@@ -446,6 +446,18 @@ assert("abnormal duplicate orders section is admin-only on report", () => {
   if (!html.includes('ps!=="รอตรวจสลิป"')) throw new Error("abnormal duplicate must include pending slip review");
 });
 
+assert("dashboard cards show paid amount and regional unpaid breakdown", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("renderDashboardCardsHtml_")) throw new Error("missing renderDashboardCardsHtml_");
+  if (!html.includes("pendingSlipReviewCount")) throw new Error("missing pendingSlipReviewCount in dashboard compute");
+  if (!html.includes('ps==="รอตรวจสลิป"')) throw new Error("dashboard slip review must count รอตรวจสลิป orders");
+  if (!html.includes("paidAmount")) throw new Error("missing paidAmount in dashboard compute");
+  if (!html.includes("unpaidByRegion")) throw new Error("missing unpaidByRegion breakdown");
+  if (!html.includes("pendingDeliveryByRegion")) throw new Error("missing pendingDeliveryByRegion breakdown");
+  if (!html.includes("รอชำระเป็นเงิน (฿)")) throw new Error("missing unpaid money dashboard card");
+  if (!html.includes("dash-stat-wide")) throw new Error("missing wide dashboard stat cards");
+});
+
 assert("password set/login uses normalized trim", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("function normalizePasswordInput_")) throw new Error("missing normalizePasswordInput_");
