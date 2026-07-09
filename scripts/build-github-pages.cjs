@@ -161,8 +161,6 @@ function pruneOldVersionedAssets_(keepBuild) {
 
 function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss, patchScript) {
   const v = build || readBuildFromCodeJs();
-  const gasJs = GAS_WEB_APP_URL + "?asset=js&amp;v=" + v;
-  const gasCss = GAS_WEB_APP_URL + "?asset=css&amp;v=" + v;
   const crit = criticalCss ? "<style>\n" + criticalCss + "\n</style>\n  " : "";
   const patch = patchScript ? "\n  " + patchScript + "\n" : "";
   return `<!DOCTYPE html>
@@ -183,14 +181,14 @@ function buildIndexHtml(bodyInner, headExtras, build, deployStamp, criticalCss, 
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  ${crit}<link id="peace-app-css" rel="stylesheet" href="${gasCss}">
+  ${crit}<link id="peace-app-css" rel="stylesheet" href="assets/app.b${v}.css">
   ${headExtras}
 </head>
 <body class="peace-login-active">
 ${bodyInner}
   ${LEGACY_HERO_STUB}
   <script src="config.b${v}.js"></script>
-  <script src="${gasJs}"></script>${patch}
+  <script src="assets/app.b${v}.js"></script>${patch}
 </body>
 </html>
 `;

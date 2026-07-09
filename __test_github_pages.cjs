@@ -27,15 +27,14 @@ assert("docs/index.html exists", () => {
   if (!fs.existsSync(path.join(DOCS, "index.html"))) throw new Error("missing");
 });
 
-assert("index loads versioned config and live GAS app assets", () => {
+assert("index loads versioned config and app assets", () => {
   const html = read("index.html");
   const m = html.match(/peace-build" content="(\d+)"/);
   if (!m) throw new Error("peace-build meta missing");
   const build = m[1];
   if (!html.includes("config.b" + build + ".js")) throw new Error("versioned config.js missing");
-  if (!html.includes("asset=js")) throw new Error("GAS app.js url missing");
-  if (!html.includes("asset=css")) throw new Error("GAS app.css url missing");
-  if (html.includes("assets/app.b" + build + ".js")) throw new Error("should not bundle local app.js in index");
+  if (!html.includes("assets/app.b" + build + ".js")) throw new Error("versioned app.js missing");
+  if (!html.includes("assets/app.b" + build + ".css")) throw new Error("versioned app.css missing");
   if (html.includes("peaceGate_") || html.includes('searchParams.set("_ra"')) {
     throw new Error("auto-reload boot guard must not ship in static HTML");
   }
