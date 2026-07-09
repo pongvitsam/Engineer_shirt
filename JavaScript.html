@@ -3411,26 +3411,26 @@ const app = {
     const safeOid=ddSafeId(orderId);
     const initDate=normalizePayDateForInput_(g.payDate)||todayStr();
     const initTime=normalizePayTimeForInput_(g.payTime)||nowTimeStr();
-    const payDateTimeHtml=isAdmin()
-      ?`${buildPayReviewDateTimeFieldsHtml_(safeOid,initDate,initTime)}
-        <div id="payment-review-msg" class="modal-inline-msg text-sm text-center" style="display:none" role="alert"></div>`
-      :`<div><b>วันที่โอน (จากสลิป):</b> ${formatThaiDateTimeCell(g.payDate,g.payTime)}</div>`;
     let imgHtml='<div class="text-xs text-glass-dim py-4 text-center">กำลังโหลดรูป…</div>';
     const html=`
       <div class="login-overlay slip-upload-overlay" id="payment-review-modal" onclick="if(event.target===this)app.closePaymentReviewModal()">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">ตรวจสอบการชำระ #${escHtml(String(orderId).replace(/^ORD-?/,"").substring(0,8))}</div>
-          <div class="slip-upload-body space-y-2">
+          <div class="slip-upload-body space-y-3">
             <div class="text-xs space-y-1">
               <div><b>วันที่สั่ง:</b> ${formatOrderTimestampCell(g.timestamp)}</div>
-              ${payDateTimeHtml}
               <div><b>ยอด:</b> ${fmtMoney(g.totalPrice)} ฿ · <b>เขต:</b> ${escHtml(g.region||"")}</div>
+            </div>
+            <div class="payment-review-paydt-section">
+              <div class="text-sm font-semibold mb-2"><i class="fas fa-edit mr-1"></i>วันเวลาที่โอน <span class="text-glass-dim font-normal text-xs">(แอดมินแก้ไขได้)</span></div>
+              ${buildPayReviewDateTimeFieldsHtml_(safeOid,initDate,initTime)}
+              <div id="payment-review-msg" class="modal-inline-msg text-sm text-center mt-2" style="display:none" role="alert"></div>
             </div>
             <div id="payment-review-img" class="payment-review-img">${imgHtml}</div>
             <p class="text-xs text-glass-dim">เสื้อแจกฟรี: ไม่รวมยอดสั่งซื้อ · แสดงเป็นขาดทุนในแดชบอร์ด</p>
           </div>
           <div class="slip-modal-actions grid grid-cols-1 gap-2">
-            ${isAdmin()?`<button onclick="app.savePaymentReviewPayDateTime('${escHtml(orderId)}',this)" class="glass-btn-secondary py-2"><i class="fas fa-save mr-1"></i>บันทึกวันเวลาโอน</button>`:""}
+            <button onclick="app.savePaymentReviewPayDateTime('${escHtml(orderId)}',this)" class="glass-btn-secondary py-2"><i class="fas fa-save mr-1"></i>บันทึกวันเวลาโอน</button>
             <button onclick="app.closePaymentReviewModal()" class="glass-btn-secondary py-2">ปิด</button>
             <button id="payment-accept-btn" onclick="app.acceptOrderPayment('${escHtml(orderId)}',this)" class="glass-btn-primary py-2" ${String(g.paymentStatus||"")==="ชำระเงินแล้ว"||isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}>ยอมรับการชำระ</button>
             <button onclick="app.markOrderFreeGiveaway('${escHtml(orderId)}',this)" class="glass-btn py-2" style="background:rgba(109,40,217,.5)" ${isFreeGiveawayPayment(g.paymentStatus)?"disabled":""}><i class="fas fa-gift mr-1"></i>เสื้อแจกฟรี</button>
@@ -3440,7 +3440,7 @@ const app = {
     const wrap=document.createElement("div");
     wrap.innerHTML=html;
     document.body.appendChild(wrap.firstElementChild);
-    if(isAdmin())bindDateTimePicker_(safeOid,"payrev");
+    bindDateTimePicker_(safeOid,"payrev");
     try{
       const res=await callAuthed("getOrderImage",orderId);
       const box=document.getElementById("payment-review-img");
@@ -3491,7 +3491,7 @@ const app = {
   },
 
   async savePaymentReviewPayDateTime(orderId,btn){
-    if(!isAdmin())return;
+    if(!isAdmin())return this.showPaymentReviewModalMsg("เฉพาะแอดมินเท่านั้น","error");
     const safeOid=ddSafeId(orderId);
     const payDate=String(document.getElementById("payrev-pay-date-"+safeOid)?.value||"").trim();
     const payTime=String(document.getElementById("payrev-pay-time-"+safeOid)?.value||"").trim();
