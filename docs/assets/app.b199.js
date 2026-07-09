@@ -2397,24 +2397,16 @@ function renderPaidTransferReportRowsHtml_(data,opts){
       }
       rows.forEach(function(row,i){
         const alt=i%2===1;
-        const qtyCell=`<td ${pdfPrintCellStyle_({center:true,bold:!!row.unpaid,alt:alt})}>${row.qty||0}</td>`;
-        const dateCell=`<td ${pdfPrintCellStyle_({center:true,alt:alt})}>${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>`;
-        const timeCell=`<td ${pdfPrintCellStyle_({center:true,alt:alt})}>${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>`;
-        const moneyCell=`<td ${pdfPrintCellStyle_({right:true,alt:alt})}>${row.unpaid?"-":fmtMoney(row.amount||0)}</td>`;
-        const remarkCell=`<td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):"-"}</td>`;
-        if(i===0){
-          parts.push(`<tr>
-            <td ${pdfPrintCellStyle_({region:true,rowspan:rows.length})}>${regionLabel}</td>
-            ${qtyCell}
-            ${dateCell}
-            ${timeCell}
-            ${moneyCell}
-            <td ${pdfPrintCellStyle_({right:true,bold:true,rowspan:rows.length})}>${fmtMoney(totalAmount)}</td>
-            ${remarkCell}
-          </tr>`);
-        }else{
-          parts.push(`<tr>${qtyCell}${dateCell}${timeCell}${moneyCell}${remarkCell}</tr>`);
-        }
+        const isLast=i===rows.length-1;
+        parts.push(`<tr>
+          <td ${pdfPrintCellStyle_({region:true,alt:alt})}>${regionLabel}</td>
+          <td ${pdfPrintCellStyle_({center:true,bold:!!row.unpaid,alt:alt})}>${row.qty||0}</td>
+          <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
+          <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
+          <td ${pdfPrintCellStyle_({right:true,alt:alt})}>${row.unpaid?"-":fmtMoney(row.amount||0)}</td>
+          <td ${pdfPrintCellStyle_({right:true,bold:true,alt:alt})}>${isLast?fmtMoney(totalAmount):""}</td>
+          <td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):"-"}</td>
+        </tr>`);
       });
       return;
     }
@@ -2431,25 +2423,18 @@ function renderPaidTransferReportRowsHtml_(data,opts){
       return;
     }
     rows.forEach(function(row,i){
+      const altCls=i%2===1?" report-transfer-row-alt":"";
       const qtyCls=row.unpaid?" report-transfer-qty-unpaid":"";
-      const qtyCell=`<td class="report-transfer-num${qtyCls}">${row.qty||0}</td>`;
-      const dateCell=`<td class="report-transfer-date">${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>`;
-      const timeCell=`<td class="report-transfer-time">${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>`;
-      const moneyCell=`<td class="report-transfer-money report-transfer-num">${row.unpaid?"-":fmtMoney(row.amount||0)}</td>`;
-      const remarkCell=`<td class="report-transfer-remark">${row.remark?escHtml(row.remark):"-"}</td>`;
-      if(i===0){
-        parts.push(`<tr>
-          <td class="report-transfer-region" rowspan="${rows.length}">${regionLabel}</td>
-          ${qtyCell}
-          ${dateCell}
-          ${timeCell}
-          ${moneyCell}
-          <td class="report-transfer-total report-transfer-num" rowspan="${rows.length}">${fmtMoney(totalAmount)}</td>
-          ${remarkCell}
-        </tr>`);
-      }else{
-        parts.push(`<tr>${qtyCell}${dateCell}${timeCell}${moneyCell}${remarkCell}</tr>`);
-      }
+      const isLast=i===rows.length-1;
+      parts.push(`<tr class="report-transfer-row${altCls}">
+        <td class="report-transfer-region">${regionLabel}</td>
+        <td class="report-transfer-num${qtyCls}">${row.qty||0}</td>
+        <td class="report-transfer-date">${row.unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
+        <td class="report-transfer-time">${row.unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
+        <td class="report-transfer-money report-transfer-num">${row.unpaid?"-":fmtMoney(row.amount||0)}</td>
+        <td class="report-transfer-total report-transfer-num">${isLast?fmtMoney(totalAmount):""}</td>
+        <td class="report-transfer-remark">${row.remark?escHtml(row.remark):"-"}</td>
+      </tr>`);
     });
   });
   return parts.join("");
@@ -2488,7 +2473,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
     const headCell=function(label){
       return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
     };
-    return `<table style="width:100%;border-collapse:collapse;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;">
+    return `<table style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;">
       <thead><tr>
         ${headCell(title)}
         ${headCell("จำนวนที่สั่ง(ตัว)")}
@@ -2502,8 +2487,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
     </table>`;
   }
   const body=renderPaidTransferReportRowsHtml_(data);
-  const tableCls="report-transfer-table glass-table report-table";
-  return `<table class="${tableCls}">
+  return `<table class="report-transfer-table">
     <thead><tr>
       <th class="report-transfer-col-region">${title}</th>
       <th class="report-transfer-col-qty">จำนวนที่สั่ง(ตัว)</th>
