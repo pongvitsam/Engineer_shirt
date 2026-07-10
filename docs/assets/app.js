@@ -661,6 +661,28 @@ function runBackgroundBootstrapSyncForListMutation_(){
   });
 }
 
+function refreshAfterOrderListMutation_(orderId,opts){
+  opts=opts||{};
+  if(opts.recalcStock!==false)recalcStockFromOrders();
+  const mod=(typeof app!=="undefined"&&app)?app.currentModule:"";
+  const tbody=document.getElementById("order-tbody");
+  if(mod==="list"&&tbody&&typeof app!=="undefined"&&app){
+    if(opts.removed||!orderId){
+      if(typeof app.fillOrderListBody==="function")app.fillOrderListBody();
+      if(typeof app.applyListFilter==="function")app.applyListFilter();
+    }else{
+      refreshOrderListGroupRow_(orderId);
+    }
+    if(opts.syncServer&&orderId&&!opts.removed){
+      runBackgroundBootstrapSyncForListMutation_().then(function(){
+        refreshOrderListGroupRow_(orderId);
+      });
+    }
+    return;
+  }
+  refreshAfterMutation_(opts);
+}
+
 let bootstrapSyncTimer = null;
 let bootstrapSyncInFlight = false;
 let realtimePollTimer = null;
@@ -3969,13 +3991,14 @@ const app = {
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
     const prev=ordersInGroup.length?(ordersInGroup[0].orderStatus||ordersInGroup[0].status):status;
     applyLocalOrderStatusUpdate_(orderId,status);
+    refreshAfterOrderListMutation_(orderId,{recalcStock:false});
     try{
       await runSaving({busyText:"กำลังอัปเดตสถานะ…",toast:false},()=>callAuthed("updateOrderStatusByOrderId",orderId,status));
       this.showMsg("อัปเดตสถานะออเดอร์แล้ว","success");
-      refreshAfterMutation_({ keepLocal: true });
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false,syncServer:true});
     }catch(e){
       applyLocalOrderStatusUpdate_(orderId,prev);
-      this.fillOrderListBody();
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false});
       this.showMsg(e.message,"error");
     }
   },
@@ -4181,23 +4204,20 @@ const app = {
       :{pickupNote:pickupNote};
     applyLocalOrderPickupUpdate_(orderId,localPatch);
     this.closePickupModal();
-    refreshOrderListGroupRow_(orderId);
+    refreshAfterOrderListMutation_(orderId,{recalcStock:false});
     await new Promise(function(r){setTimeout(r,0);});
     try{
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         return await callAuthed("updateOrderPickupByOrderId",orderId,pickupDate,pickupTime,pickupNote,deliveryMode);
       });
       applyLocalOrderPickupUpdate_(orderId,res);
-      refreshOrderListGroupRow_(orderId);
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false,syncServer:true});
       this.showMsg(hasDateTime
         ?("บันทึกวันที่รับ/จัดส่งแล้ว · สถานะ: "+escHtml(res.status||nextStatus))
         :"บันทึกหมายเหตุรับ/จัดส่งแล้ว","success");
-      runBackgroundBootstrapSyncForListMutation_().then(function(){
-        refreshOrderListGroupRow_(orderId);
-      });
     }catch(e){
       restoreOrderGroupSnapshot_(orderId,snap);
-      refreshOrderListGroupRow_(orderId);
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false});
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
@@ -4214,7 +4234,7 @@ const app = {
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderSlipUpdate_(orderId,{payDate:payDate,payTime:payTime,paymentStatus:"รอตรวจสลิป"});
     this.closeSlipUploadModal();
-    refreshAfterMutation_({ keepLocal: true });
+    refreshAfterOrderListMutation_(orderId,{recalcStock:false});
     await new Promise(function(r){setTimeout(r,0);});
     try{
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึกสลิป…"},async()=>{
@@ -4224,11 +4244,11 @@ const app = {
         return await callAuthedWithTimeout(RPC_POST_TIMEOUT_MS,"uploadOrderImage",orderId,base64,payDate,payTime,file.name);
       });
       applyLocalOrderSlipUpdate_(orderId,res);
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false,syncServer:true});
       this.showMsg("บันทึกสลิปแล้ว รอแอดมินตรวจสอบ","success");
-      scheduleBackgroundBootstrapSync_();
     }catch(e){
       restoreOrderGroupSnapshot_(orderId,snap);
-      refreshAfterMutation_({ keepLocal: true });
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false});
       this.showMsg(e.message||"บันทึกสลิปไม่สำเร็จ","error");
     }
   },
@@ -4359,7 +4379,7 @@ const app = {
     if(!payDate||!payTime)return this.showPaymentReviewModalMsg("กรุณาเลือกวันที่และเวลาโอน","error");
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderSlipUpdate_(orderId,{payDate:payDate,payTime:payTime});
-    refreshAfterMutation_({ keepLocal: true });
+    refreshAfterOrderListMutation_(orderId,{recalcStock:false});
     try{
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         return await callAuthed("updateOrderPayDateTimeByOrderId",orderId,payDate,payTime);
@@ -4370,10 +4390,10 @@ const app = {
       const editEl=document.getElementById("payrev-dt-edit-"+safeOid);
       if(viewEl&&editEl){editEl.style.display="none";viewEl.style.display="block";}
       this.showPaymentReviewModalMsg("บันทึกวันเวลาโอนแล้ว","success");
-      scheduleBackgroundBootstrapSync_();
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false,syncServer:true});
     }catch(e){
       restoreOrderGroupSnapshot_(orderId,snap);
-      refreshAfterMutation_({ keepLocal: true });
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false});
       this.showPaymentReviewModalMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
@@ -4386,17 +4406,17 @@ const app = {
     applyLocalOrderPaymentStatus_(orderId,"ชำระเงินแล้ว");
     applyLocalOrderStatusUpdate_(orderId,ORDER_STATUS_AWAITING);
     this.closePaymentReviewModal();
-    refreshAfterMutation_({ keepLocal: true });
+    refreshAfterOrderListMutation_(orderId,{recalcStock:false});
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("acceptOrderPayment",orderId);
       });
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false,syncServer:true});
       this.showMsg("ยอมรับการชำระเงินแล้ว","success");
-      scheduleBackgroundBootstrapSync_();
     }catch(e){
       applyLocalOrderPaymentStatus_(orderId,prevPay);
       applyLocalOrderStatusUpdate_(orderId,prevStatus);
-      refreshAfterMutation_({ keepLocal: true });
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false});
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
@@ -4413,17 +4433,17 @@ const app = {
     applyLocalOrderPaymentStatus_(orderId,PAYMENT_FREE_GIVEAWAY);
     applyLocalOrderStatusUpdate_(orderId,ORDER_STATUS_AWAITING);
     this.closePaymentReviewModal();
-    refreshAfterMutation_({ keepLocal: true });
+    refreshAfterOrderListMutation_(orderId);
     try{
       await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         await callAuthed("markOrderFreeGiveaway",orderId);
       });
+      refreshAfterOrderListMutation_(orderId,{syncServer:true});
       this.showMsg("บันทึกเป็นเสื้อแจกฟรีแล้ว (ไม่รวมยอดสั่งซื้อ)","success");
-      scheduleBackgroundBootstrapSync_();
     }catch(e){
       applyLocalOrderPaymentStatus_(orderId,prevPay);
       applyLocalOrderStatusUpdate_(orderId,prevStatus);
-      refreshAfterMutation_({ keepLocal: true });
+      refreshAfterOrderListMutation_(orderId);
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
