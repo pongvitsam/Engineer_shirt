@@ -519,6 +519,8 @@ assert("order list pickup delivery column", () => {
   if (/hasExistingPickup[\s\S]*?:`<input type="hidden" id="pickup-pay-date-/.test(html)) {
     throw new Error("pickup modal must not duplicate hidden date fields outside datetime wrap");
   }
+  if (!html.includes("refreshOrderListGroupRow_")) throw new Error("missing targeted order list row refresh");
+  if (!html.includes("runBackgroundBootstrapSyncForListMutation_")) throw new Error("missing list mutation bootstrap sync");
 });
 
 assert("order form has optional slip upload with datetime", () => {

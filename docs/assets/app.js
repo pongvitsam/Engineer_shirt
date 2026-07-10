@@ -626,6 +626,41 @@ function applyLocalMutationRefresh_() {
   }
 }
 
+function refreshOrderListGroupRow_(orderId){
+  if(!orderId||typeof app==="undefined"||!app||typeof app.orderGroupRowHtml!=="function")return;
+  const tbody=document.getElementById("order-tbody");
+  if(!tbody)return;
+  const oid=String(orderId);
+  const g=groupOrdersByOrderId(appData?.orders||[]).find(function(x){return String(x.orderId)===oid;});
+  if(!g)return;
+  const rows=tbody.querySelectorAll("tr[data-order-id]");
+  for(let i=0;i<rows.length;i++){
+    if(rows[i].getAttribute("data-order-id")!==oid)continue;
+    const prevDisplay=rows[i].style.display;
+    let rowHtml;
+    try{rowHtml=app.orderGroupRowHtml(g);}catch(_){return;}
+    const temp=document.createElement("tbody");
+    temp.innerHTML=rowHtml;
+    const newTr=temp.firstElementChild;
+    if(!newTr)return;
+    if(prevDisplay)newTr.style.display=prevDisplay;
+    rows[i].replaceWith(newTr);
+    return;
+  }
+}
+
+function runBackgroundBootstrapSyncForListMutation_(){
+  if(bootstrapSyncInFlight)return Promise.resolve();
+  bootstrapSyncInFlight=true;
+  return ensureAppData(true,{skipImageResolve:true}).then(function(){
+    appDataStale=false;
+  }).catch(function(){
+    appDataStale=true;
+  }).finally(function(){
+    bootstrapSyncInFlight=false;
+  });
+}
+
 let bootstrapSyncTimer = null;
 let bootstrapSyncInFlight = false;
 let realtimePollTimer = null;
@@ -1526,7 +1561,7 @@ function shouldHideOrderNoteForViewer_(g){
 }
 function renderPickupDeliveryCell_(g){
   if(!canViewAdminData())return "";
-  const hasPickup=!!(String(g.pickupDate||"").trim()&&String(g.pickupTime||"").trim());
+  const hasPickup=!!(String(g.pickupDate||"").trim()||String(g.pickupTime||"").trim());
   const note=String(g.pickupNote||"").trim();
   let display=hasPickup
     ?`<div class="text-xs">${formatThaiDateTimeCell(g.pickupDate,g.pickupTime)}</div>`
@@ -1537,7 +1572,7 @@ function renderPickupDeliveryCell_(g){
   const btnIcon=(hasPickup||note)?"fa-edit":"fa-calendar-plus";
   return `<div class="order-pickup-cell">
     ${display}
-    <button type="button" onclick="app.openPickupModal('${escHtml(g.orderId)}')" class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .55rem"><i class="fas ${btnIcon}"></i> ${btnLabel}</button>
+    <button type="button" onclick="event.stopPropagation();app.openPickupModal('${escHtml(g.orderId)}')" class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .55rem"><i class="fas ${btnIcon}"></i> ${btnLabel}</button>
   </div>`;
 }
 
@@ -4043,11 +4078,13 @@ const app = {
 
   openPickupModal(orderId){
     if(!isAdmin())return this.showMsg("เฉพาะแอดมินเท่านั้น","warning");
+    if(typeof app!=="undefined"&&app&&typeof app.closeDropdownPanel==="function")app.closeDropdownPanel();
     const self=this;
-    setTimeout(function(){self._openPickupModalNow_(orderId);},0);
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){self._openPickupModalNow_(orderId);});
+    });
   },
   _openPickupModalNow_(orderId){
-    if(typeof app!=="undefined"&&app&&typeof app.closeDropdownPanel==="function")app.closeDropdownPanel();
     const orderGroup=groupOrdersByOrderId(appData?.orders||[]).find(g=>g.orderId===orderId);
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     this.closePickupModal();
@@ -4062,7 +4099,7 @@ const app = {
       :`<div id="pickup-dt-wrap-${safeOid}" style="display:none"></div>
             <button type="button" id="pickup-dt-toggle-${safeOid}" onclick="app.showPickupDateTimeFields('${escHtml(orderId)}')" class="glass-btn-secondary text-xs py-2 w-full"><i class="fas fa-calendar-plus"></i> ระบุวันที่/เวลา (ไม่บังคับ)</button>`;
     const html=`
-      <div class="login-overlay slip-upload-overlay" id="pickup-modal" onclick="if(event.target===this)app.closePickupModal()">
+      <div class="login-overlay slip-upload-overlay" id="pickup-modal">
         <div class="login-card slip-upload-card" style="max-width:520px" onclick="event.stopPropagation()">
           <div class="login-title">วันที่เข้ามารับ/จัดส่ง #${escHtml(shortOrderLabel_(orderId))}</div>
           <p class="login-sub text-xs">บันทึกหมายเหตุอย่างเดียวได้ · ถ้าระบุวันที่/เวลา ระบบจะตั้งสถานะเป็น <b>จัดส่งแล้ว</b> หรือ <b>ได้รับแล้ว</b> อัตโนมัติ</p>
@@ -4093,7 +4130,15 @@ const app = {
     const escHandler=function(e){if(e.key==="Escape")app.closePickupModal();};
     document.addEventListener("keydown",escHandler);
     const m=document.getElementById("pickup-modal");
-    if(m)m._escHandler=escHandler;
+    if(m){
+      m._escHandler=escHandler;
+      m._openedAt=Date.now();
+      m.addEventListener("click",function(e){
+        if(e.target!==m)return;
+        if(Date.now()-m._openedAt<400)return;
+        app.closePickupModal();
+      });
+    }
     if(hasExistingPickup)bindPickupDateTimePicker_(safeOid);
   },
   showPickupDateTimeFields(orderId){
@@ -4136,20 +4181,23 @@ const app = {
       :{pickupNote:pickupNote};
     applyLocalOrderPickupUpdate_(orderId,localPatch);
     this.closePickupModal();
-    refreshAfterMutation_({ keepLocal: true });
+    refreshOrderListGroupRow_(orderId);
     await new Promise(function(r){setTimeout(r,0);});
     try{
       const res=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},async()=>{
         return await callAuthed("updateOrderPickupByOrderId",orderId,pickupDate,pickupTime,pickupNote,deliveryMode);
       });
       applyLocalOrderPickupUpdate_(orderId,res);
+      refreshOrderListGroupRow_(orderId);
       this.showMsg(hasDateTime
         ?("บันทึกวันที่รับ/จัดส่งแล้ว · สถานะ: "+escHtml(res.status||nextStatus))
         :"บันทึกหมายเหตุรับ/จัดส่งแล้ว","success");
-      scheduleBackgroundBootstrapSync_();
+      runBackgroundBootstrapSyncForListMutation_().then(function(){
+        refreshOrderListGroupRow_(orderId);
+      });
     }catch(e){
       restoreOrderGroupSnapshot_(orderId,snap);
-      refreshAfterMutation_({ keepLocal: true });
+      refreshOrderListGroupRow_(orderId);
       this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");
     }
   },
