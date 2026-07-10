@@ -469,6 +469,19 @@ assert("order form uses contact phone instead of status field", () => {
   if (!code.includes("normalizeContactPhone_")) throw new Error("missing normalizeContactPhone_");
 });
 
+assert("report region table uses four exclusive status buckets", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("classifyReportRegionBucket_")) throw new Error("missing classifyReportRegionBucket_");
+  if (!html.includes("renderReportRegionBucketCell_")) throw new Error("missing renderReportRegionBucketCell_");
+  if (!html.includes("reportRegionBucketHeadersHtml_")) throw new Error("missing report region bucket headers");
+  if (!html.includes("ยังไม่ได้จ่ายเงิน")) throw new Error("missing unpaid bucket label");
+  if (!html.includes("isCartStatus(o.status||o.orderStatus))return \"unpaid\"")) throw new Error("cart orders must map to unpaid bucket");
+  const classifyBlock = html.match(/function classifyReportRegionBucket_\(o\)\{[\s\S]*?\n\}/);
+  if (!classifyBlock || !classifyBlock[0].includes("return null;")) throw new Error("paid non-awaiting orders should not fall into awaitingPickup");
+  if (!html.includes("รอตรวจสอบสลิป")) throw new Error("missing pending slip bucket label");
+  if (html.includes("สรุปสถานะ/ไซส์")) throw new Error("old status summary column should be replaced");
+});
+
 assert("password set/login uses normalized trim", () => {
   const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!code.includes("function normalizePasswordInput_")) throw new Error("missing normalizePasswordInput_");

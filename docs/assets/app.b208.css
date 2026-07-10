@@ -14,6 +14,11 @@
 .status-แจกฟรี{background:rgba(109,40,217,.55);color:#EDE9FE;border:1px solid rgba(196,181,253,.5)}
 .report-status-summary{display:flex;flex-direction:column;gap:.35rem;min-width:9rem}
 .report-status-block{display:flex;flex-direction:column;gap:.15rem}
+.report-bucket-col{min-width:7.5rem;vertical-align:top}
+.report-bucket-cell{display:flex;flex-direction:column;gap:.2rem}
+.report-bucket-total{white-space:nowrap}
+.report-bucket-money{font-size:var(--fs-xs);color:rgba(255,255,255,.82);font-variant-numeric:tabular-nums}
+.report-bucket-sizes{margin-top:.1rem}
 .status-รอตรวจชำระ{background:rgba(59,130,246,.25);color:#93c5fd;border:1px solid rgba(59,130,246,.35)}
 .status-รอจัดส่ง{background:rgba(234,179,8,.25);color:#fde047;border:1px solid rgba(234,179,8,.35)}
 .status-จัดส่งแล้ว{background:rgba(14,165,233,.25);color:#7dd3fc;border:1px solid rgba(14,165,233,.35)}

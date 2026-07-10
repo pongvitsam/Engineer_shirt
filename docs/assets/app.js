@@ -1449,6 +1449,10 @@ function countsAsSaleRevenue(s){
 function shouldCountInDashboard_(o){
   return !isCartStatus(o.status||o.orderStatus);
 }
+function shouldCountInSalesReport_(o){
+  if(isFreeGiveawayPayment(o.paymentStatus))return shouldCountInDashboard_(o);
+  return true;
+}
 function canEditOrderNote_(g,ownsOrder){
   if(isReadOnlyUser())return false;
   if(canViewAllRegions()&&!isAdmin()&&!ownsOrder)return false;
@@ -2308,27 +2312,19 @@ function computeSalesReport(){
   const regionFreeAcc={};
   regions.forEach(r=>{
     const bs={};const bf={};sizes.forEach(s=>{bs[s]=0;bf[s]=0});
-    regionAcc[r]={totalQty:0,totalAmount:0,orderIds:{},bySize:bs,byStatusSize:{}};
+    regionAcc[r]={totalQty:0,totalAmount:0,orderIds:{},bySize:bs,reportBuckets:emptyReportRegionBuckets_()};
     regionFreeAcc[r]={totalQty:0,totalLoss:0,orderIds:{},bySize:bf};
   });
+  const totalReportBuckets=emptyReportRegionBuckets_();
   let totalQty=0,totalAmount=0,freeQty=0,freeLoss=0,pendingCount=0,pendingQty=0;
   const allOrderIds={};
   for(let i=0;i<orders.length;i++){
     const o=orders[i];
-    if(!shouldCountInDashboard_(o))continue;
+    if(!shouldCountInSalesReport_(o))continue;
     const oid=o.orderId||o.no;
     allOrderIds[oid]=1;
     const acc=regionAcc[o.region];
     const accFree=regionFreeAcc[o.region];
-    const st=normalizeOrderStatus_(o.status);
-    if(acc){
-      if(!acc.byStatusSize[st])acc.byStatusSize[st]={};
-      const sz=String(o.size||"").trim();
-      if(sz){
-        if(acc.byStatusSize[st][sz]===undefined)acc.byStatusSize[st][sz]=0;
-        acc.byStatusSize[st][sz]+=Number(o.qty)||0;
-      }
-    }
     if(isFreeGiveawayPayment(o.paymentStatus)){
       freeQty+=o.qty;
       freeLoss+=o.price;
@@ -2347,6 +2343,11 @@ function computeSalesReport(){
         acc.totalAmount+=o.price;
         acc.orderIds[oid]=1;
         if(acc.bySize[o.size]!==undefined)acc.bySize[o.size]+=o.qty;
+        const bucketKey=classifyReportRegionBucket_(o);
+        if(bucketKey){
+          addToReportRegionBucket_(acc.reportBuckets[bucketKey],o.qty,o.price,o.size);
+          addToReportRegionBucket_(totalReportBuckets[bucketKey],o.qty,o.price,o.size);
+        }
       }
     }
   }
@@ -2360,39 +2361,91 @@ function computeSalesReport(){
     freeOrderCount:Object.keys(regionFreeAcc[r].orderIds).length,
     bySize:regionAcc[r].bySize,
     bySizeFree:regionFreeAcc[r].bySize,
-    byStatusSize:regionAcc[r].byStatusSize
+    reportBuckets:regionAcc[r].reportBuckets
   }));
   const stock=appData?.stock||[];
   return {byRegion,stock,
     stockTotalRemaining:stock.reduce((s,x)=>s+x.remaining,0),
     pendingPayment:{count:pendingCount,totalQty:pendingQty},
-    totals:{totalQty,totalAmount,freeQty,freeLoss,orderCount:Object.keys(allOrderIds).length,regionCount:regions.length},
+    totals:{totalQty,totalAmount,freeQty,freeLoss,orderCount:Object.keys(allOrderIds).length,regionCount:regions.length,reportBuckets:totalReportBuckets},
     unitPrice:appData?.unitPrice||0};
 }
 
-function reportStatusDisplayOrder_(){
-  const cartSt=String(appData?.cartStatus||"อยู่ในตะกร้า");
-  return [cartSt,ORDER_STATUS_ORDERED,ORDER_STATUS_AWAITING,ORDER_STATUS_SHIPPED,ORDER_STATUS_RECEIVED];
+const REPORT_REGION_BUCKET_KEYS_=["received","awaitingPickup","pendingSlip","unpaid"];
+const REPORT_REGION_BUCKET_LABELS_={
+  received:"รับแล้ว",
+  awaitingPickup:"รอเข้ามารับ",
+  pendingSlip:"รอตรวจสอบสลิป",
+  unpaid:"ยังไม่ได้จ่ายเงิน"
+};
+
+function emptyReportRegionBucket_(){
+  return {qty:0,amount:0,bySize:{}};
 }
 
-function reportRegionStatusSummaryHtml_(byStatusSize){
-  if(!byStatusSize||!Object.keys(byStatusSize).length)return '<span class="text-glass-dim">-</span>';
+function emptyReportRegionBuckets_(){
+  const buckets={};
+  REPORT_REGION_BUCKET_KEYS_.forEach(function(k){buckets[k]=emptyReportRegionBucket_();});
+  return buckets;
+}
+
+function classifyReportRegionBucket_(o){
+  if(isFreeGiveawayPayment(o.paymentStatus))return null;
+  if(isCartStatus(o.status||o.orderStatus))return "unpaid";
+  const st=normalizeOrderStatus_(o.status||o.orderStatus);
+  const ps=String(o.paymentStatus||"").trim();
+  if(st===ORDER_STATUS_RECEIVED)return "received";
+  if(st===ORDER_STATUS_AWAITING)return "awaitingPickup";
+  if(ps==="รอตรวจสลิป")return "pendingSlip";
+  if(!isPaymentVerified(ps))return "unpaid";
+  return null;
+}
+
+function addToReportRegionBucket_(bucket,qty,amount,size){
+  if(!bucket)return;
+  const q=Number(qty)||0;
+  const a=Number(amount)||0;
+  bucket.qty+=q;
+  bucket.amount+=a;
+  const sz=String(size||"").trim();
+  if(sz){
+    if(bucket.bySize[sz]===undefined)bucket.bySize[sz]=0;
+    bucket.bySize[sz]+=q;
+  }
+}
+
+function renderReportRegionBucketSizeHtml_(bySize){
   const sizes=appData?.stockSizes||[];
-  const known=reportStatusDisplayOrder_();
-  const extra=Object.keys(byStatusSize).filter(st=>known.indexOf(st)<0).sort();
-  const ordered=known.concat(extra);
-  const blocks=[];
-  ordered.forEach(function(st){
-    const bySz=byStatusSize[st];
-    if(!bySz)return;
-    const sizeKeys=sizes.length?sizes.filter(function(s){return(bySz[s]||0)>0}):Object.keys(bySz).filter(function(s){return(bySz[s]||0)>0});
-    if(!sizeKeys.length)return;
-    const sizeParts=sizeKeys.map(function(s){
-      return `<span class="order-item"><span class="size-badge ${sizeClass(s)}">${escHtml(s)}</span><span class="order-item-qty">${bySz[s]}</span></span>`;
-    }).join("");
-    blocks.push(`<div class="report-status-block"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${statusClass(st)}" style="border:1px solid rgba(255,255,255,.2)">${escHtml(st)}</span><div class="order-items mt-0.5">${sizeParts}</div></div>`);
-  });
-  return blocks.length?`<div class="report-status-summary">${blocks.join("")}</div>`:'<span class="text-glass-dim">-</span>';
+  const sizeKeys=sizes.length?sizes.filter(function(s){return(bySize[s]||0)>0}):Object.keys(bySize||{}).filter(function(s){return(bySize[s]||0)>0});
+  if(!sizeKeys.length)return "";
+  return `<div class="order-items report-bucket-sizes">${sizeKeys.map(function(s){
+    return `<span class="order-item"><span class="size-badge ${sizeClass(s)}">${escHtml(s)}</span><span class="order-item-qty">${bySize[s]}</span></span>`;
+  }).join("")}</div>`;
+}
+
+function renderReportRegionBucketCell_(bucket){
+  bucket=bucket||emptyReportRegionBucket_();
+  const qty=Number(bucket.qty)||0;
+  const amount=Number(bucket.amount)||0;
+  if(qty<=0)return '<span class="text-glass-dim">-</span>';
+  return `<div class="report-bucket-cell">
+    <div class="report-bucket-total"><span class="font-bold">${qty}</span> ตัว</div>
+    <div class="report-bucket-money">${fmtMoney(amount)} ฿</div>
+    ${renderReportRegionBucketSizeHtml_(bucket.bySize)}
+  </div>`;
+}
+
+function reportRegionBucketHeadersHtml_(){
+  return REPORT_REGION_BUCKET_KEYS_.map(function(k){
+    return `<th class="py-2 px-2 text-left report-bucket-col">${escHtml(REPORT_REGION_BUCKET_LABELS_[k])}</th>`;
+  }).join("");
+}
+
+function reportRegionBucketCellsHtml_(buckets){
+  buckets=buckets||emptyReportRegionBuckets_();
+  return REPORT_REGION_BUCKET_KEYS_.map(function(k){
+    return `<td data-label="${escAttr(REPORT_REGION_BUCKET_LABELS_[k])}" class="py-2 px-2 align-top report-bucket-col">${renderReportRegionBucketCell_(buckets[k])}</td>`;
+  }).join("");
 }
 
 function paidTransferReportTitle_(){
@@ -4680,7 +4733,7 @@ const app = {
                 ${canViewAdminData()?`<th class="py-2 px-2 text-center">แจกฟรี</th>
                 <th class="py-2 px-2 text-right">ขาดทุนแจก</th>`:""}
                 <th class="py-2 px-2 text-left">ไซส์ (สั่งซื้อ)</th>
-                <th class="py-2 px-2 text-left">สรุปสถานะ/ไซส์</th>
+                ${reportRegionBucketHeadersHtml_()}
               </tr></thead>
               <tbody id="report-region-body"></tbody>
               <tfoot id="report-region-foot"></tfoot>
@@ -4732,14 +4785,15 @@ const app = {
       const parts=sizes.filter(s=>x.bySize[s]>0).length
         ? `<div class="order-items">${sizes.filter(s=>x.bySize[s]>0).map(s=>`<span class="order-item"><span class="size-badge ${sizeClass(s)}">${s}</span><span class="order-item-qty">${x.bySize[s]}</span></span>`).join("")}</div>`
         : '<span class="text-glass-dim">-</span>';
-      const statusSummary=reportRegionStatusSummaryHtml_(x.byStatusSize);
       const cls=x.totalQty>0?"":"text-glass-dim";
       const giveawayCols=canViewAdminData()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${x.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(x.freeLoss||0)}</td>`:"";
-      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td><td data-label="สรุปสถานะ/ไซส์" class="py-2 px-2 align-top">${statusSummary}</td></tr>`;
+      const bucketCols=reportRegionBucketCellsHtml_(x.reportBuckets);
+      return `<tr class="${cls}"><td data-label="เขต" class="py-2 px-2 font-semibold">${escHtml(regionShort(x.shortName))}</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center font-bold">${x.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(x.totalAmount)}</td>${giveawayCols}<td data-label="ไซส์" class="py-2 px-2">${parts}</td>${bucketCols}</tr>`;
     }).join("");
     document.getElementById("report-region-body").innerHTML=rows;
     const footGiveawayCols=canViewAdminData()?`<td data-label="แจกฟรี" class="py-2 px-2 text-center" style="color:#C4B5FD">${t.freeQty||0}</td><td data-label="ขาดทุน" class="py-2 px-2 text-right" style="color:#C4B5FD">${fmtMoney(t.freeLoss||0)}</td>`:"";
-    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td><td data-label="สรุปสถานะ/ไซส์" class="py-2 px-2"></td></tr>`;
+    const footBucketCols=reportRegionBucketCellsHtml_(t.reportBuckets);
+    document.getElementById("report-region-foot").innerHTML=`<tr><td data-label="เขต" class="py-2 px-2 font-bold">รวม</td><td data-label="สั่งซื้อ" class="py-2 px-2 text-center">${t.totalQty}</td><td data-label="ยอดสั่งซื้อ" class="py-2 px-2 text-right">${fmtMoney(t.totalAmount)}</td>${footGiveawayCols}<td data-label="ไซส์" class="py-2 px-2"></td>${footBucketCols}</tr>`;
     const cells=r.stock.map(s=>{
       const cls=s.remaining<=5?"low":"";
       const nc=s.remaining<=5?"text-red-glass":"text-green-glass";
