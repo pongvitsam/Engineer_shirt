@@ -26,14 +26,65 @@ const html = fs.readFileSync(path.join(ROOT, "JavaScript.html"), "utf8");
 
 console.log("\n=== Realtime / optimistic client tests ===\n");
 
-assert("server warms bootstrap cache on invalidate", () => {
-  if (!/function invalidateDataCache_\(\) \{\s*refreshBootstrapCache_\(\);/.test(codeJs)) {
-    throw new Error("invalidateDataCache_ must call refreshBootstrapCache_");
+assert("server lazy-invalidates bootstrap cache on writes", () => {
+  if (!/function invalidateDataCache_\(\) \{\s*[\s\S]*?cache\.remove\(CACHE_KEY_BOOTSTRAP\)/.test(codeJs)) {
+    throw new Error("invalidateDataCache_ must remove bootstrap cache key");
+  }
+  if (/function invalidateDataCache_\(\) \{\s*refreshBootstrapCache_\(\);/.test(codeJs)) {
+    throw new Error("invalidateDataCache_ must not synchronously warm cache on every write");
   }
 });
 
 assert("bootstrap cache key v11", () => {
   if (!codeJs.includes("bootstrap_v11")) throw new Error("expected bootstrap_v11");
+});
+
+assert("getBootstrapData uses POST on GitHub Pages", () => {
+  if (!html.includes("getBootstrapData: true")) throw new Error("getBootstrapData must be in RPC_POST_METHODS_");
+});
+
+assert("ensureAppData single-flight dedupe", () => {
+  if (!html.includes("let ensureAppDataInFlight = null")) throw new Error("missing ensureAppDataInFlight");
+  if (!/function ensureAppData[\s\S]*ensureAppDataInFlight/.test(html)) {
+    throw new Error("ensureAppData must dedupe concurrent fetches");
+  }
+});
+
+assert("round shirt image upgrades in background", () => {
+  if (!html.includes("function scheduleRoundImageUpgrade_")) throw new Error("missing scheduleRoundImageUpgrade_");
+  if (!html.includes("function applyRoundDisplayFast_")) throw new Error("missing applyRoundDisplayFast_");
+  const core = html.match(/function ensureAppDataCore_[\s\S]*?^}/m);
+  if (!core) throw new Error("ensureAppDataCore_ not found");
+  if (core[0].includes("await resolveRoundImageForDisplay")) {
+    throw new Error("bootstrap must not await resolveRoundImageForDisplay");
+  }
+  if (!html.includes("function upgradeRoundImageDisplay_")) throw new Error("missing upgradeRoundImageDisplay_");
+});
+
+assert("boot skips extra verifySession round-trip", () => {
+  const m = html.match(/function bootEntry\(\)\{[\s\S]*?^}/m);
+  if (!m) throw new Error("bootEntry not found");
+  if (m[0].includes("verifySessionForBoot_")) {
+    throw new Error("bootEntry must not call verifySessionForBoot_ (bootstrap returns me)");
+  }
+  if (!m[0].includes("bootApp()")) throw new Error("bootEntry must call bootApp directly");
+});
+
+assert("removeOrderGroup refreshes list row only", () => {
+  const m = html.match(/async removeOrderGroup[\s\S]*?showSlipModalMsg/);
+  if (!m) throw new Error("removeOrderGroup block not found");
+  if (!m[0].includes("refreshAfterOrderListMutation_")) {
+    throw new Error("removeOrderGroup must use refreshAfterOrderListMutation_");
+  }
+  if (!m[0].includes("removed:true")) throw new Error("removeOrderGroup must pass removed:true");
+});
+
+assert("slip preview uses smaller Drive thumb", () => {
+  const m = html.match(/async viewOrderImage[\s\S]*?async upgradeOrderImagePreview_/);
+  if (!m) throw new Error("viewOrderImage block not found");
+  if (!m[0].includes("slipDriveThumbUrl_(fileId,400)")) {
+    throw new Error("viewOrderImage must use 400px Drive thumb for fast open");
+  }
 });
 
 assert("fast background sync debounce", () => {

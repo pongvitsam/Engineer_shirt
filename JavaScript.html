@@ -37,6 +37,8 @@
 let appData = null;
 let appDataStale = true;
 let prefetchPromise = null;
+let ensureAppDataInFlight = null;
+let roundImageUpgradeInFlight = null;
 let me = null;
 let authToken = null;
 let guestMode = false;
@@ -150,7 +152,7 @@ const NAV = [
 const RPC_JSONP_MAX_PAYLOAD = 1800;
 const RPC_JSONP_TIMEOUT_MS = 120000;
 const RPC_POST_TIMEOUT_MS = 180000;
-const RPC_POST_METHODS_ = { uploadOrderImage: true, uploadShirtImage: true };
+const RPC_POST_METHODS_ = { uploadOrderImage: true, uploadShirtImage: true, getBootstrapData: true };
 /** GitHub Pages: JSONP ก่อน (POST ผ่าน redirect มักล้มในเบราว์เซอร์) แล้วค่อย POST */
 const RPC_JSONP_FIRST_METHODS_ = {
   login: true,
@@ -627,6 +629,22 @@ function applyLocalMutationRefresh_() {
   }
 }
 
+function removeOrderListGroupRow_(orderId){
+  if(!orderId)return;
+  const tbody=document.getElementById("order-tbody");
+  if(!tbody)return;
+  const oid=String(orderId);
+  const rows=tbody.querySelectorAll("tr[data-order-id]");
+  for(let i=0;i<rows.length;i++){
+    if(rows[i].getAttribute("data-order-id")===oid){
+      rows[i].remove();
+      break;
+    }
+  }
+  updateOrderListSummary_();
+  if(typeof app!=="undefined"&&app&&typeof app.applyListFilter==="function")app.applyListFilter();
+}
+
 function refreshOrderListGroupRow_(orderId){
   if(!orderId||typeof app==="undefined"||!app||typeof app.orderGroupRowHtml!=="function")return;
   const tbody=document.getElementById("order-tbody");
@@ -668,7 +686,9 @@ function refreshAfterOrderListMutation_(orderId,opts){
   const mod=(typeof app!=="undefined"&&app)?app.currentModule:"";
   const tbody=document.getElementById("order-tbody");
   if(mod==="list"&&tbody&&typeof app!=="undefined"&&app){
-    if(opts.removed||!orderId){
+    if(opts.removed&&orderId){
+      removeOrderListGroupRow_(orderId);
+    }else if(opts.removed||!orderId){
       if(typeof app.fillOrderListBody==="function")app.fillOrderListBody();
       if(typeof app.applyListFilter==="function")app.applyListFilter();
     }else{
@@ -1115,6 +1135,78 @@ async function runSaving(opts, fn){
 function ensureAppData(force, opts) {
   opts = opts || {};
   if (!force && appData && !appDataStale) return Promise.resolve(appData);
+  if (ensureAppDataInFlight) return ensureAppDataInFlight;
+  ensureAppDataInFlight = ensureAppDataCore_(force, opts).finally(function () {
+    ensureAppDataInFlight = null;
+  });
+  return ensureAppDataInFlight;
+}
+
+function applyRoundDisplayFast_(round, data, opts) {
+  const imageRef = String(round.imageUrl || "").trim();
+  round.imageRef = imageRef;
+  round.imageDataThumb = String(round.imageDataThumb || "");
+  let displayUrl = "";
+  let sourceMode = "";
+  let warning = "";
+  if (opts.skipImageResolve && appData && appData.round) {
+    round.imageDisplayUrl = appData.round.imageDisplayUrl || SHIRT_PLACEHOLDER_URL;
+    round.imageDisplaySrc = appData.round.imageDisplaySrc || round.imageDisplayUrl;
+    round.imageSourceMode = appData.round.imageSourceMode || "cached";
+    round.imageWarning = appData.round.imageWarning || "";
+    round.imageDebug = appData.round.imageDebug || "";
+    return;
+  }
+  if (round.imageDisplayUrl && !isPlaceholderImage(round.imageDisplayUrl) && round.imageSourceMode !== "thumb") {
+    displayUrl = String(round.imageDisplayUrl);
+    sourceMode = String(round.imageSourceMode || "proxy");
+  }
+  if (!displayUrl && round.imageDataThumb && isDataUrl(round.imageDataThumb)) {
+    displayUrl = round.imageDataThumb;
+    sourceMode = "thumb";
+  }
+  if (!displayUrl && isValidRoundUrl(imageRef)) {
+    displayUrl = imageRef;
+    sourceMode = "url";
+  } else if (!displayUrl) {
+    displayUrl = SHIRT_PLACEHOLDER_URL;
+    sourceMode = "placeholder";
+  }
+  round.imageDisplayUrl = displayUrl;
+  round.imageSourceMode = sourceMode;
+  round.imageWarning = warning;
+  round.imageDebug = "mode=" + sourceMode + (warning ? (" | " + warning) : "");
+  round.imageDisplaySrc = withCacheBust(displayUrl, data.generatedAt || Date.now());
+}
+
+async function upgradeRoundImageDisplay_(force) {
+  if (!appData || !appData.round) return;
+  const round = appData.round;
+  const imageRef = String(round.imageRef || round.imageUrl || "").trim();
+  if (!extractDriveFileId(imageRef)) return;
+  try {
+    const resolved = await resolveRoundImageForDisplay(imageRef, !!force);
+    if (!resolved.url || isPlaceholderImage(resolved.url)) return;
+    round.imageDisplayUrl = resolved.url;
+    round.imageSourceMode = "proxy";
+    round.imageWarning = resolved.warning || "";
+    round.imageDebug = "mode=proxy" + (resolved.warning ? (" | " + resolved.warning) : "");
+    round.imageDisplaySrc = withCacheBust(resolved.url, appData.generatedAt || Date.now());
+    updateRoundImageElements(resolved.url, imageRef, appData.generatedAt || Date.now());
+    if (resolved.warning) setImageDebug(resolved.warning);
+  } catch (_) {}
+}
+
+function scheduleRoundImageUpgrade_(force) {
+  if (roundImageUpgradeInFlight) return roundImageUpgradeInFlight;
+  roundImageUpgradeInFlight = upgradeRoundImageDisplay_(force).finally(function () {
+    roundImageUpgradeInFlight = null;
+  });
+  return roundImageUpgradeInFlight;
+}
+
+function ensureAppDataCore_(force, opts) {
+  opts = opts || {};
   const loader = guestMode ? callServer("getGuestStockData") : fetchBootstrapAuthed_(force ? 2 : 3);
   return Promise.resolve(loader).then(async data => {
     if (!data) {
@@ -1130,71 +1222,34 @@ function ensureAppData(force, opts) {
     }
     // Round-image resolution must NEVER be able to reject the whole bootstrap:
     // a single bad image ref would otherwise blank every module (list/admin/…).
-    try{
-    if(data&&data.round){
-      const round=data.round;
-      const imageRef=String(round.imageUrl||"").trim();
-      round.imageRef=imageRef;
-      round.imageDataThumb=String(round.imageDataThumb||"");
-      let displayUrl="";
-      let sourceMode="";
-      let warning="";
-      if(opts.skipImageResolve&&appData&&appData.round){
-        round.imageDisplayUrl=appData.round.imageDisplayUrl||SHIRT_PLACEHOLDER_URL;
-        round.imageDisplaySrc=appData.round.imageDisplaySrc||round.imageDisplayUrl;
-        round.imageSourceMode=appData.round.imageSourceMode||"cached";
-        round.imageWarning=appData.round.imageWarning||"";
-        round.imageDebug=appData.round.imageDebug||"";
-      }else if(extractDriveFileId(imageRef)){
-        const resolved=await resolveRoundImageForDisplay(imageRef,!!force);
-        if(resolved.url&&!isPlaceholderImage(resolved.url)){
-          displayUrl=resolved.url;
-          sourceMode="proxy";
-        }
-        warning=resolved.warning||"";
+    let needsDriveUpgrade = false;
+    try {
+      if (data && data.round) {
+        applyRoundDisplayFast_(data.round, data, opts);
+        const imageRef = String(data.round.imageRef || data.round.imageUrl || "").trim();
+        needsDriveUpgrade = !opts.skipImageResolve && !!extractDriveFileId(imageRef);
       }
-      if(!displayUrl&&round.imageDisplayUrl&&!isPlaceholderImage(round.imageDisplayUrl)&&round.imageSourceMode!=="thumb"){
-        displayUrl=String(round.imageDisplayUrl);
-        sourceMode=String(round.imageSourceMode||"proxy");
-      }
-      if(!displayUrl&&round.imageDataThumb&&isDataUrl(round.imageDataThumb)){
-        displayUrl=round.imageDataThumb;
-        sourceMode="thumb";
-      }
-      if(!displayUrl&&isValidRoundUrl(imageRef)){
-        displayUrl=imageRef;
-        sourceMode="url";
-      }else if(!displayUrl){
-        displayUrl=SHIRT_PLACEHOLDER_URL;
-        sourceMode="placeholder";
-      }
-      round.imageDisplayUrl=displayUrl;
-      round.imageSourceMode=sourceMode;
-      round.imageWarning=warning;
-      round.imageDebug="mode="+sourceMode+(warning?(" | "+warning):"");
-      round.imageDisplaySrc=withCacheBust(displayUrl,data.generatedAt||Date.now());
-    }
-    }catch(imgErr){
-      // Fall back to a safe placeholder; never break data loading over an image.
-      if(data&&data.round){
-        data.round.imageDisplayUrl=SHIRT_PLACEHOLDER_URL;
-        data.round.imageSourceMode="placeholder";
-        data.round.imageDisplaySrc=SHIRT_PLACEHOLDER_URL;
-        data.round.imageWarning="โหลดรูปไม่สำเร็จ";
+    } catch (imgErr) {
+      if (data && data.round) {
+        data.round.imageDisplayUrl = SHIRT_PLACEHOLDER_URL;
+        data.round.imageSourceMode = "placeholder";
+        data.round.imageDisplaySrc = SHIRT_PLACEHOLDER_URL;
+        data.round.imageWarning = "โหลดรูปไม่สำเร็จ";
       }
     }
     appData = data;
     appDataStale = false;
     // Update the signed-in identity, but NEVER downgrade/clear a known role:
     // a malformed me (missing role) must not hide the admin tab or scope away data.
-    if(data && data.me){
-      if(data.me.role){ me = normalizeMeClient_(data.me); }
-      else if(me && me.role){ me = normalizeMeClient_(Object.assign({}, data.me, {role: me.role})); }
+    if (data && data.me) {
+      if (data.me.role) { me = normalizeMeClient_(data.me); }
+      else if (me && me.role) { me = normalizeMeClient_(Object.assign({}, data.me, { role: me.role })); }
       else { me = normalizeMeClient_(data.me); }
     }
     syncWindowSession_();
-    try{updateSupportFooter_();}catch(_){}
-    try{processOrderNotifications_(data.orders);}catch(_){}
+    try { updateSupportFooter_(); } catch (_) {}
+    try { processOrderNotifications_(data.orders); } catch (_) {}
+    if (needsDriveUpgrade) scheduleRoundImageUpgrade_(!!force);
     return appData;
   });
 }
@@ -3929,15 +3984,23 @@ const app = {
     }
     const noteBlock=renderOrderNoteBlock_(g,ownsOrder);
     const contactBlock=renderOrderContactBlock_(g);
-    const orderEditActions=showEditBtn
+    const cartConfirmBtn=inCart&&canEditOrder
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
-          <button class="glass-btn-secondary text-xs" style="padding:.35rem .55rem" onclick="app.openCartEditModal('${escHtml(g.orderId)}')"><i class="fas fa-edit"></i> แก้ไข</button>
-          ${inCart&&canEditOrder?`<button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>`:""}
+          <button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>
         </div>`
-      :(isPaymentLocked(g.paymentStatus)?`<div class="mt-1 text-xs text-glass-dim">${isFreeGiveawayPayment(g.paymentStatus)?"เสื้อแจกฟรี — แก้ไข/ลบได้เฉพาะแอดมิน":"ชำระเงินแล้ว — แก้ไข/ลบได้เฉพาะแอดมิน"}</div>`
-        :(isUserLockedOrderStatus(g.status)?`<div class="mt-1 text-xs text-glass-dim">ล็อกแล้ว — ติดต่อแอดมิน</div>`:""));
+      :"";
+    const orderStatusHints=!showEditBtn
+      ?(isPaymentLocked(g.paymentStatus)?`<div class="mt-1 text-xs text-glass-dim">${isFreeGiveawayPayment(g.paymentStatus)?"เสื้อแจกฟรี — แก้ไข/ลบได้เฉพาะแอดมิน":"ชำระเงินแล้ว — แก้ไข/ลบได้เฉพาะแอดมิน"}</div>`
+        :(isUserLockedOrderStatus(g.status)?`<div class="mt-1 text-xs text-glass-dim">ล็อกแล้ว — ติดต่อแอดมิน</div>`:""))
+      :"";
+    const editBtn=showEditBtn
+      ?`<button onclick="app.openCartEditModal('${escHtml(g.orderId)}')" class="glass-btn-secondary" title="แก้ไข" style="padding:.35rem .55rem"><i class="fas fa-pencil-alt"></i></button>`
+      :"";
     const deleteBtn=canDeleteOrder
       ?`<button onclick="app.removeOrderGroup('${escHtml(g.orderId)}',${inCart?"true":"false"},this)" class="glass-btn-danger" title="ลบออเดอร์" style="padding:.35rem .55rem"><i class="fas fa-trash"></i></button>`
+      :"";
+    const rowActions=(editBtn||deleteBtn)
+      ?`<div class="order-row-actions flex flex-wrap gap-1 justify-center items-center">${editBtn}${deleteBtn}</div>`
       :`<span class="text-glass-dim text-xs">-</span>`;
     const shortId=shortOrderLabel_(g.orderId);
     return `
@@ -3953,12 +4016,13 @@ const app = {
             : `<span class="inline-block px-2 py-1 rounded-lg text-xs ${statusCls}" style="border:1px solid rgba(255,255,255,.25)">${escHtml(g.status||orderCartStatus())}</span>`}
           ${contactBlock}
           ${noteBlock}
-          ${orderEditActions}
+          ${cartConfirmBtn}
+          ${orderStatusHints}
         </td>
         <td data-label="สลิปชำระ" class="py-2 px-2 text-center">${slipCell}</td>
         <td data-label="ชำระเงิน" class="py-2 px-2 text-center">${paymentCell}</td>
         ${canViewAdminData()?`<td data-label="วันที่รับ/จัดส่ง" class="py-2 px-2 text-center">${renderPickupDeliveryCell_(g)}</td>`:""}
-        <td data-label="ลบ" class="py-2 px-1 text-center">${deleteBtn}</td>
+        <td data-label="จัดการ" class="py-2 px-1 text-center">${rowActions}</td>
       </tr>`;
   },
 
@@ -4032,7 +4096,7 @@ const app = {
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderDelete_(orderId);
     recalcStockFromOrders();
-    refreshAfterMutation_({ keepLocal: true });
+    refreshAfterOrderListMutation_(orderId,{recalcStock:false,removed:true});
     try{
       await runSaving({btn:btn,btnText:"",busyText:"กำลังลบออเดอร์…"},()=>callAuthed("deleteOrderByOrderId",orderId));
       this.showMsg("ลบออเดอร์แล้ว","success");
@@ -4040,7 +4104,7 @@ const app = {
     }catch(e){
       restoreOrderGroupSnapshot_(orderId,snap);
       recalcStockFromOrders();
-      refreshAfterMutation_({ keepLocal: true });
+      refreshAfterOrderListMutation_(orderId,{recalcStock:false});
       this.showMsg(e.message,"error");
     }
   },
@@ -4493,7 +4557,7 @@ const app = {
     const slipUrl=g?String(g.slipUrl||"").trim():"";
     const fileId=slipUrl?extractDriveFileId(slipUrl):"";
     if(fileId){
-      const preview=imageProxyCache[fileId]||slipDriveThumbUrl_(fileId,1200);
+      const preview=imageProxyCache[fileId]||slipDriveThumbUrl_(fileId,400);
       this.openImageLightbox(preview,slipDriveViewUrl_(slipUrl,fileId));
       if(!imageProxyCache[fileId])this.upgradeOrderImagePreview_(orderId,fileId);
       return;
@@ -5630,28 +5694,9 @@ function bootEntry(){
         if(c)c.innerHTML=`<div class="glass-msg-error text-center font-semibold p-4">${escHtml("เชื่อมต่อเซิร์ฟเวอร์ช้า — กรุณารีเฟรชหน้าอีกครั้ง")}</div>`;
       }catch(_){}
     },12000);
-    verifySessionForBoot_(authToken,3).then(r=>{
-      if(settled)return;
-      settled=true;
-      clearTimeout(fallback);
-      if(r){
-        me=normalizeMeClient_({username:r.username,role:r.role,region:r.region,displayName:r.displayName});
-        syncWindowSession_();
-        bootApp();
-      }else{
-        authToken=null;
-        clearAuthToken_();
-        renderLogin();
-      }
-    }).catch(()=>{
-      if(settled)return;
-      settled=true;
-      clearTimeout(fallback);
-      try{
-        const c=document.getElementById("app-container");
-        if(c)c.innerHTML=`<div class="glass-msg-error text-center font-semibold p-4">${escHtml("เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ — กรุณารีเฟรชหน้าอีกครั้ง")}</div>`;
-      }catch(_){}
-    });
+    bootApp();
+    settled=true;
+    clearTimeout(fallback);
   }catch(err){
     // Last-resort: never leave the user stranded on the static pre-header.
     try{
