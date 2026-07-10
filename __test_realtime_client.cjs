@@ -35,8 +35,8 @@ assert("server lazy-invalidates bootstrap cache on writes", () => {
   }
 });
 
-assert("bootstrap cache key v11", () => {
-  if (!codeJs.includes("bootstrap_v11")) throw new Error("expected bootstrap_v11");
+assert("bootstrap cache key v12", () => {
+  if (!codeJs.includes("bootstrap_v12")) throw new Error("expected bootstrap_v12");
 });
 
 assert("getBootstrapData uses POST on GitHub Pages", () => {

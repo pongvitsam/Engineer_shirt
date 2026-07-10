@@ -232,7 +232,7 @@ assert("slim bootstrap RPC and cache", () => {
   if (!code.includes("function slimRoundPayloadForExternal_")) throw new Error("missing slimRoundPayloadForExternal_");
   if (!code.includes("function buildBootstrapDataForCache_")) throw new Error("missing buildBootstrapDataForCache_");
   if (!code.includes("getRpcPing")) throw new Error("missing getRpcPing");
-  if (!code.includes("bootstrap_v11")) throw new Error("expected bootstrap_v11 cache key");
+  if (!code.includes("bootstrap_v12")) throw new Error("expected bootstrap_v12 cache key");
   if (!code.includes("transferAccount")) throw new Error("bootstrap missing transferAccount");
   if (!code.includes("supportContact")) throw new Error("bootstrap missing supportContact");
 });
@@ -560,6 +560,23 @@ assert("delete order trashes slip files on Drive", () => {
   if (!del) throw new Error("deleteOrderByOrderId not found");
   if (!del[0].includes("trashSlipDriveFilesBestEffort_")) throw new Error("deleteOrderByOrderId must trash slip files");
   if (!del[0].includes("collectSlipFileIdsForOrderId_")) throw new Error("deleteOrderByOrderId must collect slip file ids");
+});
+
+assert("ordering close global and per-user admin controls", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!code.includes("SETTINGS_KEY_ORDERING_GLOBAL")) throw new Error("missing global ordering setting key");
+  if (!code.includes("function saveOrderingGlobal")) throw new Error("missing saveOrderingGlobal");
+  if (!code.includes("function setAllUsersOrderingEnabled")) throw new Error("missing setAllUsersOrderingEnabled");
+  if (!code.includes("OrderingEnabled")) throw new Error("missing OrderingEnabled user column");
+  if (!code.includes("function assertRegionalOrderingOpen_")) throw new Error("missing assertRegionalOrderingOpen_");
+  if (!/function addMultiSizeOrder[\s\S]*assertRegionalOrderingOpen_/.test(code)) {
+    throw new Error("addMultiSizeOrder must guard ordering");
+  }
+  if (!html.includes("function canCreateNewOrders_")) throw new Error("missing canCreateNewOrders_");
+  if (!html.includes("admin-ordering-panel")) throw new Error("missing admin ordering panel");
+  if (!html.includes("toggleUserOrdering")) throw new Error("missing per-user ordering toggle");
+  if (!html.includes("setAllUsersOrdering")) throw new Error("missing set all users ordering");
 });
 
 console.log("\n" + passed + "/" + (passed + failed) + " passed\n");

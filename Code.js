@@ -169,6 +169,8 @@ function invokeRpc_(method, args, options) {
     saveRoundConfig: saveRoundConfig,
     saveTransferAccount: saveTransferAccount,
     saveSupportContact: saveSupportContact,
+    saveOrderingGlobal: saveOrderingGlobal,
+    setAllUsersOrderingEnabled: setAllUsersOrderingEnabled,
     updateUser: updateUser,
     requestOrderChange: requestOrderChange,
     listPendingChangeRequests: listPendingChangeRequests,
@@ -233,11 +235,12 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v11";
-const APP_BUILD = "216";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
+const APP_BUILD = "217";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
+const SETTINGS_KEY_ORDERING_GLOBAL = "ordering_global_enabled";
 const DEFAULT_SUPPORT_CONTACT = "แจ้งปัญหาการใช้งาน โทร 02-009-6703";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
@@ -707,6 +710,23 @@ function getGuestStockData() {
 // === Admin user management ============================================
 function ensureUsersSheetMigrated_(ss) {
   migrateUsersPasswordPlainColumn_(ss);
+  migrateUsersOrderingEnabledColumn_(ss);
+}
+
+function migrateUsersOrderingEnabledColumn_(ss) {
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  if (!sheet) return;
+  const header = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  if (String(header[7] || "").trim() !== "OrderingEnabled") {
+    sheet.getRange(1, 8).setValue("OrderingEnabled");
+  }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const rows = sheet.getRange(2, 8, lastRow, 8).getValues();
+  for (let i = 0; i < rows.length; i++) {
+    const cell = rows[i][0];
+    if (cell === "" || cell == null) sheet.getRange(i + 2, 8).setValue(true);
+  }
 }
 
 function ensureDefaultEngineerUser_(ss) {
@@ -729,7 +749,7 @@ function ensureDefaultUserByUsername_(ss, username) {
   if (rows.some(function (r) { return String(r[0] || "").trim().toLowerCase() === uname.toLowerCase(); })) return;
   const def = DEFAULT_USERS.filter(function (u) { return String(u[0]) === uname; })[0];
   if (!def) return;
-  sheet.appendRow([def[0], hashPassword_(def[1]), def[2], def[3], def[4], true, def[1]]);
+  sheet.appendRow([def[0], hashPassword_(def[1]), def[2], def[3], def[4], true, def[1], true]);
 }
 
 /** ถ้ามีแถวผู้ใช้มาตรฐานแต่ hash/plain เพี้ยน — ซ่อมเมื่อกรอกรหัสตาม DEFAULT_USERS */
@@ -803,7 +823,7 @@ function listUsers(token) {
   const sheet = ss.getSheetByName(USERS_SHEET);
   const last = sheet.getLastRow();
   if (last < 2) return [];
-  const width = Math.max(sheet.getLastColumn(), 7);
+  const width = Math.max(sheet.getLastColumn(), 8);
   const rows = sheet.getRange(2, 1, last - 1, width).getValues();
   const seen = {};
   const out = [];
@@ -819,7 +839,8 @@ function listUsers(token) {
       role: normalized.role,
       region: normalized.region,
       displayName: String(r[4] || username),
-      active: r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true
+      active: r[5] === false || String(r[5]).toLowerCase() === "false" ? false : true,
+      orderingEnabled: parseUserOrderingEnabled_(r[7])
     });
   });
   return out;
@@ -854,7 +875,7 @@ function createUser(token, payload) {
   if (rows.some(r => String(r[0] || "").trim().toLowerCase() === username.toLowerCase())) {
     throw new Error("มีชื่อผู้ใช้นี้แล้ว");
   }
-  sheet.appendRow([username, hashPassword_(password), role, region, displayName, true, password]);
+  sheet.appendRow([username, hashPassword_(password), role, region, displayName, true, password, true]);
   SpreadsheetApp.flush();
   return { ok: true };
 }
@@ -862,6 +883,7 @@ function createUser(token, payload) {
 function updateUser(token, username, payload) {
   requireAdmin_(token);
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
@@ -871,6 +893,10 @@ function updateUser(token, username, payload) {
       const displayName = payload.displayName !== undefined ? payload.displayName : values[i][4];
       const active = payload.active !== undefined ? !!payload.active : (values[i][5] === false ? false : true);
       sheet.getRange(i + 1, 3, 1, 4).setValues([[role, region, displayName, active]]);
+      if (payload.orderingEnabled !== undefined) {
+        sheet.getRange(i + 1, 8).setValue(!!payload.orderingEnabled);
+      }
+      invalidateDataCache_();
       return { ok: true };
     }
   }
@@ -970,12 +996,14 @@ function getBootstrapData(token) {
     cartStatus: ORDER_STATUS_CART,
     transferAccount: String(data.transferAccount || DEFAULT_TRANSFER_ACCOUNT),
     supportContact: String(data.supportContact || DEFAULT_SUPPORT_CONTACT),
+    orderingGlobalEnabled: data.orderingGlobalEnabled !== false,
     generatedAt: data.generatedAt,
     me: {
       username: session.username,
       role: session.role,
       region: session.region,
-      displayName: session.displayName || session.username
+      displayName: session.displayName || session.username,
+      orderingEnabled: sessionCanCreateOrders_(session, getSpreadsheet_())
     }
   };
   if (!canViewAllRegions_(session)) {
@@ -1015,6 +1043,7 @@ function buildBootstrapData_() {
     cartStatus: ORDER_STATUS_CART,
     transferAccount: getTransferAccount_(ss),
     supportContact: getSupportContact_(ss),
+    orderingGlobalEnabled: getGlobalOrderingEnabled_(ss),
     generatedAt: new Date().toISOString()
   };
 }
@@ -1086,6 +1115,85 @@ function saveSupportContact(token, text) {
   return { ok: true, supportContact: safe };
 }
 
+function parseUserOrderingEnabled_(val) {
+  if (val === false || String(val).toLowerCase() === "false") return false;
+  return true;
+}
+
+function getGlobalOrderingEnabled_(ss) {
+  const v = String(getSetting_(ss, SETTINGS_KEY_ORDERING_GLOBAL) || "").trim().toLowerCase();
+  if (!v) return true;
+  return v !== "false";
+}
+
+function getUserOrderingEnabled_(username, ss) {
+  ensureUsersSheetMigrated_(ss);
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  if (!sheet) return true;
+  const uLower = String(username || "").trim().toLowerCase();
+  if (!uLower) return true;
+  const last = sheet.getLastRow();
+  if (last < 2) return true;
+  const width = Math.max(sheet.getLastColumn(), 8);
+  const rows = sheet.getRange(2, 1, last - 1, width).getValues();
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0] || "").trim().toLowerCase() !== uLower) continue;
+    return parseUserOrderingEnabled_(rows[i][7]);
+  }
+  return true;
+}
+
+function isRegionalOrderRole_(role) {
+  const r = String(role || "").trim();
+  return r === "user" || r === ROLE_ENGINEER;
+}
+
+function sessionCanCreateOrders_(session, ss) {
+  if (!session) return false;
+  if (session.role === "admin") return true;
+  if (!isRegionalOrderRole_(session.role)) return false;
+  if (!getGlobalOrderingEnabled_(ss)) return false;
+  return getUserOrderingEnabled_(session.username, ss);
+}
+
+function assertRegionalOrderingOpen_(session, ss) {
+  if (sessionCanCreateOrders_(session, ss)) return;
+  throw new Error("ปิดรับสั่งซื้อชั่วคราว — ดูข้อมูลและแนบสลิปออเดอร์เดิมได้ตามปกติ");
+}
+
+function saveOrderingGlobal(token, enabled) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const on = enabled === true || String(enabled).toLowerCase() === "true";
+  setSetting_(ss, SETTINGS_KEY_ORDERING_GLOBAL, on ? "true" : "false");
+  invalidateDataCache_();
+  return { ok: true, orderingGlobalEnabled: on };
+}
+
+function setAllUsersOrderingEnabled(token, enabled) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureUsersSheetMigrated_(ss);
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  const last = sheet.getLastRow();
+  if (last < 2) return { ok: true, updated: 0 };
+  const on = enabled === true || String(enabled).toLowerCase() === "true";
+  const width = Math.max(sheet.getLastColumn(), 8);
+  const rows = sheet.getRange(2, 1, last - 1, width).getValues();
+  let updated = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const role = String(rows[i][2] || "").trim();
+    if (!isRegionalOrderRole_(role)) continue;
+    sheet.getRange(i + 2, 8).setValue(on);
+    updated++;
+  }
+  SpreadsheetApp.flush();
+  invalidateDataCache_();
+  return { ok: true, updated: updated, orderingEnabled: on };
+}
+
 /** Bootstrap cache — ไม่เก็บ data URL ขนาดใหญ่ */
 function buildBootstrapDataForCache_() {
   const data = buildBootstrapData_();
@@ -1112,6 +1220,8 @@ function refreshBootstrapCache_() {
 function addMultiSizeOrder(token, payload) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  assertRegionalOrderingOpen_(session, ss);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) {
     throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
@@ -1222,6 +1332,7 @@ function updateCartOrderByOrderId(token, orderId, payload) {
   if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
+    assertRegionalOrderingOpen_(session, ss);
     const orderSheet = ss.getSheetByName(ORDER_SHEET);
     const meta = getOrderGroupMeta_(orderSheet, orderId, session);
     assertUserCanModifyOwnOrder_(session, meta.status, meta.paymentStatus);
@@ -1289,6 +1400,8 @@ function updateCartOrderByOrderId(token, orderId, payload) {
 function submitCartOrderToAdmin(token, orderId) {
   const session = requireUserOrAdmin_(token);
   ensureSheetsInitialized_();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  assertRegionalOrderingOpen_(session, ss);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
   try {
@@ -1989,6 +2102,7 @@ function deleteOrderByOrderId(token, orderId) {
   if (!lock.tryLock(15000)) throw new Error("ระบบกำลังบันทึก กรุณาลองใหม่อีกครั้ง");
   try {
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  assertRegionalOrderingOpen_(session, ss);
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
   const last = orderSheet.getLastRow();
   if (last <= 1) throw new Error("ไม่พบออเดอร์ " + orderId);
@@ -2596,7 +2710,7 @@ function initializeSheets_() {
   createSheetIfMissing_(ss, SIZE_CHART_SHEET, ["ขนาด", "รอบอก(นิ้ว)", "ยาว(นิ้ว)"]);
   createSheetIfMissing_(ss, ORDER_SHEET, ORDERS_HEADERS);
   createSheetIfMissing_(ss, SETTINGS_SHEET, ["Key", "Value"]);
-  createSheetIfMissing_(ss, USERS_SHEET, ["Username", "PasswordHash", "Role", "Region", "DisplayName", "Active", "PasswordPlain"]);
+  createSheetIfMissing_(ss, USERS_SHEET, ["Username", "PasswordHash", "Role", "Region", "DisplayName", "Active", "PasswordPlain", "OrderingEnabled"]);
 
   // Migrate Orders sheet if it has the old schema (11 cols without OrderId)
   migrateOrdersSheet_(ss);
@@ -2608,6 +2722,9 @@ function initializeSheets_() {
   }
   if (!String(getSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT) || "").trim()) {
     setSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT, DEFAULT_SUPPORT_CONTACT);
+  }
+  if (!String(getSetting_(ss, SETTINGS_KEY_ORDERING_GLOBAL) || "").trim()) {
+    setSetting_(ss, SETTINGS_KEY_ORDERING_GLOBAL, "true");
   }
 
   const roundSheet = ss.getSheetByName(ROUND_SHEET);
@@ -2638,8 +2755,8 @@ function initializeSheets_() {
   // Seed default users if Users sheet empty
   const usersSheet = ss.getSheetByName(USERS_SHEET);
   if (usersSheet.getLastRow() < 2) {
-    const seeded = DEFAULT_USERS.map(u => [u[0], hashPassword_(u[1]), u[2], u[3], u[4], true, u[1]]);
-    usersSheet.getRange(2, 1, seeded.length, 7).setValues(seeded);
+    const seeded = DEFAULT_USERS.map(u => [u[0], hashPassword_(u[1]), u[2], u[3], u[4], true, u[1], true]);
+    usersSheet.getRange(2, 1, seeded.length, 8).setValues(seeded);
   }
   migrateUsersPasswordPlainColumn_(ss);
   ensureDefaultEngineerUser_(ss);

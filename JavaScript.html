@@ -1668,6 +1668,7 @@ function renderPickupDeliveryCell_(g){
 
 function orderListRowCanEditCart_(g){
   if(!g)return false;
+  if(!isAdmin()&&!canCreateNewOrders_())return false;
   const owns=ownsOrderRegion(g);
   return canUserEditOrderGroup(g,owns)||canEditOrderNote_(g,owns);
 }
@@ -2067,6 +2068,17 @@ function isEngReadonly(){
 }
 function isReadOnlyUser(){
   return isViewer() || isEngReadonly();
+}
+function isRegionalOrderUser_(){
+  if(isGuest()||isReadOnlyUser()||isAdmin())return false;
+  return !!(me&&(me.role==="user"||me.role===ROLE_ENGINEER));
+}
+function canCreateNewOrders_(){
+  if(isGuest()||isReadOnlyUser())return false;
+  if(isAdmin())return true;
+  if(!isRegionalOrderUser_())return false;
+  if(appData&&appData.orderingGlobalEnabled===false)return false;
+  return me&&me.orderingEnabled!==false;
 }
 function canViewAdminData(){
   return isAdmin() || isEngReadonly();
@@ -3495,6 +3507,7 @@ const app = {
     nav.innerHTML=NAV.filter(n=>{
       if(isGuest())return n.id==="stock"||n.guestOk;
       if(isReadOnlyUser()&&n.id==="orders")return false;
+      if(n.id==="orders"&&!canCreateNewOrders_())return false;
       return !n.adminOnly||isAdmin();
     }).map(n=>
       `<button class="nav-tab ${this.currentModule===n.id?"active":""}" onclick="app.navigate('${n.id}')"><i class="fas ${n.icon} mr-1"></i>${n.label}</button>`).join("");
@@ -3503,6 +3516,10 @@ const app = {
   async navigate(module, forceRefresh){
     if(isGuest()&&module!=="stock"&&module!=="guide")module="stock";
     if(isReadOnlyUser()&&module==="orders")module="list";
+    if(module==="orders"&&!canCreateNewOrders_()){
+      this.showMsg("ปิดรับสั่งซื้อชั่วคราว — ดูรายการและแนบสลิปออเดอร์เดิมได้","warning");
+      module="list";
+    }
     if(module==="admin"&&!isAdmin())module="stock";
     if(module==="guide"){
       this.currentModule=module;
@@ -3671,9 +3688,12 @@ const app = {
     const adminUpload=isAdmin()?`<label for="stock-shirt-upload" class="stock-header-upload glass-btn-primary text-xs cursor-pointer"><i class="fas fa-camera"></i> <span class="hidden sm:inline">เปลี่ยนรูป</span></label><input id="stock-shirt-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="hidden" onchange="app.uploadShirtImageInline(this)">`:"";
     const guestNote=isGuest()?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-info-circle mr-1"></i> โหมด Guest: ดูจำนวนเสื้อคงเหลือได้เท่านั้น</div></div>`:"";
     const guestActions=isGuest()?"":`<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> สั่งซื้อเสื้อ</button>
+        ${canCreateNewOrders_()?`<button onclick="app.navigate('orders')" class="glass-btn-primary py-3"><i class="fas fa-plus-circle mr-1"></i> สั่งซื้อเสื้อ</button>`:""}
         <button onclick="app.navigate('list')" class="glass-btn-secondary py-3"><i class="fas fa-list mr-1"></i> ดูรายการ (${appData.orders.length})</button>
       </div>`;
+    const orderingClosedNote=!isGuest()&&!canCreateNewOrders_()&&isRegionalOrderUser_()
+      ?`<div class="glass-card p-4"><div class="text-sm text-glass"><i class="fas fa-lock mr-1"></i> ปิดรับสั่งซื้อชั่วคราว — ดูข้อมูลและแนบสลิปออเดอร์เดิมที่ยังไม่ชำระได้ตามปกติ</div></div>`
+      :"";
     const guestSizeChart=isGuest()?"":`<div class="glass-card p-4">
         <h2 class="font-bold glass-section-title mb-3"><i class="fas fa-ruler mr-1"></i> ตารางไซส์ (Warrix)</h2>
         <div class="overflow-x-auto glass-table-wrap">
@@ -3685,6 +3705,7 @@ const app = {
       </div>`;
     return `
       ${guestNote}
+      ${orderingClosedNote}
       <div class="glass-card">
         <div class="glass-card-header stock-card-header">
           <div class="stock-card-title"><div class="text-xs opacity-80">รอบปี ${round.year}</div><h1 class="text-lg font-bold">${escHtml(round.name)}</h1></div>
@@ -3725,6 +3746,12 @@ const app = {
   // ── Order form (multi-size) ────────────────────────────────────────
   renderOrderForm(){
     const isAdm=isAdmin();
+    if(!canCreateNewOrders_()){
+      return `<div class="glass-card p-5">
+        <h2 class="text-lg font-bold glass-section-title mb-3"><i class="fas fa-lock mr-1"></i>ปิดรับสั่งซื้อชั่วคราว</h2>
+        <p class="text-sm text-glass">ไม่สามารถสั่งซื้อใหม่ได้ในขณะนี้ — เปิดหน้า <button type="button" class="glass-btn-secondary text-xs" style="padding:.25rem .5rem" onclick="app.navigate('list')">รายการสั่งซื้อ</button> เพื่อดูออเดอร์เดิมและแนบสลิป</p>
+      </div><div id="msg-box"></div>`;
+    }
     let regionField;
     if(isAdm){
       let opts='<option value="">-- เลือกเขตที่สั่ง --</option>';
@@ -3837,6 +3864,7 @@ const app = {
 
   async submitMultiSizeOrder(btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    if(!canCreateNewOrders_())return this.showMsg("ปิดรับสั่งซื้อชั่วคราว","warning");
     try{
       const items=Object.keys(this.multiQtys||{}).filter(s=>this.multiQtys[s]>0).map(s=>({size:s,qty:this.multiQtys[s]}));
       if(items.length===0)return this.showMsg("กรุณาเลือกอย่างน้อย 1 ไซส์","error");
@@ -3905,7 +3933,7 @@ const app = {
     let filterOpts='<option value="all">ทุกเขต</option>';
     appData.regions.forEach(r=>{filterOpts+=`<option value="${escHtml(r)}">${escHtml(r)}</option>`});
     const showFilter=canViewAllRegions();
-    const canAdd=!isReadOnlyUser()&&!isGuest();
+    const canAdd=canCreateNewOrders_();
     const body=grouped.length===0
       ? '<tr><td colspan="'+orderListColSpan_()+'" class="text-center py-8 text-glass-dim">ยังไม่มีรายการสั่งซื้อ</td></tr>'
       : "";
@@ -4055,13 +4083,15 @@ const app = {
     }
     const noteBlock=renderOrderNoteBlock_(g,ownsOrder);
     const contactBlock=renderOrderContactBlock_(g);
-    const cartConfirmBtn=inCart&&canEditOrder
+    const cartConfirmBtn=inCart&&canEditOrder&&canCreateNewOrders_()
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
           <button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>
         </div>`
       :"";
+    const canEditOrderRow=showEditBtn&&(isAdmin()||canCreateNewOrders_());
     const showPickupEdit=isAdmin()&&canViewAdminData();
-    const showRowEditBtn=showEditBtn||showPickupEdit;
+    const showRowEditBtn=canEditOrderRow||showPickupEdit;
+    const canDeleteRow=canDeleteOrder&&(isAdmin()||canCreateNewOrders_());
     const orderStatusHints=!showEditBtn
       ?(isPaymentLocked(g.paymentStatus)?`<div class="mt-1 text-xs text-glass-dim">${isFreeGiveawayPayment(g.paymentStatus)?"เสื้อแจกฟรี — แก้ไข/ลบได้เฉพาะแอดมิน":"ชำระเงินแล้ว — แก้ไข/ลบได้เฉพาะแอดมิน"}</div>`
         :(isUserLockedOrderStatus(g.status)?`<div class="mt-1 text-xs text-glass-dim">ล็อกแล้ว — ติดต่อแอดมิน</div>`:""))
@@ -4069,7 +4099,7 @@ const app = {
     const editBtn=showRowEditBtn
       ?`<button type="button" onclick="openOrderListRowEdit_('${escHtml(g.orderId)}',this)" class="glass-btn-secondary" title="แก้ไข" style="padding:.35rem .55rem"><i class="fas fa-pencil-alt"></i></button>`
       :"";
-    const deleteBtn=canDeleteOrder
+    const deleteBtn=canDeleteRow
       ?`<button onclick="app.removeOrderGroup('${escHtml(g.orderId)}',${inCart?"true":"false"},this)" class="glass-btn-danger" title="ลบออเดอร์" style="padding:.35rem .55rem"><i class="fas fa-trash"></i></button>`
       :"";
     const rowActions=(editBtn||deleteBtn)
@@ -4839,6 +4869,7 @@ const app = {
 
   async submitCartToAdmin(orderId,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    if(!canCreateNewOrders_())return this.showMsg("ปิดรับสั่งซื้อชั่วคราว","warning");
     if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
     muteNotifyForOrder_(orderId,120000,"user");
     const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||ORDER_STATUS_ORDERED;
@@ -5111,6 +5142,14 @@ const app = {
         </div>
         <div class="glass-card-inner p-4">
           <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-users mr-1"></i> จัดการผู้ใช้</h3>
+          <div id="admin-ordering-panel" class="admin-ordering-panel mb-3">
+            <div class="text-xs text-glass-dim mb-2">ปิดรับสั่งซื้อ — ผู้ใช้เขตยังดูข้อมูลและแนบสลิปออเดอร์เดิมที่ยังไม่ชำระได้</div>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <button type="button" id="admin-ordering-global-btn" onclick="app.toggleGlobalOrdering(this)" class="glass-btn-secondary text-xs" style="padding:.45rem .75rem"><i class="fas fa-store"></i> <span id="admin-ordering-global-label">…</span></button>
+              <button type="button" onclick="app.setAllUsersOrdering(false,this)" class="glass-btn-danger text-xs" style="padding:.45rem .75rem"><i class="fas fa-user-lock"></i> ปิดทุกเขต</button>
+              <button type="button" onclick="app.setAllUsersOrdering(true,this)" class="glass-btn-primary text-xs" style="padding:.45rem .75rem"><i class="fas fa-user-check"></i> เปิดทุกเขต</button>
+            </div>
+          </div>
           <div id="admin-users-list" class="space-y-2 mb-3"><div class="text-xs text-glass-muted text-center">กำลังโหลด...</div></div>
           <button onclick="app.showCreateUser()" class="w-full glass-btn-blue py-2 text-sm"><i class="fas fa-user-plus mr-1"></i> เพิ่มผู้ใช้</button>
         </div>
@@ -5126,7 +5165,53 @@ const app = {
 
   async initAdmin(){
     pendingImageBase64="";
-    if(isAdmin())await this.loadUserList();
+    if(isAdmin()){
+      this.syncAdminOrderingPanel_();
+      await this.loadUserList();
+    }
+  },
+
+  syncAdminOrderingPanel_(){
+    const label=document.getElementById("admin-ordering-global-label");
+    const btn=document.getElementById("admin-ordering-global-btn");
+    if(!label)return;
+    const open=appData&&appData.orderingGlobalEnabled!==false;
+    label.textContent=open?"ปิดรับสั่งซื้อทั้งระบบ":"เปิดรับสั่งซื้อทั้งระบบ";
+    if(btn){
+      btn.classList.toggle("glass-btn-danger",open);
+      btn.classList.toggle("glass-btn-secondary",!open);
+    }
+  },
+
+  async toggleGlobalOrdering(btn){
+    const open=appData&&appData.orderingGlobalEnabled!==false;
+    try{
+      await runSaving({btn:btn,busyText:"กำลังบันทึก…"},()=>callAuthed("saveOrderingGlobal",!open));
+      if(appData)appData.orderingGlobalEnabled=!open;
+      this.syncAdminOrderingPanel_();
+      this.renderNav();
+      this.showMsg(open?"ปิดรับสั่งซื้อทั้งระบบแล้ว":"เปิดรับสั่งซื้อทั้งระบบแล้ว","success");
+    }catch(e){this.showMsg(e.message,"error");}
+  },
+
+  async setAllUsersOrdering(enabled,btn){
+    const msg=enabled?"เปิดการสั่งซื้อทุกเขต?":"ปิดการสั่งซื้อทุกเขต? (ยังดูข้อมูลและแนบสลิปได้)";
+    if(!confirm(msg))return;
+    try{
+      const r=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},()=>callAuthed("setAllUsersOrderingEnabled",!!enabled));
+      await ensureAppData(true);
+      this.syncAdminOrderingPanel_();
+      await this.loadUserList();
+      this.showMsg((enabled?"เปิด":"ปิด")+"การสั่งซื้อ "+(r&&r.updated!=null?r.updated:0)+" บัญชีแล้ว","success");
+    }catch(e){this.showMsg(e.message,"error");}
+  },
+
+  async toggleUserOrdering(username,enabled,btn){
+    try{
+      await runSaving({btn:btn,busyText:"กำลังบันทึก…"},()=>callAuthed("updateUser",username,{orderingEnabled:!!enabled}));
+      await this.loadUserList();
+      this.showMsg((enabled?"เปิด":"ปิด")+"การสั่งซื้อ "+username+" แล้ว","success");
+    }catch(e){this.showMsg(e.message,"error");}
   },
 
   async loadUserList(){
@@ -5144,12 +5229,21 @@ const app = {
         const roleLabel=u.role==="admin"?"แอดมิน":(u.role==="engineer"?`${ROLE_ENGINEER_LABEL} (แอดมินรอง)`:(u.role===ROLE_ENG_READONLY?ROLE_ENG_READONLY_LABEL:(u.role==="viewer"?"ผู้ดูข้อมูล":"ผู้ใช้")));
         const uKey=escAttr(u.username);
         const canDel=String(u.username||"").trim().toLowerCase()!==myU;
+        const canToggleOrder=u.role==="user"||u.role===ROLE_ENGINEER;
+        const orderOpen=u.orderingEnabled!==false;
+        const orderBadge=canToggleOrder
+          ?`<span class="admin-ordering-badge ${orderOpen?"admin-ordering-open":"admin-ordering-closed"}">${orderOpen?"เปิดสั่ง":"ปิดสั่ง"}</span>`
+          :"";
+        const orderBtn=canToggleOrder
+          ?`<button type="button" class="${orderOpen?"glass-btn-danger":"glass-btn-primary"} admin-user-ordering" data-username="${uKey}" data-enabled="${orderOpen?"0":"1"}" title="${orderOpen?"ปิดการสั่งซื้อ":"เปิดการสั่งซื้อ"}" style="padding:.35rem .5rem;min-width:38px;min-height:38px"><i class="fas fa-${orderOpen?"ban":"cart-plus"}"></i></button>`
+          :"";
         return `<div class="glass-card-inner p-2 flex justify-between items-center gap-2 flex-wrap" data-admin-user="${uKey}">
           <div style="min-width:0;flex:1 1 60%">
-            <div class="text-sm font-bold text-glass" style="word-break:break-word">${escHtml(u.username)} <span class="${roleCls}">${roleLabel}</span></div>
+            <div class="text-sm font-bold text-glass" style="word-break:break-word">${escHtml(u.username)} <span class="${roleCls}">${roleLabel}</span> ${orderBadge}</div>
             <div class="text-xs text-glass-muted">${escHtml(u.displayName||"")} · ${escHtml(u.region||"-")}</div>
           </div>
           <div class="flex gap-1" style="flex-shrink:0">
+            ${orderBtn}
             <button type="button" class="glass-btn admin-user-pwd" data-username="${uKey}" title="ดูรหัสผ่าน" style="padding:.35rem .5rem;min-width:38px;min-height:38px"><i class="fas fa-eye"></i></button>
             <button type="button" class="glass-btn admin-user-reset" data-username="${uKey}" title="รีเซ็ตรหัสผ่าน" style="padding:.35rem .5rem;min-width:38px;min-height:38px"><i class="fas fa-key"></i></button>
             ${canDel?`<button type="button" class="glass-btn-danger admin-user-del" data-username="${uKey}" title="ลบ" style="padding:.35rem .5rem;min-width:38px;min-height:38px"><i class="fas fa-trash"></i></button>`:""}
@@ -5162,7 +5256,9 @@ const app = {
           const t=ev.target&&ev.target.closest?ev.target.closest("button[data-username]"):null;
           if(!t||!el.contains(t))return;
           const name=t.getAttribute("data-username")||"";
-          if(t.classList.contains("admin-user-pwd"))app.showUserPassword(name,t);
+          if(t.classList.contains("admin-user-ordering")){
+            app.toggleUserOrdering(name,t.getAttribute("data-enabled")==="1",t);
+          }else if(t.classList.contains("admin-user-pwd"))app.showUserPassword(name,t);
           else if(t.classList.contains("admin-user-reset"))app.resetUserPwd(name,t);
           else if(t.classList.contains("admin-user-del"))app.deleteUserPrompt(name,t);
         });
