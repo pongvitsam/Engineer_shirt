@@ -2617,7 +2617,8 @@ function renderAbnormalOrdersSectionHtml_(){
 }
 
 function formatPaidTransferReportRemark_(g){
-  return String(g&&g.pickupNote||"").trim();
+  if(shouldHideOrderNoteForViewer_(g))return "";
+  return String(g&&g.note||"").trim();
 }
 
 function comparePaidTransferRows_(a,b){
@@ -2749,7 +2750,7 @@ function renderPaidTransferRowCells_(item,opts){
     if(item.empty){
       html+=`<td ${pdfPrintCellStyle_({alt:alt})}>-</td>`;
     }else{
-      html+=`<td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):"-"}</td>`;
+      html+=`<td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):""}</td>`;
     }
     return html;
   }
@@ -2775,7 +2776,7 @@ function renderPaidTransferRowCells_(item,opts){
   if(item.empty){
     html+=`<td class="report-transfer-remark">-</td>`;
   }else{
-    html+=`<td class="report-transfer-remark">${row.remark?escHtml(row.remark):"-"}</td>`;
+    html+=`<td class="report-transfer-remark">${row.remark?escHtml(row.remark):""}</td>`;
   }
   return html;
 }
@@ -4834,7 +4835,7 @@ const app = {
               <button type="button" onclick="app.exportPaidTransferPdf(this)" class="glass-btn-primary text-xs report-transfer-pdf-btn"><i class="fas fa-file-pdf mr-1"></i> ดาวน์โหลด PDF</button>
             </div>
           </div>
-          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว · หมายเหตุ จากช่องวันที่รับ/จัดส่ง · รวมยอดนับเฉพาะที่โอนแล้ว</p>
+          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว · หมายเหตุ จากที่ user กรอกตอนสั่งเสื้อ · รวมยอดนับเฉพาะที่โอนแล้ว</p>
           <div class="overflow-x-auto report-transfer-table-wrap glass-table-wrap">
             <div id="report-paid-transfer-table-host"></div>
           </div>

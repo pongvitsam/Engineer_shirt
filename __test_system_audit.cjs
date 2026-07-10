@@ -431,7 +431,7 @@ assert("paid transfer report merges region and total cells", () => {
   if (!html.includes('rowspan="${rowspan}"')) throw new Error("missing rowspan merge for region/total");
   if (!html.includes("paginatePaidTransferFlatRows_")) throw new Error("missing PDF row pagination");
   if (!html.includes("buildPaidTransferReportPrintPageHtml_")) throw new Error("missing per-page PDF print html");
-  if (!html.includes("renderPaidTransferReportFootHtml_")) throw new Error("missing transfer report footer row");
+  if (!html.includes('g&&g.note||""')) throw new Error("paid transfer remark must use order note");
 });
 
 assert("abnormal duplicate orders section is admin-only on report", () => {
