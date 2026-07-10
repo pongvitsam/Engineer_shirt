@@ -1502,6 +1502,24 @@ function sizeChartDataset_(label,data,variant){
   const colors=sizeChartPastels_(data.length,variant);
   return {label:label,data:data,backgroundColor:colors,borderColor:SIZE_CHART_SEGMENT_BORDER,borderWidth:1};
 }
+
+function sortRegionChartData_(labels,qtys,freeQtys){
+  const free=Array.isArray(freeQtys)?freeQtys:[];
+  const items=(Array.isArray(labels)?labels:[]).map(function(label,i){
+    const sale=Number(qtys&&qtys[i])||0;
+    const give=Number(free[i])||0;
+    return {label:label,sale:sale,give:give,total:sale+give};
+  });
+  items.sort(function(a,b){
+    if(b.total!==a.total)return b.total-a.total;
+    return String(a.label||"").localeCompare(String(b.label||""),"th");
+  });
+  return {
+    labels:items.map(function(x){return x.label;}),
+    qtys:items.map(function(x){return x.sale;}),
+    freeQtys:items.map(function(x){return x.give;})
+  };
+}
 function isPaymentVerified(s){
   return String(s||"").trim()==="ชำระเงินแล้ว";
 }
@@ -4747,20 +4765,21 @@ const app = {
   upsertRegionChart(dash){
     const canvas=document.getElementById("regionChart");
     if(!canvas)return;
+    const sorted=sortRegionChartData_(dash.regionLabels,dash.regionQtys,dash.regionFreeQtys);
     const datasets=[
-      {label:"สั่งซื้อ (ตัว)",data:dash.regionQtys,backgroundColor:"#7F1D1D",borderRadius:4,maxBarThickness:40},
+      {label:"สั่งซื้อ (ตัว)",data:sorted.qtys,backgroundColor:"#7F1D1D",borderRadius:4,maxBarThickness:40},
     ];
     if(canViewAdminData()){
-      datasets.push({label:"แจกฟรี (ตัว)",data:dash.regionFreeQtys,backgroundColor:"#6D28D9",borderRadius:4,maxBarThickness:40});
+      datasets.push({label:"แจกฟรี (ตัว)",data:sorted.freeQtys,backgroundColor:"#6D28D9",borderRadius:4,maxBarThickness:40});
     }
     const chartTitle=canViewAdminData()?"จำนวนเสื้อตามเขต (สั่งซื้อ vs แจกฟรี)":"จำนวนเสื้อตามเขต";
     if(regionChart&&regionChart.canvas===canvas&&document.body.contains(canvas)){
-      regionChart.data.labels=dash.regionLabels;
+      regionChart.data.labels=sorted.labels;
       regionChart.data.datasets=datasets;
       regionChart.update();return;
     }
     if(regionChart)try{regionChart.destroy()}catch(_){}
-    regionChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:dash.regionLabels,datasets:datasets},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:true,labels:{color:"#fff",font:{family:"'Sarabun',sans-serif"}}},title:{display:true,text:chartTitle,color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{stacked:true,ticks:{color:"rgba(255,255,255,.85)",font:{size:10,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{stacked:true,beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
+    regionChart=new Chart(canvas.getContext("2d"),{type:"bar",data:{labels:sorted.labels,datasets:datasets},options:{maintainAspectRatio:false,animation:{duration:280},plugins:{legend:{display:true,labels:{color:"#fff",font:{family:"'Sarabun',sans-serif"}}},title:{display:true,text:chartTitle,color:"#fff",font:{size:15,weight:"700",family:"'Sarabun',sans-serif"}}},scales:{x:{stacked:true,ticks:{color:"rgba(255,255,255,.85)",font:{size:10,family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}},y:{stacked:true,beginAtZero:true,ticks:{color:"rgba(255,255,255,.85)",font:{family:"'Sarabun',sans-serif"}},grid:{color:"rgba(255,255,255,.1)"}}}}});
   },
 
   upsertGiveawayChart(dash){

@@ -446,6 +446,14 @@ assert("abnormal duplicate orders section is admin-only on report", () => {
   if (!html.includes('ps!=="รอตรวจสลิป"')) throw new Error("abnormal duplicate must include pending slip review");
 });
 
+assert("dashboard region chart sorts regions descending by total qty", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!html.includes("sortRegionChartData_")) throw new Error("missing sortRegionChartData_");
+  if (!html.includes("sortRegionChartData_(dash.regionLabels,dash.regionQtys,dash.regionFreeQtys)")) {
+    throw new Error("region chart must sort by descending total qty");
+  }
+});
+
 assert("dashboard cards show paid amount and regional unpaid breakdown", () => {
   const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
   if (!html.includes("renderDashboardCardsHtml_")) throw new Error("missing renderDashboardCardsHtml_");
