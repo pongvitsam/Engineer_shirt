@@ -150,7 +150,7 @@
 #payment-review-modal .payment-review-paydt-section .glass-datetime-panel{margin-top:0}
 #payment-review-modal .slip-preview-img{max-height:min(55vh,26rem)}
 #payment-review-modal .payment-review-img{min-height:0}
-#slip-upload-modal .glass-datetime-select,#slip-upload-modal .glass-select{touch-action:manipulation;position:relative;z-index:2}
+#slip-upload-modal .glass-datetime-select,#slip-upload-modal .glass-select,#pickup-modal .glass-datetime-select,#pickup-modal .glass-select{touch-action:manipulation;position:relative;z-index:2}
 .login-overlay.login-screen-overlay{position:fixed!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;background:rgba(20,5,10,.6)!important;backdrop-filter:blur(8px)!important;-webkit-backdrop-filter:blur(8px)!important;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:max(.75rem,env(safe-area-inset-top,0px)) clamp(.75rem,2.5vw,1.5rem) max(1.5rem,env(safe-area-inset-bottom,0px));min-height:100dvh;box-sizing:border-box;z-index:30}
 #app-container.login-app-container{max-width:none!important;width:100%!important;margin:0!important;padding:0!important}
 main.peace-login-active{padding-bottom:0!important}

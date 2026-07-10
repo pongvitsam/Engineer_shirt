@@ -515,6 +515,10 @@ assert("order list pickup delivery column", () => {
   if (!code.includes("วันที่รับ/จัดส่ง")) throw new Error("missing pickup sheet columns");
   if (!code.includes("resolvePickupStatusFromDeliveryMode_")) throw new Error("missing pickup status resolver");
   if (!html.includes('value="จัดส่ง"')) throw new Error("missing delivery mode radio");
+  if (!html.includes("getPickupDateTimeFieldValues_")) throw new Error("missing scoped pickup datetime field reader");
+  if (/hasExistingPickup[\s\S]*?:`<input type="hidden" id="pickup-pay-date-/.test(html)) {
+    throw new Error("pickup modal must not duplicate hidden date fields outside datetime wrap");
+  }
 });
 
 assert("order form has optional slip upload with datetime", () => {

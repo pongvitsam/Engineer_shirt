@@ -747,8 +747,11 @@ function slipDtMonthOptions_(selMonth){
 }
 function slipDtYearOptions_(selYear){
   const now=new Date().getFullYear();
+  let yMin=now-1,yMax=now+1;
+  if(selYear<yMin)yMin=selYear;
+  if(selYear>yMax)yMax=selYear;
   let h="";
-  for(let y=now-1;y<=now+1;y++)h+=`<option value="${y}"${y===selYear?" selected":""}>${y+543}</option>`;
+  for(let y=yMin;y<=yMax;y++)h+=`<option value="${y}"${y===selYear?" selected":""}>${y+543}</option>`;
   return h;
 }
 function slipDtHourOptions_(selHour){
@@ -895,6 +898,17 @@ function bindSlipDateTimePicker_(safeOid) {
 
 function bindPickupDateTimePicker_(safeOid) {
   bindDateTimePicker_(safeOid, "pickup");
+}
+
+function getPickupDateTimeFieldValues_(safeOid){
+  const modal=document.getElementById("pickup-modal");
+  const root=modal||document;
+  const dateEl=root.querySelector("#pickup-pay-date-"+safeOid);
+  const timeEl=root.querySelector("#pickup-pay-time-"+safeOid);
+  return {
+    date:String(dateEl&&dateEl.value||"").trim(),
+    time:String(timeEl&&timeEl.value||"").trim()
+  };
 }
 
 const slipPreviewUrls_ = {};
@@ -4039,15 +4053,14 @@ const app = {
     if(!orderGroup)return this.showMsg("ไม่พบออเดอร์","error");
     this.closePickupModal();
     const safeOid=ddSafeId(orderId);
-    const hasExistingPickup=!!(String(orderGroup.pickupDate||"").trim()&&String(orderGroup.pickupTime||"").trim());
+    const hasExistingPickup=!!(String(orderGroup.pickupDate||"").trim()||String(orderGroup.pickupTime||"").trim());
     const initDate=hasExistingPickup?(normalizePayDateForInput_(orderGroup.pickupDate)||""):"";
     const initTime=hasExistingPickup?(normalizePayTimeForInput_(orderGroup.pickupTime)||""):"";
     const initNote=String(orderGroup.pickupNote||"");
+    const deliveryModeDefault=normalizeOrderStatus_(orderGroup.status)===ORDER_STATUS_SHIPPED?"จัดส่ง":"มารับ";
     const dtFieldsHtml=hasExistingPickup
       ?`<div id="pickup-dt-wrap-${safeOid}">${buildPickupDateTimeFieldsHtml_(safeOid,initDate,initTime)}</div>`
-      :`<input type="hidden" id="pickup-pay-date-${safeOid}" value="">
-            <input type="hidden" id="pickup-pay-time-${safeOid}" value="">
-            <div id="pickup-dt-wrap-${safeOid}" style="display:none"></div>
+      :`<div id="pickup-dt-wrap-${safeOid}" style="display:none"></div>
             <button type="button" id="pickup-dt-toggle-${safeOid}" onclick="app.showPickupDateTimeFields('${escHtml(orderId)}')" class="glass-btn-secondary text-xs py-2 w-full"><i class="fas fa-calendar-plus"></i> ระบุวันที่/เวลา (ไม่บังคับ)</button>`;
     const html=`
       <div class="login-overlay slip-upload-overlay" id="pickup-modal" onclick="if(event.target===this)app.closePickupModal()">
@@ -4058,8 +4071,8 @@ const app = {
             <div>
               <span class="glass-label">ประเภท</span>
               <div class="grid grid-cols-2 gap-2 mt-1">
-                <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="มารับ" checked> เข้ามารับ</label>
-                <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="จัดส่ง"> จัดส่ง</label>
+                <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="มารับ"${deliveryModeDefault==="มารับ"?" checked":""}> เข้ามารับ</label>
+                <label class="glass-radio-card"><input type="radio" name="pickup-mode-${safeOid}" value="จัดส่ง"${deliveryModeDefault==="จัดส่ง"?" checked":""}> จัดส่ง</label>
               </div>
             </div>
             ${dtFieldsHtml}
@@ -4110,8 +4123,9 @@ const app = {
   async submitPickupDelivery(orderId,btn){
     if(!isAdmin())return;
     const safeOid=ddSafeId(orderId);
-    const pickupDate=String(document.getElementById("pickup-pay-date-"+safeOid)?.value||"").trim();
-    const pickupTime=String(document.getElementById("pickup-pay-time-"+safeOid)?.value||"").trim();
+    const pickupFields=getPickupDateTimeFieldValues_(safeOid);
+    const pickupDate=pickupFields.date;
+    const pickupTime=pickupFields.time;
     const pickupNote=String(document.getElementById("pickup-note-"+safeOid)?.value||"").trim();
     const deliveryMode=String(document.querySelector('input[name="pickup-mode-'+safeOid+'"]:checked')?.value||"มารับ").trim();
     const hasDateTime=!!(pickupDate&&pickupTime);
