@@ -1854,6 +1854,21 @@ function formatOrderTimestampCell(ts){
   if(iso)return formatThaiDateTimeCell(iso[1],iso[2]);
   return formatThaiDateTimeCell(s,"");
 }
+function formatOrderListItemsPlain_(items){
+  const bySize={};
+  (Array.isArray(items)?items:[]).forEach(function(it){
+    const size=String(it&&it.size||"").trim();
+    const qty=Number(it&&it.qty)||0;
+    if(!size||qty<=0)return;
+    bySize[size]=(bySize[size]||0)+qty;
+  });
+  const order=appData?.stockSizes||[];
+  const keys=order.length
+    ?order.filter(function(s){return bySize[s]>0;}).concat(Object.keys(bySize).filter(function(s){return order.indexOf(s)<0;}).sort())
+    :Object.keys(bySize).sort();
+  if(!keys.length)return '<span class="text-glass-dim">-</span>';
+  return '<div class="order-list-items-plain">'+keys.map(function(s){return escHtml(s)+"="+bySize[s];}).join("<br>")+"</div>";
+}
 function buildOrderSearchHaystack_(g){
   const parts=[];
   const oid=String(g&&g.orderId||"");
@@ -4013,7 +4028,7 @@ const app = {
     const canEditNote=canEditOrderNote_(g,ownsOrder);
     const canDeleteOrder=canUserDeleteOrderGroup(g,ownsOrder);
     const showEditBtn=canEditOrder||canEditNote;
-    const itemsLabel=`<div class="order-items">${g.items.map(it=>`<span class="order-item"><span class="size-badge ${sizeClass(it.size)}">${it.size}</span><span class="order-item-qty">×${it.qty}</span></span>`).join("")}</div>`;
+    const itemsLabel=formatOrderListItemsPlain_(g.items);
     const canManageSlip=canManageOrderSlip_(g,ownsOrder);
     const slipSafeId=ddSafeId(g.orderId);
     let slipCell;
