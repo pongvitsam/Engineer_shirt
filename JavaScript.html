@@ -1663,13 +1663,69 @@ function renderPickupDeliveryCell_(g){
     ?`<div class="text-xs">${formatThaiDateTimeCell(g.pickupDate,g.pickupTime)}</div>`
     :(note?"":`<span class="text-glass-dim text-xs">-</span>`);
   if(note)display+=`<div class="order-pickup-note text-xs text-glass-dim mt-1">${escHtml(note)}</div>`;
-  if(!isAdmin())return `<div class="order-pickup-cell">${display}</div>`;
-  const btnLabel=(hasPickup||note)?"แก้ไข":"บันทึก";
-  const btnIcon=(hasPickup||note)?"fa-edit":"fa-calendar-plus";
-  return `<div class="order-pickup-cell">
-    ${display}
-    <button type="button" onclick="event.stopPropagation();app.openPickupModal('${escHtml(g.orderId)}')" class="glass-btn-secondary text-xs mt-1" style="padding:.3rem .55rem"><i class="fas ${btnIcon}"></i> ${btnLabel}</button>
-  </div>`;
+  return `<div class="order-pickup-cell">${display}</div>`;
+}
+
+function orderListRowCanEditCart_(g){
+  if(!g)return false;
+  const owns=ownsOrderRegion(g);
+  return canUserEditOrderGroup(g,owns)||canEditOrderNote_(g,owns);
+}
+
+function closeOrderListEditMenu_(){
+  const menu=document.getElementById("order-list-edit-menu");
+  if(menu)menu.remove();
+  if(window._orderListEditMenuDismiss){
+    document.removeEventListener("mousedown",window._orderListEditMenuDismiss,true);
+    document.removeEventListener("keydown",window._orderListEditMenuDismiss,true);
+    window._orderListEditMenuDismiss=null;
+  }
+}
+
+function showOrderListEditMenu_(orderId,anchorEl){
+  closeOrderListEditMenu_();
+  const menu=document.createElement("div");
+  menu.id="order-list-edit-menu";
+  menu.className="order-list-edit-menu glass-card fade-in";
+  menu.innerHTML=`<button type="button" class="order-list-edit-menu-item" data-action="cart"><i class="fas fa-pencil-alt"></i> แก้ไขออเดอร์</button>
+    <button type="button" class="order-list-edit-menu-item" data-action="pickup"><i class="fas fa-truck"></i> วันที่รับ/จัดส่ง</button>`;
+  menu.addEventListener("click",function(e){
+    const btn=e.target.closest("[data-action]");
+    if(!btn)return;
+    closeOrderListEditMenu_();
+    if(btn.dataset.action==="pickup")app.openPickupModal(orderId);
+    else app.openCartEditModal(orderId);
+  });
+  document.body.appendChild(menu);
+  const rect=(anchorEl&&anchorEl.getBoundingClientRect)?anchorEl.getBoundingClientRect():{right:12,bottom:12};
+  const mw=menu.offsetWidth||176;
+  let left=Math.max(8,rect.right-mw);
+  let top=rect.bottom+6;
+  if(top+menu.offsetHeight>window.innerHeight-8)top=Math.max(8,rect.top-menu.offsetHeight-6);
+  menu.style.left=left+"px";
+  menu.style.top=top+"px";
+  window._orderListEditMenuDismiss=function(ev){
+    if(ev.type==="keydown"&&ev.key!=="Escape")return;
+    if(ev.type==="mousedown"&&menu.contains(ev.target))return;
+    closeOrderListEditMenu_();
+  };
+  setTimeout(function(){
+    document.addEventListener("mousedown",window._orderListEditMenuDismiss,true);
+    document.addEventListener("keydown",window._orderListEditMenuDismiss,true);
+  },0);
+}
+
+function openOrderListRowEdit_(orderId,anchorEl){
+  const g=groupOrdersByOrderId(appData?.orders||[]).find(function(x){return String(x.orderId)===String(orderId);});
+  if(!g||typeof app==="undefined"||!app)return;
+  const canCart=orderListRowCanEditCart_(g);
+  const canPickup=isAdmin()&&canViewAdminData();
+  if(canCart&&canPickup){
+    showOrderListEditMenu_(orderId,anchorEl);
+    return;
+  }
+  if(canPickup){app.openPickupModal(orderId);return;}
+  if(canCart){app.openCartEditModal(orderId);return;}
 }
 
 function orderListColSpan_(){
@@ -3989,12 +4045,14 @@ const app = {
           <button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>
         </div>`
       :"";
+    const showPickupEdit=isAdmin()&&canViewAdminData();
+    const showRowEditBtn=showEditBtn||showPickupEdit;
     const orderStatusHints=!showEditBtn
       ?(isPaymentLocked(g.paymentStatus)?`<div class="mt-1 text-xs text-glass-dim">${isFreeGiveawayPayment(g.paymentStatus)?"เสื้อแจกฟรี — แก้ไข/ลบได้เฉพาะแอดมิน":"ชำระเงินแล้ว — แก้ไข/ลบได้เฉพาะแอดมิน"}</div>`
         :(isUserLockedOrderStatus(g.status)?`<div class="mt-1 text-xs text-glass-dim">ล็อกแล้ว — ติดต่อแอดมิน</div>`:""))
       :"";
-    const editBtn=showEditBtn
-      ?`<button onclick="app.openCartEditModal('${escHtml(g.orderId)}')" class="glass-btn-secondary" title="แก้ไข" style="padding:.35rem .55rem"><i class="fas fa-pencil-alt"></i></button>`
+    const editBtn=showRowEditBtn
+      ?`<button type="button" onclick="openOrderListRowEdit_('${escHtml(g.orderId)}',this)" class="glass-btn-secondary" title="แก้ไข" style="padding:.35rem .55rem"><i class="fas fa-pencil-alt"></i></button>`
       :"";
     const deleteBtn=canDeleteOrder
       ?`<button onclick="app.removeOrderGroup('${escHtml(g.orderId)}',${inCart?"true":"false"},this)" class="glass-btn-danger" title="ลบออเดอร์" style="padding:.35rem .55rem"><i class="fas fa-trash"></i></button>`
