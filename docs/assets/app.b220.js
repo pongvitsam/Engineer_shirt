@@ -4375,7 +4375,7 @@ const app = {
             ${dtFieldsHtml}
             <div>
               <label class="glass-label" for="pickup-note-${safeOid}">หมายเหตุ (ไม่บังคับ)</label>
-              <textarea id="pickup-note-${safeOid}" class="glass-input text-sm cart-edit-note-input" maxlength="120" rows="2" placeholder="เช่น ผู้มารับ, จุดส่ง">${escHtml(initNote)}</textarea>
+              <textarea id="pickup-note-${safeOid}" class="glass-input text-sm cart-edit-note-input" rows="3" placeholder="เช่น ผู้มารับ, จุดส่ง, EMS tracking">${escHtml(initNote)}</textarea>
             </div>
             <div id="pickup-modal-msg" class="modal-inline-msg text-sm text-center mt-2 font-semibold" style="display:none" role="alert"></div>
           </div>

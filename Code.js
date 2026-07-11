@@ -236,7 +236,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "219";
+const APP_BUILD = "220";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1690,7 +1690,7 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
   if (!targetOrderId) throw new Error("กรุณาระบุ orderId");
   const dateStr = formatPayDateFromSheet_(pickupDate) || String(pickupDate || "").trim();
   const timeStr = formatPayTimeFromSheet_(pickupTime) || String(pickupTime || "").trim();
-  const safeNote = String(pickupNote == null ? "" : pickupNote).trim().substring(0, 120);
+  const safeNote = String(pickupNote == null ? "" : pickupNote).trim();
   const hasDateTime = !!(dateStr && timeStr);
   if (!hasDateTime && !safeNote) throw new Error("กรุณาระบุหมายเหตุ หรือวันที่และเวลารับ/จัดส่ง");
   const nextStatus = hasDateTime ? resolvePickupStatusFromDeliveryMode_(deliveryMode) : null;

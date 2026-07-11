@@ -534,6 +534,8 @@ assert("order list pickup delivery column", () => {
   }
   if (!html.includes("refreshAfterOrderListMutation_")) throw new Error("missing refreshAfterOrderListMutation_ helper");
   if (!html.includes("refreshAfterOrderListMutation_(orderId,{recalcStock:false})")) throw new Error("acceptOrderPayment must refresh order list row");
+  if (/pickup-note-\$\{safeOid\}"[^>]*maxlength/.test(html)) throw new Error("pickup note must not limit characters");
+  if (/pickupNote[\s\S]*substring\(0,\s*120\)/.test(code)) throw new Error("pickup note must not truncate on server");
 });
 
 assert("order form has optional slip upload with datetime", () => {
