@@ -238,7 +238,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "221";
+const APP_BUILD = "222";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1187,13 +1187,8 @@ function saveEmailNotifySettings(token, config) {
   return { ok: true, emailNotifySettings: safe };
 }
 
-function sendTestEmailNotify(token) {
-  requireAdmin_(token);
-  ensureSheetsInitialized_();
-  const ss = getSpreadsheet_();
-  const cfg = getEmailNotifySettings_(ss);
-  if (!cfg.recipients.length) throw new Error("กรุณาเพิ่มอีเมลผู้รับก่อน");
-  const summary = {
+function buildTestEmailNotifySummary_() {
+  return {
     orderId: "TEST-" + Date.now(),
     region: "ทดสอบระบบ",
     totalQty: 2,
@@ -1207,10 +1202,31 @@ function sendTestEmailNotify(token) {
     pickupTime: "",
     pickupNote: "",
     contactPhone: "",
-    recordedBy: "admin"
+    recordedBy: "editor"
   };
-  dispatchOrderEmailNotify_(EMAIL_EVENT.ORDER_SUBMITTED, summary, cfg, true);
+}
+
+function sendTestEmailNotify(token) {
+  if (!token) return runSendTestEmailFromEditor();
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const cfg = getEmailNotifySettings_(ss);
+  if (!cfg.recipients.length) throw new Error("กรุณาเพิ่มอีเมลผู้รับก่อน");
+  dispatchOrderEmailNotify_(EMAIL_EVENT.ORDER_SUBMITTED, buildTestEmailNotifySummary_(), cfg, true);
   return { ok: true, sent: cfg.recipients.length };
+}
+
+/** รันจาก Apps Script Editor เท่านั้น — ทดสอบ MailApp / authorize สิทธิ์ส่งอีเมล (ไม่ต้อง login) */
+function runSendTestEmailFromEditor() {
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const cfg = getEmailNotifySettings_(ss);
+  if (!cfg.recipients.length) {
+    throw new Error("ยังไม่มีอีเมลผู้รับ — ตั้งค่าในแอปแอดมิน (แจ้งเตือนอีเมล) แล้วบันทึกก่อน");
+  }
+  dispatchOrderEmailNotify_(EMAIL_EVENT.ORDER_SUBMITTED, buildTestEmailNotifySummary_(), cfg, true);
+  return { ok: true, sent: cfg.recipients.length, recipients: cfg.recipients };
 }
 
 function summarizeOrderByOrderId_(orderSheet, orderId) {
