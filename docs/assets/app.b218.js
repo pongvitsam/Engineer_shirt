@@ -2776,6 +2776,29 @@ function formatPaidTransferReportRemark_(g){
   return String(g&&g.note||"").trim();
 }
 
+function paidTransferShowPickupCol_(){
+  return canViewAdminData();
+}
+
+function formatPaidTransferPickupCellHtml_(row,opts){
+  opts=opts||{};
+  if(!row)return opts.print?"-":"<span class=\"text-glass-dim\">-</span>";
+  const hasPickup=!!(String(row.pickupDate||"").trim()||String(row.pickupTime||"").trim());
+  const note=String(row.pickupNote||"").trim();
+  if(!hasPickup&&!note)return opts.print?"-":"<span class=\"text-glass-dim\">-</span>";
+  if(opts.print){
+    const parts=[];
+    if(hasPickup)parts.push(formatThaiDateTimeCell(row.pickupDate,row.pickupTime));
+    if(note)parts.push(note);
+    return escHtml(parts.join(" · "));
+  }
+  let display=hasPickup
+    ?`<div class="text-xs">${formatThaiDateTimeCell(row.pickupDate,row.pickupTime)}</div>`
+    :"";
+  if(note)display+=`<div class="order-pickup-note text-xs text-glass-dim${hasPickup?" mt-1":""}">${escHtml(note)}</div>`;
+  return display||"<span class=\"text-glass-dim\">-</span>";
+}
+
 function comparePaidTransferRows_(a,b){
   if(!!a.unpaid!==!!b.unpaid)return a.unpaid?1:-1;
   if(a.unpaid&&b.unpaid){
@@ -2806,6 +2829,9 @@ function computePaidTransferReport_(includeUnpaid){
           payTime:g.payTime||"",
           amount:g.totalPrice||0,
           remark:formatPaidTransferReportRemark_(g),
+          pickupDate:g.pickupDate||"",
+          pickupTime:g.pickupTime||"",
+          pickupNote:g.pickupNote||"",
           unpaid:false,
           sortKey:String(g.timestamp||g.orderId||"")
         });
@@ -2816,6 +2842,9 @@ function computePaidTransferReport_(includeUnpaid){
           payTime:"",
           amount:0,
           remark:formatPaidTransferReportRemark_(g),
+          pickupDate:g.pickupDate||"",
+          pickupTime:g.pickupTime||"",
+          pickupNote:g.pickupNote||"",
           unpaid:true,
           sortKey:String(g.timestamp||g.orderId||"")
         });
@@ -2881,8 +2910,16 @@ function renderPaidTransferRowCells_(item,opts){
   const rowspan=Math.max(1,Number(item.regionRowspan)||1);
   const showRegion=!!item.showRegion;
   const showTotal=!!item.showTotal;
+  const showPickup=paidTransferShowPickupCol_();
   const alt=!!item.alt;
   const unpaid=row&&row.unpaid;
+  const pickupCell=function(){
+    if(!showPickup)return "";
+    if(opts.print){
+      return `<td ${pdfPrintCellStyle_({center:true,alt:alt})}>${item.empty?"-":formatPaidTransferPickupCellHtml_(row,{print:true})}</td>`;
+    }
+    return `<td class="report-transfer-pickup">${item.empty?"-":formatPaidTransferPickupCellHtml_(row)}</td>`;
+  };
   if(opts.print){
     let html="";
     if(showRegion){
@@ -2902,6 +2939,7 @@ function renderPaidTransferRowCells_(item,opts){
     if(showTotal){
       html+=`<td ${pdfPrintCellStyle_({right:true,bold:true,alt:alt,rowspan:rowspan})}>${fmtMoney(totalAmount)}</td>`;
     }
+    html+=pickupCell();
     if(item.empty){
       html+=`<td ${pdfPrintCellStyle_({alt:alt})}>-</td>`;
     }else{
@@ -2928,6 +2966,7 @@ function renderPaidTransferRowCells_(item,opts){
   if(showTotal){
     html+=`<td class="report-transfer-total report-transfer-num" rowspan="${rowspan}">${fmtMoney(totalAmount)}</td>`;
   }
+  html+=pickupCell();
   if(item.empty){
     html+=`<td class="report-transfer-remark">-</td>`;
   }else{
@@ -3004,6 +3043,10 @@ function renderPaidTransferReportFootHtml_(data,opts){
   opts=opts||{};
   const grandQty=paidTransferReportGrandQty_(data);
   const grandTotal=Number(data.grandTotal)||0;
+  const showPickup=paidTransferShowPickupCol_();
+  const pickupFoot=showPickup
+    ?(opts.print?`<td ${pdfPrintCellStyle_({center:true,header:true})}>-</td>`:`<td class="report-transfer-pickup">-</td>`)
+    :"";
   if(opts.print){
     return `<tr>
       <td ${pdfPrintCellStyle_({header:true})}>รวมทั้งหมด</td>
@@ -3012,6 +3055,7 @@ function renderPaidTransferReportFootHtml_(data,opts){
       <td ${pdfPrintCellStyle_({center:true,header:true})}>-</td>
       <td ${pdfPrintCellStyle_({right:true,header:true})}>-</td>
       <td ${pdfPrintCellStyle_({right:true,bold:true,header:true})}>${fmtMoney(grandTotal)}</td>
+      ${pickupFoot}
       <td ${pdfPrintCellStyle_({header:true})}>-</td>
     </tr>`;
   }
@@ -3022,6 +3066,7 @@ function renderPaidTransferReportFootHtml_(data,opts){
     <td class="report-transfer-time">-</td>
     <td class="report-transfer-money">-</td>
     <td class="report-transfer-total report-transfer-num">${fmtMoney(grandTotal)}</td>
+    ${pickupFoot}
     <td class="report-transfer-remark">-</td>
   </tr>`;
 }
@@ -3030,6 +3075,8 @@ function renderPaidTransferReportTableHtml_(data,opts){
   opts=opts||{};
   data=data||{};
   const title=escHtml(data.title||paidTransferReportTitle_());
+  const showPickup=paidTransferShowPickupCol_();
+  const pickupHead=showPickup?(opts.print?`<th ${pdfPrintCellStyle_({header:true})}>วันที่รับ/จัดส่ง</th>`:`<th class="report-transfer-col-pickup">วันที่รับ/จัดส่ง</th>`):"";
   if(opts.print){
     const headCell=function(label){
       return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
@@ -3042,6 +3089,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
         ${headCell("เวลาที่โอน")}
         ${headCell("จำนวนเงิน(บาท)")}
         ${headCell("รวมยอด (บาท)")}
+        ${pickupHead}
         ${headCell("หมายเหตุ")}
       </tr></thead>
       <tbody>${renderPaidTransferReportRowsHtml_(data,{print:true})}</tbody>
@@ -3057,6 +3105,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
       <th class="report-transfer-col-time">เวลาที่โอน</th>
       <th class="report-transfer-col-money">จำนวนเงิน(บาท)</th>
       <th class="report-transfer-col-total">รวมยอด (บาท)</th>
+      ${pickupHead}
       <th class="report-transfer-col-remark">หมายเหตุ</th>
     </tr></thead>
     <tbody>${body}</tbody>
@@ -3072,6 +3121,8 @@ function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount
   const headCell=function(label){
     return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
   };
+  const showPickup=paidTransferShowPickupCol_();
+  const pickupHead=showPickup?headCell("วันที่รับ/จัดส่ง"):"";
   const table=`<table style="width:100%;border-collapse:collapse;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;table-layout:fixed;">
       <thead><tr>
         ${headCell(data.title||paidTransferReportTitle_())}
@@ -3080,6 +3131,7 @@ function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount
         ${headCell("เวลาที่โอน")}
         ${headCell("จำนวนเงิน(บาท)")}
         ${headCell("รวมยอด (บาท)")}
+        ${pickupHead}
         ${headCell("หมายเหตุ")}
       </tr></thead>
       <tbody>${body}</tbody>

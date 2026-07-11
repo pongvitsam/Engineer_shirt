@@ -432,6 +432,10 @@ assert("paid transfer report merges region and total cells", () => {
   if (!html.includes("paginatePaidTransferFlatRows_")) throw new Error("missing PDF row pagination");
   if (!html.includes("buildPaidTransferReportPrintPageHtml_")) throw new Error("missing per-page PDF print html");
   if (!html.includes('g&&g.note||""')) throw new Error("paid transfer remark must use order note");
+  if (!html.includes("paidTransferShowPickupCol_")) throw new Error("missing paidTransferShowPickupCol_");
+  if (!html.includes("formatPaidTransferPickupCellHtml_")) throw new Error("missing formatPaidTransferPickupCellHtml_");
+  if (!html.includes("report-transfer-col-pickup")) throw new Error("missing pickup column header class");
+  if (!html.includes("pickupDate:g.pickupDate")) throw new Error("paid transfer rows must include pickup fields");
 });
 
 assert("abnormal duplicate orders section is admin-only on report", () => {
