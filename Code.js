@@ -238,7 +238,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "223";
+const APP_BUILD = "224";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1205,25 +1205,34 @@ function throwMailSendAuthRequired_() {
   throw new Error(mailSendPermissionHelp_() + (url ? "\n\nAuthorize: " + url : ""));
 }
 
-/** Run ครั้งแรกจาก Script Editor เพื่อขอสิทธิ์ script.send_mail — Allow แล้ว Run อีกครั้ง */
+/** Run จาก Script Editor — ครั้งแรกจะขอสิทธิ์ส่งอีเมล (Allow) แล้ว Run ซ้ำ */
 function authorizeMailSendScope() {
   ensureSheetsInitialized_();
-  const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
-  const status = authInfo.getAuthorizationStatus();
-  if (status === ScriptApp.AuthorizationStatus.REQUIRED) {
-    const url = String(authInfo.getAuthorizationUrl() || "").trim();
-    throw new Error("กด Run อีกครั้งแล้ว Allow ใน popup"
-      + (url ? ("\n\nหรือเปิดลิงก์: " + url) : "")
-      + "\n\n" + mailSendPermissionHelp_());
+  try {
+    const quota = MailApp.getRemainingDailyQuota();
+    return { ok: true, remainingDailyQuota: quota, message: "สิทธิ์ส่งอีเมลพร้อมใช้งาน" };
+  } catch (e) {
+    if (!isMailSendPermissionError_(e)) throw e;
+    let url = "";
+    try {
+      const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+      if (authInfo.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
+        url = String(authInfo.getAuthorizationUrl() || "").trim();
+      }
+    } catch (e2) {}
+    throw new Error(
+      "ต้อง Allow สิทธิ์ส่งอีเมลก่อน"
+      + (url ? ("\n\n1) เปิดลิงก์นี้ในเบราว์เซอร์ (บัญชีที่ deploy Web App):\n" + url + "\n\n2) กด Allow ทุกสิทธิ์\n\n3) กลับมา Run authorizeMailSendScope อีกครั้ง") : "\n\nRun อีกครั้งแล้ว Allow ใน popup")
+    );
   }
-  const quota = MailApp.getRemainingDailyQuota();
-  return { ok: true, remainingDailyQuota: quota, message: "สิทธิ์ส่งอีเมลพร้อมใช้งาน" };
 }
 
 function assertMailSendAuthorized_() {
-  const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
-  if (authInfo.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
-    throwMailSendAuthRequired_();
+  try {
+    MailApp.getRemainingDailyQuota();
+  } catch (e) {
+    if (isMailSendPermissionError_(e)) throwMailSendAuthRequired_();
+    throw e;
   }
 }
 
@@ -1264,7 +1273,6 @@ function sendTestEmailNotify(token) {
 
 /** รันจาก Apps Script Editor เท่านั้น — ทดสอบ MailApp / authorize สิทธิ์ส่งอีเมล (ไม่ต้อง login) */
 function runSendTestEmailFromEditor() {
-  assertMailSendAuthorized_();
   ensureSheetsInitialized_();
   const ss = getSpreadsheet_();
   const cfg = getEmailNotifySettings_(ss);
