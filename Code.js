@@ -238,7 +238,7 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "222";
+const APP_BUILD = "223";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -1187,6 +1187,51 @@ function saveEmailNotifySettings(token, config) {
   return { ok: true, emailNotifySettings: safe };
 }
 
+function mailSendPermissionHelp_() {
+  return "ยังไม่ได้อนุญาตสิทธิ์ส่งอีเมล (MailApp)\n"
+    + "1) Apps Script Editor → เลือก authorizeMailSendScope → Run → Allow\n"
+    + "2) ถ้าไม่มี popup: เปิด https://myaccount.google.com/permissions ลบสิทธิ์โปรเจกต์นี้ แล้ว Run ใหม่\n"
+    + "3) บัญชีที่ deploy Web App ต้องเป็นคน authorize (executeAs: USER_DEPLOYING)";
+}
+
+function throwMailSendAuthRequired_() {
+  let url = "";
+  try {
+    const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    if (authInfo.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
+      url = String(authInfo.getAuthorizationUrl() || "").trim();
+    }
+  } catch (e) {}
+  throw new Error(mailSendPermissionHelp_() + (url ? "\n\nAuthorize: " + url : ""));
+}
+
+/** Run ครั้งแรกจาก Script Editor เพื่อขอสิทธิ์ script.send_mail — Allow แล้ว Run อีกครั้ง */
+function authorizeMailSendScope() {
+  ensureSheetsInitialized_();
+  const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+  const status = authInfo.getAuthorizationStatus();
+  if (status === ScriptApp.AuthorizationStatus.REQUIRED) {
+    const url = String(authInfo.getAuthorizationUrl() || "").trim();
+    throw new Error("กด Run อีกครั้งแล้ว Allow ใน popup"
+      + (url ? ("\n\nหรือเปิดลิงก์: " + url) : "")
+      + "\n\n" + mailSendPermissionHelp_());
+  }
+  const quota = MailApp.getRemainingDailyQuota();
+  return { ok: true, remainingDailyQuota: quota, message: "สิทธิ์ส่งอีเมลพร้อมใช้งาน" };
+}
+
+function assertMailSendAuthorized_() {
+  const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+  if (authInfo.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
+    throwMailSendAuthRequired_();
+  }
+}
+
+function isMailSendPermissionError_(err) {
+  const msg = String(err && err.message ? err.message : err).toLowerCase();
+  return msg.indexOf("permission") > -1 || msg.indexOf("send_mail") > -1 || msg.indexOf("mailapp") > -1;
+}
+
 function buildTestEmailNotifySummary_() {
   return {
     orderId: "TEST-" + Date.now(),
@@ -1219,6 +1264,7 @@ function sendTestEmailNotify(token) {
 
 /** รันจาก Apps Script Editor เท่านั้น — ทดสอบ MailApp / authorize สิทธิ์ส่งอีเมล (ไม่ต้อง login) */
 function runSendTestEmailFromEditor() {
+  assertMailSendAuthorized_();
   ensureSheetsInitialized_();
   const ss = getSpreadsheet_();
   const cfg = getEmailNotifySettings_(ss);
@@ -1386,7 +1432,10 @@ function dispatchOrderEmailNotify_(eventType, summary, cfg, isTest) {
     logEmailNotifyAttempt_(ss, eventType, summary.orderId, recipients, isTest ? "test_sent" : "sent");
   } catch (e) {
     logEmailNotifyAttempt_(ss, eventType, summary.orderId, recipients, "error: " + String(e.message || e));
-    if (isTest) throw new Error("ส่งอีเมลทดสอบไม่สำเร็จ: " + String(e.message || e));
+    if (isTest) {
+      if (isMailSendPermissionError_(e)) throw new Error(mailSendPermissionHelp_());
+      throw new Error("ส่งอีเมลทดสอบไม่สำเร็จ: " + String(e.message || e));
+    }
   }
 }
 

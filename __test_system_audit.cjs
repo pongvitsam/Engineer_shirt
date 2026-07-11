@@ -610,6 +610,7 @@ assert("admin email notify settings and hooks", () => {
   if (!html.includes("admin-email-notify-wrap")) throw new Error("missing admin email notify UI");
   if (!html.includes("saveEmailNotifySettings")) throw new Error("missing saveEmailNotifySettings client handler");
   if (!html.includes("sendTestEmailNotify")) throw new Error("missing sendTestEmailNotify client handler");
+  if (!code.includes("function authorizeMailSendScope")) throw new Error("missing authorizeMailSendScope");
   if (!manifest.includes("script.send_mail")) throw new Error("appsscript.json must include send_mail scope");
   if (!code.includes("function runSendTestEmailFromEditor")) throw new Error("missing runSendTestEmailFromEditor editor helper");
   if (!/function sendTestEmailNotify[\s\S]*?if \(!token\) return runSendTestEmailFromEditor/.test(code)) {

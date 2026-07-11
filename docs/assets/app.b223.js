@@ -5209,7 +5209,7 @@ const app = {
         </div>
         <div class="glass-card-inner p-4 admin-email-notify-wrap">
           <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-envelope mr-1"></i> แจ้งเตือนอีเมลอัตโนมัติ</h3>
-          <p class="text-xs text-glass-dim mb-3">ส่งจากบัญชี Google ของเจ้าของ deployment · เพิ่มอีเมลผู้รับได้หลายรายการ</p>
+          <p class="text-xs text-glass-dim mb-3">ส่งจากบัญชี Google ของเจ้าของ deployment · เพิ่มอีเมลผู้รับได้หลายรายการ · ครั้งแรกต้อง Run <b>authorizeMailSendScope</b> ใน Apps Script Editor แล้ว Allow สิทธิ์ส่งอีเมล</p>
           <label class="admin-email-toggle text-sm font-semibold flex items-center gap-2 mb-3">
             <input type="checkbox" id="admin-email-notify-enabled">
             <span>เปิดใช้งานการแจ้งเตือนอีเมล</span>
