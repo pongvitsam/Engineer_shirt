@@ -169,6 +169,8 @@ function invokeRpc_(method, args, options) {
     saveRoundConfig: saveRoundConfig,
     saveTransferAccount: saveTransferAccount,
     saveSupportContact: saveSupportContact,
+    saveEmailNotifySettings: saveEmailNotifySettings,
+    sendTestEmailNotify: sendTestEmailNotify,
     saveOrderingGlobal: saveOrderingGlobal,
     setAllUsersOrderingEnabled: setAllUsersOrderingEnabled,
     updateUser: updateUser,
@@ -236,11 +238,19 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "220";
+const APP_BUILD = "221";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
 const SETTINGS_KEY_ORDERING_GLOBAL = "ordering_global_enabled";
+const SETTINGS_KEY_EMAIL_NOTIFY = "email_notify_config";
+const EMAIL_LOG_SHEET = "EmailLog";
+const EMAIL_NOTIFY_MAX_RECIPIENTS = 20;
+const EMAIL_EVENT = {
+  ORDER_SUBMITTED: "orderSubmitted",
+  PAYMENT_SLIP: "paymentSlip",
+  SHIPPED: "shipped"
+};
 const DEFAULT_SUPPORT_CONTACT = "แจ้งปัญหาการใช้งาน โทร 02-009-6703";
 const ROLE_ENGINEER = "engineer";
 const ROLE_ENGINEER_LABEL = "ทีมงาน ชวศ";
@@ -1021,6 +1031,9 @@ function getBootstrapData(token) {
   out.orders = (out.orders || []).map(function (o) {
     return sanitizeOrderForViewer_(o, session);
   });
+  if (session.role === "admin") {
+    out.emailNotifySettings = getEmailNotifySettings_(getSpreadsheet_());
+  }
   return out;
 }
 
@@ -1113,6 +1126,270 @@ function saveSupportContact(token, text) {
   setSetting_(ss, SETTINGS_KEY_SUPPORT_CONTACT, safe);
   invalidateDataCache_();
   return { ok: true, supportContact: safe };
+}
+
+function defaultEmailNotifyConfig_() {
+  return {
+    enabled: false,
+    events: {
+      orderSubmitted: true,
+      paymentSlip: true,
+      shipped: true
+    },
+    recipients: []
+  };
+}
+
+function isValidEmailAddress_(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+}
+
+function normalizeEmailNotifyConfig_(config) {
+  const c = config || {};
+  const events = c.events || {};
+  const recipients = Array.isArray(c.recipients) ? c.recipients : [];
+  const unique = [];
+  const seen = {};
+  recipients.forEach(function (email) {
+    const e = String(email || "").trim().toLowerCase();
+    if (!e || seen[e] || !isValidEmailAddress_(e)) return;
+    seen[e] = true;
+    unique.push(e);
+  });
+  return {
+    enabled: !!c.enabled,
+    events: {
+      orderSubmitted: events.orderSubmitted !== false,
+      paymentSlip: events.paymentSlip !== false,
+      shipped: events.shipped !== false
+    },
+    recipients: unique.slice(0, EMAIL_NOTIFY_MAX_RECIPIENTS)
+  };
+}
+
+function getEmailNotifySettings_(ss) {
+  const raw = getSetting_(ss, SETTINGS_KEY_EMAIL_NOTIFY);
+  if (!raw) return defaultEmailNotifyConfig_();
+  try {
+    return normalizeEmailNotifyConfig_(JSON.parse(raw));
+  } catch (e) {
+    return defaultEmailNotifyConfig_();
+  }
+}
+
+function saveEmailNotifySettings(token, config) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const safe = normalizeEmailNotifyConfig_(config);
+  setSetting_(ss, SETTINGS_KEY_EMAIL_NOTIFY, JSON.stringify(safe));
+  invalidateDataCache_();
+  return { ok: true, emailNotifySettings: safe };
+}
+
+function sendTestEmailNotify(token) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  const cfg = getEmailNotifySettings_(ss);
+  if (!cfg.recipients.length) throw new Error("กรุณาเพิ่มอีเมลผู้รับก่อน");
+  const summary = {
+    orderId: "TEST-" + Date.now(),
+    region: "ทดสอบระบบ",
+    totalQty: 2,
+    totalAmount: 700,
+    status: ORDER_STATUS_ORDERED,
+    paymentStatus: PAYMENT_STATUS.NONE,
+    note: "อีเมลทดสอบจากระบบสั่งเสื้อชมรมวิศวกร",
+    payDate: "",
+    payTime: "",
+    pickupDate: "",
+    pickupTime: "",
+    pickupNote: "",
+    contactPhone: "",
+    recordedBy: "admin"
+  };
+  dispatchOrderEmailNotify_(EMAIL_EVENT.ORDER_SUBMITTED, summary, cfg, true);
+  return { ok: true, sent: cfg.recipients.length };
+}
+
+function summarizeOrderByOrderId_(orderSheet, orderId) {
+  const values = getOrderSheetValues_(orderSheet);
+  const targetOrderId = String(orderId || "").trim();
+  let region = "";
+  let status = "";
+  let paymentStatus = "";
+  let note = "";
+  let payDate = "";
+  let payTime = "";
+  let pickupDate = "";
+  let pickupTime = "";
+  let pickupNote = "";
+  let contactPhone = "";
+  let recordedBy = "";
+  let totalQty = 0;
+  let totalAmount = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][1] || "") !== targetOrderId) continue;
+    if (!region) {
+      region = String(values[i][2] || "");
+      status = normalizeOrderStatus_(values[i][8]);
+      note = String(values[i][9] || "");
+      payDate = formatPayDateFromSheet_(values[i][6]) || String(values[i][6] || "");
+      payTime = formatPayTimeFromSheet_(values[i][7]) || String(values[i][7] || "");
+      paymentStatus = String(values[i][17] || "");
+      pickupDate = formatPayDateFromSheet_(values[i][18]) || String(values[i][18] || "");
+      pickupTime = formatPayTimeFromSheet_(values[i][19]) || String(values[i][19] || "");
+      pickupNote = String(values[i][20] || "");
+      contactPhone = String(values[i][21] || "");
+      recordedBy = String(values[i][13] || "");
+    }
+    totalQty += Number(values[i][4]) || 0;
+    totalAmount += Number(values[i][5]) || 0;
+  }
+  if (!region) return null;
+  return {
+    orderId: targetOrderId,
+    region: region,
+    totalQty: totalQty,
+    totalAmount: totalAmount,
+    status: status,
+    paymentStatus: paymentStatus,
+    note: note,
+    payDate: payDate,
+    payTime: payTime,
+    pickupDate: pickupDate,
+    pickupTime: pickupTime,
+    pickupNote: pickupNote,
+    contactPhone: contactPhone,
+    recordedBy: recordedBy
+  };
+}
+
+function emailEventSettingKey_(eventType) {
+  if (eventType === EMAIL_EVENT.ORDER_SUBMITTED) return "orderSubmitted";
+  if (eventType === EMAIL_EVENT.PAYMENT_SLIP) return "paymentSlip";
+  if (eventType === EMAIL_EVENT.SHIPPED) return "shipped";
+  return "";
+}
+
+function shortOrderIdLabel_(orderId) {
+  const id = String(orderId || "").trim();
+  if (id.length <= 10) return id;
+  return id.slice(-8);
+}
+
+function buildOrderEmailContent_(eventType, summary, isTest) {
+  const appUrl = getGithubPagesUrl_();
+  const eventLabels = {
+    orderSubmitted: "ออเดอร์ใหม่",
+    paymentSlip: "แจ้งโอนเงิน / แนบสลิป",
+    shipped: "จัดส่ง / รับแล้ว"
+  };
+  const eventKey = emailEventSettingKey_(eventType);
+  const eventLabel = isTest ? "ทดสอบระบบ" : (eventLabels[eventKey] || "แจ้งเตือน");
+  const oid = shortOrderIdLabel_(summary.orderId);
+  const subject = "[PEACE Eng Club] " + eventLabel + " #" + oid + " · เขต " + String(summary.region || "-");
+  const lines = [
+    eventLabel + (isTest ? " (ทดสอบ)" : ""),
+    "",
+    "Order ID: " + String(summary.orderId || "-"),
+    "เขต: " + String(summary.region || "-"),
+    "จำนวน: " + String(summary.totalQty || 0) + " ตัว",
+    "ยอดเงิน: " + String(summary.totalAmount || 0) + " บาท",
+    "สถานะ: " + String(summary.status || "-"),
+    "การชำระเงิน: " + String(summary.paymentStatus || "-")
+  ];
+  if (summary.payDate || summary.payTime) {
+    lines.push("วันเวลาโอน: " + [summary.payDate, summary.payTime].filter(Boolean).join(" "));
+  }
+  if (summary.pickupDate || summary.pickupTime) {
+    lines.push("วันเวลารับ/จัดส่ง: " + [summary.pickupDate, summary.pickupTime].filter(Boolean).join(" "));
+  }
+  if (summary.pickupNote) lines.push("หมายเหตุรับ/จัดส่ง: " + summary.pickupNote);
+  if (summary.note) lines.push("หมายเหตุออเดอร์: " + summary.note);
+  if (summary.contactPhone) lines.push("เบอร์ติดต่อ: " + summary.contactPhone);
+  if (summary.recordedBy) lines.push("ผู้บันทึก: " + summary.recordedBy);
+  lines.push("");
+  lines.push("เปิดระบบ: " + appUrl);
+  const body = lines.join("\n");
+  const esc = function (s) {
+    return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  };
+  const htmlBody = "<div style=\"font-family:sans-serif;font-size:14px;line-height:1.5;color:#111\">"
+    + "<p><b>" + esc(eventLabel) + (isTest ? " (ทดสอบ)" : "") + "</b></p>"
+    + "<table style=\"border-collapse:collapse\">"
+    + "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">Order ID</td><td>" + esc(summary.orderId) + "</td></tr>"
+    + "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">เขต</td><td>" + esc(summary.region) + "</td></tr>"
+    + "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">จำนวน</td><td>" + esc(summary.totalQty) + " ตัว</td></tr>"
+    + "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">ยอดเงิน</td><td>" + esc(summary.totalAmount) + " บาท</td></tr>"
+    + "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">สถานะ</td><td>" + esc(summary.status) + "</td></tr>"
+    + "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">การชำระเงิน</td><td>" + esc(summary.paymentStatus) + "</td></tr>"
+    + (summary.payDate || summary.payTime ? "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">วันเวลาโอน</td><td>" + esc([summary.payDate, summary.payTime].filter(Boolean).join(" ")) + "</td></tr>" : "")
+    + (summary.pickupDate || summary.pickupTime ? "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">รับ/จัดส่ง</td><td>" + esc([summary.pickupDate, summary.pickupTime].filter(Boolean).join(" ")) + "</td></tr>" : "")
+    + (summary.pickupNote ? "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">หมายเหตุรับ/จัดส่ง</td><td>" + esc(summary.pickupNote) + "</td></tr>" : "")
+    + (summary.note ? "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">หมายเหตุ</td><td>" + esc(summary.note) + "</td></tr>" : "")
+    + (summary.contactPhone ? "<tr><td style=\"padding:2px 12px 2px 0;color:#555\">เบอร์ติดต่อ</td><td>" + esc(summary.contactPhone) + "</td></tr>" : "")
+    + "</table>"
+    + "<p style=\"margin-top:16px\"><a href=\"" + esc(appUrl) + "\">เปิดระบบสั่งเสื้อ</a></p>"
+    + "</div>";
+  return { subject: subject, body: body, htmlBody: htmlBody };
+}
+
+function ensureEmailLogSheet_(ss) {
+  createSheetIfMissing_(ss, EMAIL_LOG_SHEET, ["Timestamp", "Event", "OrderId", "Recipients", "Result"]);
+}
+
+function logEmailNotifyAttempt_(ss, eventType, orderId, recipients, result) {
+  try {
+    ensureEmailLogSheet_(ss);
+    const sheet = ss.getSheetByName(EMAIL_LOG_SHEET);
+    sheet.appendRow([new Date(), String(eventType || ""), String(orderId || ""), String(recipients || ""), String(result || "")]);
+  } catch (e) {}
+}
+
+function dispatchOrderEmailNotify_(eventType, summary, cfg, isTest) {
+  const settings = cfg || defaultEmailNotifyConfig_();
+  if (!isTest) {
+    if (!settings.enabled) return;
+    const eventKey = emailEventSettingKey_(eventType);
+    if (!eventKey || !settings.events[eventKey]) return;
+  }
+  if (!settings.recipients.length) return;
+  const ss = getSpreadsheet_();
+  const content = buildOrderEmailContent_(eventType, summary, !!isTest);
+  const recipients = settings.recipients.join(",");
+  try {
+    MailApp.sendEmail({
+      to: recipients,
+      subject: content.subject,
+      body: content.body,
+      htmlBody: content.htmlBody,
+      name: "PEACE Engineer Club"
+    });
+    logEmailNotifyAttempt_(ss, eventType, summary.orderId, recipients, isTest ? "test_sent" : "sent");
+  } catch (e) {
+    logEmailNotifyAttempt_(ss, eventType, summary.orderId, recipients, "error: " + String(e.message || e));
+    if (isTest) throw new Error("ส่งอีเมลทดสอบไม่สำเร็จ: " + String(e.message || e));
+  }
+}
+
+function maybeSendOrderEmailNotify_(eventType, orderSheet, orderId) {
+  try {
+    const sheet = orderSheet || getSpreadsheet_().getSheetByName(ORDER_SHEET);
+    const summary = summarizeOrderByOrderId_(sheet, orderId);
+    if (!summary) return;
+    dispatchOrderEmailNotify_(eventType, summary, getEmailNotifySettings_(sheet.getParent()), false);
+  } catch (e) {
+    try {
+      logEmailNotifyAttempt_(getSpreadsheet_(), eventType, orderId, "", "error: " + String(e.message || e));
+    } catch (e2) {}
+  }
+}
+
+function isShippedNotifyStatus_(status) {
+  const s = normalizeOrderStatus_(status);
+  return s === ORDER_STATUS_SHIPPED || s === ORDER_STATUS_RECEIVED;
 }
 
 function parseUserOrderingEnabled_(val) {
@@ -1303,6 +1580,9 @@ function addMultiSizeOrder(token, payload) {
     orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
 
     invalidateDataCache_();
+    if (!isCartOrderStatus_(status)) {
+      maybeSendOrderEmailNotify_(EMAIL_EVENT.ORDER_SUBMITTED, orderSheet, orderId);
+    }
     return {
       ok: true,
       orderId: orderId,
@@ -1422,6 +1702,7 @@ function submitCartOrderToAdmin(token, orderId) {
       orderSheet.getRange(r.row, 9).setValue(ORDER_STATUS_ORDERED);
     });
     invalidateDataCache_();
+    maybeSendOrderEmailNotify_(EMAIL_EVENT.ORDER_SUBMITTED, orderSheet, meta.orderId);
     return { ok: true, orderId: meta.orderId, status: ORDER_STATUS_ORDERED };
   } finally {
     lock.releaseLock();
@@ -1634,15 +1915,21 @@ function updateOrderStatusByOrderId(token, orderId, status) {
   const orderSheet = ss.getSheetByName(ORDER_SHEET);
   const values = getOrderSheetValues_(orderSheet);
   let changed = 0;
+  let prevStatus = "";
   for (let i = 1; i < values.length; i++) {
     const rowOrderId = String(values[i][1] || values[i][0]);
     if (rowOrderId === String(orderId)) {
+      if (!prevStatus) prevStatus = normalizeOrderStatus_(values[i][8]);
       orderSheet.getRange(i + 1, 9).setValue(status);
       changed++;
     }
   }
   if (changed === 0) throw new Error("ไม่พบออเดอร์ " + orderId);
   invalidateDataCache_();
+  const normStatus = normalizeOrderStatus_(status);
+  if (isShippedNotifyStatus_(normStatus) && prevStatus !== normStatus) {
+    maybeSendOrderEmailNotify_(EMAIL_EVENT.SHIPPED, orderSheet, orderId);
+  }
   return { ok: true, changed: changed };
 }
 
@@ -1703,9 +1990,11 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
     let changed = 0;
     let savedDate = "";
     let savedTime = "";
+    let prevStatus = "";
     for (let i = 1; i < values.length; i++) {
       const row = values[i];
       if (String(row[1] || "") !== targetOrderId) continue;
+      if (!prevStatus) prevStatus = normalizeOrderStatus_(row[8]);
       const rowNo = i + 1;
       if (hasDateTime) {
         orderSheet.getRange(rowNo, 19).setNumberFormat("@");
@@ -1723,6 +2012,9 @@ function updateOrderPickupByOrderId(token, orderId, pickupDate, pickupTime, pick
     }
     if (changed === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
     invalidateDataCache_();
+    if (hasDateTime && isShippedNotifyStatus_(nextStatus) && prevStatus !== nextStatus) {
+      maybeSendOrderEmailNotify_(EMAIL_EVENT.SHIPPED, orderSheet, targetOrderId);
+    }
     return {
       ok: true,
       orderId: targetOrderId,
@@ -1873,6 +2165,7 @@ function uploadOrderImage(token, orderId, base64, payDate, payTime, filename) {
       orderSheet.getRange(row, 18).setValue(PAYMENT_STATUS.PENDING_REVIEW);
     });
     invalidateDataCache_();
+    maybeSendOrderEmailNotify_(EMAIL_EVENT.PAYMENT_SLIP, orderSheet, targetOrderId);
     const savedPayDate = formatPayDateFromSheet_(transferDate) || transferDate;
     const savedPayTime = formatPayTimeFromSheet_(transferTime) || transferTime;
     return {

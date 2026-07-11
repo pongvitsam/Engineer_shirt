@@ -98,6 +98,27 @@ const APP_BRAND_SHORT = "สั่งซื้อเสื้อชมรม ก
 const APP_PAGE_TITLE = "ระบบสั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
 const SHIRT_PLACEHOLDER_URL = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=Engineer+Club+Shirt";
 const DEFAULT_SUPPORT_CONTACT = "แจ้งปัญหาการใช้งาน โทร 02-009-6703";
+let emailNotifyDraft_ = null;
+
+function defaultEmailNotifyDraft_(){
+  return {enabled:false,events:{orderSubmitted:true,paymentSlip:true,shipped:true},recipients:[]};
+}
+function normalizeEmailNotifyDraft_(cfg){
+  const c=cfg||{};
+  const events=c.events||{};
+  return {
+    enabled:!!c.enabled,
+    events:{
+      orderSubmitted:events.orderSubmitted!==false,
+      paymentSlip:events.paymentSlip!==false,
+      shipped:events.shipped!==false
+    },
+    recipients:Array.isArray(c.recipients)?c.recipients.slice():[]
+  };
+}
+function isValidEmailNotifyInput_(email){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email||"").trim());
+}
 
 function supportContactText_(){
   return String(appData&&appData.supportContact||DEFAULT_SUPPORT_CONTACT).trim()||DEFAULT_SUPPORT_CONTACT;
@@ -5187,6 +5208,29 @@ const app = {
           <input id="admin-support-contact" type="text" class="glass-input text-sm" maxlength="300" placeholder="แจ้งปัญหาการใช้งาน โทร 02-009-6703" value="${escAttr(String(appData.supportContact||DEFAULT_SUPPORT_CONTACT))}">
           <button onclick="app.saveSupportContact(this)" class="w-full glass-btn-pea py-2 text-sm mt-2"><i class="fas fa-save mr-1"></i> บันทึกข้อความแจ้งปัญหา</button>
         </div>
+        <div class="glass-card-inner p-4 admin-email-notify-wrap">
+          <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-envelope mr-1"></i> แจ้งเตือนอีเมลอัตโนมัติ</h3>
+          <p class="text-xs text-glass-dim mb-3">ส่งจากบัญชี Google ของเจ้าของ deployment · เพิ่มอีเมลผู้รับได้หลายรายการ</p>
+          <label class="admin-email-toggle text-sm font-semibold flex items-center gap-2 mb-3">
+            <input type="checkbox" id="admin-email-notify-enabled">
+            <span>เปิดใช้งานการแจ้งเตือนอีเมล</span>
+          </label>
+          <div class="admin-email-notify-events space-y-2 mb-3">
+            <div class="text-xs font-semibold text-glass-dim">เหตุการณ์ที่แจ้ง:</div>
+            <label class="admin-email-event text-xs flex items-center gap-2"><input type="checkbox" id="admin-email-event-order"> สั่งซื้อ (ส่งออเดอร์เข้าระบบ)</label>
+            <label class="admin-email-event text-xs flex items-center gap-2"><input type="checkbox" id="admin-email-event-payment"> การโอนเงิน (แนบสลิป)</label>
+            <label class="admin-email-event text-xs flex items-center gap-2"><input type="checkbox" id="admin-email-event-shipped"> จัดส่งแล้ว / ได้รับแล้ว</label>
+          </div>
+          <div id="admin-email-recipients-host" class="admin-email-recipients space-y-2 mb-3"></div>
+          <div class="flex flex-wrap gap-2 mb-3">
+            <input id="admin-email-add-input" type="email" class="glass-input text-sm flex-1 min-w-[12rem]" placeholder="email@example.com">
+            <button type="button" onclick="app.addEmailNotifyRecipient()" class="glass-btn-secondary text-xs px-3 py-2"><i class="fas fa-plus mr-1"></i> เพิ่มอีเมล</button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button type="button" onclick="app.saveEmailNotifySettings(this)" class="glass-btn-pea py-2 text-sm"><i class="fas fa-save mr-1"></i> บันทึกการตั้งค่า</button>
+            <button type="button" onclick="app.sendTestEmailNotify(this)" class="glass-btn-blue py-2 text-sm"><i class="fas fa-paper-plane mr-1"></i> ส่งอีเมลทดสอบ</button>
+          </div>
+        </div>
         <div class="glass-card-inner p-4">
           <h3 class="font-bold text-sm mb-3 text-glass">จำนวนที่มาส่ง</h3>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">${stockInputs}</div>
@@ -5219,8 +5263,97 @@ const app = {
     pendingImageBase64="";
     if(isAdmin()){
       this.syncAdminOrderingPanel_();
+      this.syncAdminEmailNotifyPanel_();
       await this.loadUserList();
     }
+  },
+
+  syncAdminEmailNotifyPanel_(){
+    emailNotifyDraft_=normalizeEmailNotifyDraft_(appData&&appData.emailNotifySettings);
+    const enabledEl=document.getElementById("admin-email-notify-enabled");
+    const orderEl=document.getElementById("admin-email-event-order");
+    const payEl=document.getElementById("admin-email-event-payment");
+    const shipEl=document.getElementById("admin-email-event-shipped");
+    if(enabledEl)enabledEl.checked=!!emailNotifyDraft_.enabled;
+    if(orderEl)orderEl.checked=emailNotifyDraft_.events.orderSubmitted!==false;
+    if(payEl)payEl.checked=emailNotifyDraft_.events.paymentSlip!==false;
+    if(shipEl)shipEl.checked=emailNotifyDraft_.events.shipped!==false;
+    this.renderEmailNotifyRecipients_();
+  },
+
+  renderEmailNotifyRecipients_(){
+    const host=document.getElementById("admin-email-recipients-host");
+    if(!host)return;
+    const list=emailNotifyDraft_&&Array.isArray(emailNotifyDraft_.recipients)?emailNotifyDraft_.recipients:[];
+    if(!list.length){
+      host.innerHTML='<div class="text-xs text-glass-dim text-center py-2">ยังไม่มีอีเมลผู้รับ</div>';
+      return;
+    }
+    host.innerHTML=list.map(function(email,idx){
+      return `<div class="admin-email-recipient-row flex items-center gap-2">
+        <span class="text-xs flex-1 break-all">${escHtml(email)}</span>
+        <button type="button" class="glass-btn-danger text-xs px-2 py-1" onclick="app.removeEmailNotifyRecipient(${idx})"><i class="fas fa-trash"></i></button>
+      </div>`;
+    }).join("");
+  },
+
+  addEmailNotifyRecipient(){
+    if(!emailNotifyDraft_)emailNotifyDraft_=defaultEmailNotifyDraft_();
+    const input=document.getElementById("admin-email-add-input");
+    const email=String(input&&input.value||"").trim().toLowerCase();
+    if(!isValidEmailNotifyInput_(email))return this.showMsg("รูปแบบอีเมลไม่ถูกต้อง","error");
+    if(emailNotifyDraft_.recipients.indexOf(email)>-1)return this.showMsg("อีเมลนี้มีในรายการแล้ว","error");
+    if(emailNotifyDraft_.recipients.length>=20)return this.showMsg("เพิ่มได้สูงสุด 20 อีเมล","error");
+    emailNotifyDraft_.recipients.push(email);
+    if(input)input.value="";
+    this.renderEmailNotifyRecipients_();
+  },
+
+  removeEmailNotifyRecipient(idx){
+    if(!emailNotifyDraft_||!Array.isArray(emailNotifyDraft_.recipients))return;
+    emailNotifyDraft_.recipients.splice(Number(idx)||0,1);
+    this.renderEmailNotifyRecipients_();
+  },
+
+  collectEmailNotifyConfigFromForm_(){
+    if(!emailNotifyDraft_)emailNotifyDraft_=defaultEmailNotifyDraft_();
+    return {
+      enabled:!!document.getElementById("admin-email-notify-enabled")?.checked,
+      events:{
+        orderSubmitted:!!document.getElementById("admin-email-event-order")?.checked,
+        paymentSlip:!!document.getElementById("admin-email-event-payment")?.checked,
+        shipped:!!document.getElementById("admin-email-event-shipped")?.checked
+      },
+      recipients:emailNotifyDraft_.recipients.slice()
+    };
+  },
+
+  async saveEmailNotifySettings(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const config=this.collectEmailNotifyConfigFromForm_();
+    if(config.enabled&&!config.recipients.length)return this.showMsg("เปิดใช้งานแล้วต้องมีอีเมลผู้รับอย่างน้อย 1 รายการ","error");
+    try{
+      const r=await runSaving({btn:btn,busyText:"กำลังบันทึก…"},()=>callAuthed("saveEmailNotifySettings",config));
+      emailNotifyDraft_=normalizeEmailNotifyDraft_(r&&r.emailNotifySettings?r.emailNotifySettings:config);
+      if(appData)appData.emailNotifySettings=emailNotifyDraft_;
+      this.syncAdminEmailNotifyPanel_();
+      this.showMsg("บันทึกการตั้งค่าแจ้งเตือนอีเมลแล้ว","success");
+    }catch(e){this.showMsg(e.message||"บันทึกไม่สำเร็จ","error");}
+  },
+
+  async sendTestEmailNotify(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const config=this.collectEmailNotifyConfigFromForm_();
+    if(!config.recipients.length)return this.showMsg("กรุณาเพิ่มอีเมลผู้รับก่อน","error");
+    try{
+      await runSaving({btn:btn,busyText:"กำลังส่ง…"},async()=>{
+        await callAuthed("saveEmailNotifySettings",config);
+        return await callAuthed("sendTestEmailNotify");
+      });
+      emailNotifyDraft_=normalizeEmailNotifyDraft_(config);
+      if(appData)appData.emailNotifySettings=emailNotifyDraft_;
+      this.showMsg("ส่งอีเมลทดสอบแล้ว — ตรวจกล่องจดหมาย (รวม Spam)","success");
+    }catch(e){this.showMsg(e.message||"ส่งอีเมลทดสอบไม่สำเร็จ","error");}
   },
 
   syncAdminOrderingPanel_(){

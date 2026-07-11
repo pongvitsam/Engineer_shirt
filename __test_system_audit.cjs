@@ -535,7 +535,9 @@ assert("order list pickup delivery column", () => {
   if (!html.includes("refreshAfterOrderListMutation_")) throw new Error("missing refreshAfterOrderListMutation_ helper");
   if (!html.includes("refreshAfterOrderListMutation_(orderId,{recalcStock:false})")) throw new Error("acceptOrderPayment must refresh order list row");
   if (/pickup-note-\$\{safeOid\}"[^>]*maxlength/.test(html)) throw new Error("pickup note must not limit characters");
-  if (/pickupNote[\s\S]*substring\(0,\s*120\)/.test(code)) throw new Error("pickup note must not truncate on server");
+  if (/function updateOrderPickupByOrderId[\s\S]*?const safeNote = String\(pickupNote[\s\S]*?substring\(0,\s*120\)/.test(code)) {
+    throw new Error("pickup note must not truncate on server");
+  }
 });
 
 assert("order form has optional slip upload with datetime", () => {
@@ -584,6 +586,31 @@ assert("ordering close global and per-user admin controls", () => {
   if (!html.includes("admin-ordering-panel")) throw new Error("missing admin ordering panel");
   if (!html.includes("toggleUserOrdering")) throw new Error("missing per-user ordering toggle");
   if (!html.includes("setAllUsersOrdering")) throw new Error("missing set all users ordering");
+});
+
+assert("admin email notify settings and hooks", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  const manifest = fs.readFileSync(path.join(__dirname, "appsscript.json"), "utf8");
+  if (!code.includes("SETTINGS_KEY_EMAIL_NOTIFY")) throw new Error("missing email notify setting key");
+  if (!code.includes("function saveEmailNotifySettings")) throw new Error("missing saveEmailNotifySettings");
+  if (!code.includes("function sendTestEmailNotify")) throw new Error("missing sendTestEmailNotify");
+  if (!code.includes("function maybeSendOrderEmailNotify_")) throw new Error("missing maybeSendOrderEmailNotify_");
+  if (!code.includes("MailApp.sendEmail")) throw new Error("missing MailApp.sendEmail");
+  if (!code.includes("EMAIL_LOG_SHEET")) throw new Error("missing email log sheet");
+  if (!/function submitCartOrderToAdmin[\s\S]*maybeSendOrderEmailNotify_/.test(code)) {
+    throw new Error("submitCartOrderToAdmin must trigger email notify");
+  }
+  if (!/function uploadOrderImage[\s\S]*maybeSendOrderEmailNotify_/.test(code)) {
+    throw new Error("uploadOrderImage must trigger email notify");
+  }
+  if (!code.includes('out.emailNotifySettings = getEmailNotifySettings_')) {
+    throw new Error("bootstrap must expose email notify settings to admin");
+  }
+  if (!html.includes("admin-email-notify-wrap")) throw new Error("missing admin email notify UI");
+  if (!html.includes("saveEmailNotifySettings")) throw new Error("missing saveEmailNotifySettings client handler");
+  if (!html.includes("sendTestEmailNotify")) throw new Error("missing sendTestEmailNotify client handler");
+  if (!manifest.includes("script.send_mail")) throw new Error("appsscript.json must include send_mail scope");
 });
 
 console.log("\n" + passed + "/" + (passed + failed) + " passed\n");
