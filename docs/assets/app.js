@@ -5067,7 +5067,7 @@ const app = {
             <h3 class="text-sm font-bold glass-section-title"><i class="fas fa-table mr-1"></i> สรุปยอดโอนแล้ว</h3>
             <div class="report-transfer-actions">
               <label class="report-transfer-toggle text-xs">
-                <input type="checkbox" id="report-show-unpaid" onchange="app.toggleReportUnpaid(this.checked)">
+                <input type="checkbox" id="report-show-unpaid" checked onchange="app.toggleReportUnpaid(this.checked)">
                 <span>แสดงรายการที่ยังไม่โอน (ตัวเลขสีแดง)</span>
               </label>
               <button type="button" onclick="app.exportPaidTransferPdf(this)" class="glass-btn-primary text-xs report-transfer-pdf-btn"><i class="fas fa-file-pdf mr-1"></i> ดาวน์โหลด PDF</button>
