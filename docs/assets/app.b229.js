@@ -2852,9 +2852,14 @@ function formatPaidTransferPickupCellHtml_(row,opts){
   if(!hasPickup&&!note)return opts.print?"-":"<span class=\"text-glass-dim\">-</span>";
   if(opts.print){
     const parts=[];
-    if(hasPickup)parts.push(formatThaiDateTimeCell(row.pickupDate,row.pickupTime));
+    if(hasPickup){
+      const d=formatThaiDate(row.pickupDate);
+      const t=formatThaiTime(row.pickupTime);
+      const when=(d==="-"?"":d)+(t?(d==="-"?t:" "+t):"");
+      if(when)parts.push(when);
+    }
     if(note)parts.push(note);
-    return escHtml(parts.join(" · "));
+    return escHtml(parts.join(" · ")||"-");
   }
   let display=hasPickup
     ?`<div class="text-xs">${formatThaiDateTimeCell(row.pickupDate,row.pickupTime)}</div>`

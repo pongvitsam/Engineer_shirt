@@ -438,6 +438,12 @@ assert("paid transfer report merges region and total cells", () => {
   if (!html.includes('g&&g.note||""')) throw new Error("paid transfer remark must use order note");
   if (!html.includes("paidTransferShowPickupCol_")) throw new Error("missing paidTransferShowPickupCol_");
   if (!html.includes("formatPaidTransferPickupCellHtml_")) throw new Error("missing formatPaidTransferPickupCellHtml_");
+  if (!/opts\.print[\s\S]*formatThaiDate\(row\.pickupDate\)/.test(html)) {
+    throw new Error("PDF pickup cell must use plain-text Thai date/time, not HTML datetime cell");
+  }
+  if (/opts\.print[\s\S]*parts\.push\(formatThaiDateTimeCell\(row\.pickupDate/.test(html)) {
+    throw new Error("PDF pickup cell must not escape HTML from formatThaiDateTimeCell");
+  }
   if (!html.includes("report-transfer-col-pickup")) throw new Error("missing pickup column header class");
   if (!html.includes("pickupDate:g.pickupDate")) throw new Error("paid transfer rows must include pickup fields");
   if (!html.includes('id="report-show-unpaid" checked')) throw new Error("unpaid toggle must be checked by default");
