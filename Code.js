@@ -171,6 +171,7 @@ function invokeRpc_(method, args, options) {
     saveSupportContact: saveSupportContact,
     saveEmailNotifySettings: saveEmailNotifySettings,
     sendTestEmailNotify: sendTestEmailNotify,
+    dismissAbnormalDuplicateWarning: dismissAbnormalDuplicateWarning,
     saveOrderingGlobal: saveOrderingGlobal,
     setAllUsersOrderingEnabled: setAllUsersOrderingEnabled,
     updateUser: updateUser,
@@ -238,12 +239,14 @@ const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 90;
 const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "224";
+const APP_BUILD = "228";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
 const SETTINGS_KEY_ORDERING_GLOBAL = "ordering_global_enabled";
 const SETTINGS_KEY_EMAIL_NOTIFY = "email_notify_config";
+const SETTINGS_KEY_ABNORMAL_DISMISSED = "abnormal_dismissed_ids";
+const ABNORMAL_DISMISSED_MAX = 500;
 const EMAIL_LOG_SHEET = "EmailLog";
 const EMAIL_NOTIFY_MAX_RECIPIENTS = 20;
 const EMAIL_EVENT = {
@@ -1033,6 +1036,7 @@ function getBootstrapData(token) {
   });
   if (session.role === "admin") {
     out.emailNotifySettings = getEmailNotifySettings_(getSpreadsheet_());
+    out.abnormalDismissedIds = getAbnormalDismissedIds_(getSpreadsheet_());
   }
   return out;
 }
@@ -1185,6 +1189,50 @@ function saveEmailNotifySettings(token, config) {
   setSetting_(ss, SETTINGS_KEY_EMAIL_NOTIFY, JSON.stringify(safe));
   invalidateDataCache_();
   return { ok: true, emailNotifySettings: safe };
+}
+
+function normalizeAbnormalDismissedIds_(raw) {
+  let arr = [];
+  if (typeof raw === "string" && raw) {
+    try {
+      arr = JSON.parse(raw);
+    } catch (e) {
+      return [];
+    }
+  } else if (Array.isArray(raw)) {
+    arr = raw;
+  }
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  const seen = {};
+  for (let i = 0; i < arr.length; i++) {
+    const id = String(arr[i] || "").trim();
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    out.push(id);
+    if (out.length >= ABNORMAL_DISMISSED_MAX) break;
+  }
+  return out;
+}
+
+function getAbnormalDismissedIds_(ss) {
+  return normalizeAbnormalDismissedIds_(getSetting_(ss, SETTINGS_KEY_ABNORMAL_DISMISSED));
+}
+
+function dismissAbnormalDuplicateWarning(token, dismissId) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const id = String(dismissId || "").trim();
+  if (!id) throw new Error("ไม่พบรหัสรายการเตือน");
+  if (id.length > 500) throw new Error("รหัสรายการเตือนไม่ถูกต้อง");
+  const ss = getSpreadsheet_();
+  const list = getAbnormalDismissedIds_(ss);
+  if (list.indexOf(id) < 0) {
+    list.push(id);
+    setSetting_(ss, SETTINGS_KEY_ABNORMAL_DISMISSED, JSON.stringify(normalizeAbnormalDismissedIds_(list)));
+    invalidateDataCache_();
+  }
+  return { ok: true, abnormalDismissedIds: getAbnormalDismissedIds_(ss) };
 }
 
 function mailSendPermissionHelp_() {
@@ -1906,7 +1954,8 @@ function resolveNewOrderStatus_(session, incomingStatus) {
     if (!ADMIN_ORDER_STATUS.includes(incomingStatus)) throw new Error("สถานะไม่ถูกต้อง");
     return incomingStatus;
   }
-  return ORDER_STATUS_CART;
+  // Regional users confirm once on the order form — no separate cart-submit step.
+  return ORDER_STATUS_ORDERED;
 }
 
 function getOrderGroupMeta_(orderSheet, orderId, session) {
@@ -2540,7 +2589,7 @@ function requestOrderChange(token, orderId, items, reason) {
     if (targetRows.length === 0) throw new Error("ไม่พบออเดอร์ " + targetOrderId);
     const orderStatus = String(values[targetRows[0] - 2][8] || ORDER_STATUS_ORDERED);
     if (isCartOrderStatus_(orderStatus)) {
-      throw new Error("ออเดอร์ยังอยู่ในตะกร้า แก้ไขจำนวนได้โดยตรง หรือกดยืนยันส่งออเดอร์ก่อน");
+      throw new Error("ออเดอร์ยังอยู่ในตะกร้า กรุณาส่งออเดอร์จากรายการสั่งซื้อก่อน แล้วค่อยขอแก้ไข");
     }
     if (!isSubmittedOrderStatus_(orderStatus) && session.role !== "admin") {
       throw new Error("สถานะออเดอร์ไม่รองรับการขอแก้ไข");

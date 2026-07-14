@@ -430,7 +430,11 @@ assert("paid transfer report merges region and total cells", () => {
   if (!html.includes("renderPaidTransferGroupedRowsHtml_")) throw new Error("missing grouped row renderer");
   if (!html.includes('rowspan="${rowspan}"')) throw new Error("missing rowspan merge for region/total");
   if (!html.includes("paginatePaidTransferFlatRows_")) throw new Error("missing PDF row pagination");
+  if (!html.includes("packPaidTransferPdfPageChunks_")) throw new Error("missing PDF height-aware page packing");
+  if (!html.includes("fitPaidTransferPdfImageSize_")) throw new Error("missing PDF aspect-ratio fit helper");
   if (!html.includes("buildPaidTransferReportPrintPageHtml_")) throw new Error("missing per-page PDF print html");
+  if (!html.includes("paidTransferPrintColgroupHtml_")) throw new Error("missing PDF column widths");
+  if (html.includes("if(imgH>maxHmm)imgH=maxHmm")) throw new Error("PDF must not squash height only");
   if (!html.includes('g&&g.note||""')) throw new Error("paid transfer remark must use order note");
   if (!html.includes("paidTransferShowPickupCol_")) throw new Error("missing paidTransferShowPickupCol_");
   if (!html.includes("formatPaidTransferPickupCellHtml_")) throw new Error("missing formatPaidTransferPickupCellHtml_");
@@ -441,14 +445,27 @@ assert("paid transfer report merges region and total cells", () => {
 
 assert("abnormal duplicate orders section is admin-only on report", () => {
   const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
   if (!html.includes("computeAbnormalDuplicateOrders_")) throw new Error("missing computeAbnormalDuplicateOrders_");
   if (!html.includes("buildAbnormalDuplicateKey_")) throw new Error("missing buildAbnormalDuplicateKey_");
+  if (!html.includes("buildAbnormalDismissId_")) throw new Error("missing buildAbnormalDismissId_");
   if (!html.includes("renderAbnormalOrdersSectionHtml_")) throw new Error("missing renderAbnormalOrdersSectionHtml_");
   if (!html.includes("isAbnormalDuplicateEligible_")) throw new Error("missing isAbnormalDuplicateEligible_");
   if (!html.includes("ไม่พบรายการที่ผิดปกติ")) throw new Error("missing abnormal orders empty message");
   if (!html.includes('isAdmin()?`<div class="report-abnormal-wrap">')) throw new Error("abnormal section must gate on isAdmin()");
   if (html.includes("canViewAdminData()?`<div class=\"report-abnormal-wrap\">")) throw new Error("abnormal section must not use canViewAdminData");
   if (!html.includes('ps!=="รอตรวจสลิป"')) throw new Error("abnormal duplicate must include pending slip review");
+  if (!html.includes("dismissAbnormalWarning")) throw new Error("missing dismissAbnormalWarning client handler");
+  if (!html.includes("ลบการเตือน")) throw new Error("missing dismiss warning button label");
+  if (!html.includes("report-abnormal-slip-btn")) throw new Error("abnormal section must have view-slip button");
+  if (!html.includes('app.viewOrderImage(') || !html.includes("report-abnormal-slip-btn")) {
+    throw new Error("abnormal rows must open slip via viewOrderImage");
+  }
+  if (!code.includes("dismissAbnormalDuplicateWarning")) throw new Error("missing dismissAbnormalDuplicateWarning RPC");
+  if (!code.includes("SETTINGS_KEY_ABNORMAL_DISMISSED")) throw new Error("missing abnormal dismissed settings key");
+  if (!code.includes("out.abnormalDismissedIds = getAbnormalDismissedIds_")) {
+    throw new Error("bootstrap must expose abnormalDismissedIds for admin");
+  }
 });
 
 assert("dashboard region chart sorts regions descending by total qty", () => {
@@ -586,6 +603,22 @@ assert("ordering close global and per-user admin controls", () => {
   if (!html.includes("admin-ordering-panel")) throw new Error("missing admin ordering panel");
   if (!html.includes("toggleUserOrdering")) throw new Error("missing per-user ordering toggle");
   if (!html.includes("setAllUsersOrdering")) throw new Error("missing set all users ordering");
+});
+
+assert("new orders skip cart and confirm once on order form", () => {
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  if (!html.includes("ยืนยันสั่งซื้อ")) throw new Error("order form must use ยืนยันสั่งซื้อ");
+  if (html.includes("เพิ่มลงตะกร้า")) throw new Error("order form must not use เพิ่มลงตะกร้า");
+  if (html.includes("> ยืนยันส่งออเดอร์<") || html.includes(">ยืนยันส่งออเดอร์</")) {
+    throw new Error("order list must not show ยืนยันส่งออเดอร์ for new flow");
+  }
+  if (!/function resolveNewOrderStatus_[\s\S]*return ORDER_STATUS_ORDERED;\s*\}/.test(code)) {
+    throw new Error("resolveNewOrderStatus_ must return ORDERED for non-admin");
+  }
+  if (/function resolveNewOrderStatus_[\s\S]*return ORDER_STATUS_CART;\s*\}/.test(code)) {
+    throw new Error("resolveNewOrderStatus_ must not default users to cart");
+  }
 });
 
 assert("admin email notify settings and hooks", () => {

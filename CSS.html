@@ -118,7 +118,7 @@
 .report-transfer-table tfoot td{background:rgba(16,124,65,.55)!important;color:#fff!important;font-weight:700}
 .report-transfer-foot-label{text-align:center;white-space:nowrap}
 .report-transfer-foot-qty{text-align:center}
-.report-transfer-print-root{position:fixed;left:-10000px;top:0;width:1120px;background:#fff;color:#000;padding:16px;z-index:-1}
+.report-transfer-print-root{position:fixed;left:-10000px;top:0;width:1120px;box-sizing:border-box;background:#fff;color:#000;padding:12px;z-index:-1}
 .report-transfer-print-root,.report-transfer-print-root *{color:#000!important;-webkit-text-fill-color:#000!important}
 .report-transfer-print-sheet{font-family:Sarabun,sans-serif;color:#000}
 .report-transfer-print-title{font-size:18px;font-weight:700;margin-bottom:4px;color:#000}
@@ -134,7 +134,13 @@
 .report-abnormal-empty{margin:0;padding:.35rem 0}
 .report-abnormal-groups{display:flex;flex-direction:column;gap:.75rem}
 .report-abnormal-group{border:1px solid rgba(255,255,255,.22);border-radius:.65rem;background:rgba(0,0,0,.12);overflow:hidden}
-.report-abnormal-group-head{padding:.45rem .65rem;font-size:var(--fs-xs);font-weight:700;color:#fde68a;background:rgba(251,191,36,.15);border-bottom:1px solid rgba(255,255,255,.15)}
+.report-abnormal-group-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;padding:.45rem .65rem;font-size:var(--fs-xs);font-weight:700;color:#fde68a;background:rgba(251,191,36,.15);border-bottom:1px solid rgba(255,255,255,.15)}
+.report-abnormal-group-title{flex:1 1 12rem;min-width:0}
+.report-abnormal-dismiss-btn{flex:0 0 auto;padding:.35rem .65rem;white-space:nowrap;font-weight:600}
+.report-abnormal-order-link{background:none;border:0;padding:0;margin:0;color:#fde68a;font:inherit;font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.report-abnormal-order-link:hover{color:#fff}
+.report-abnormal-slip-btn{padding:.3rem .55rem;white-space:nowrap}
+.report-abnormal-slip-cell{white-space:nowrap}
 .report-abnormal-table{margin:0}
 .report-abnormal-table thead th{background:rgba(127,29,29,.55)!important;color:#fff;font-weight:700}
 @media (min-width:768px){#dash-cards{grid-template-columns:repeat(4,minmax(0,1fr))}}

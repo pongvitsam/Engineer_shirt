@@ -106,8 +106,8 @@ async function main() {
     if (!(await orderNav.count())) throw new Error("order nav missing");
     await orderNav.first().click();
     await page.waitForSelector("text=สั่งซื้อเสื้อ (สั่งหลายไซส์)", { timeout: TIMEOUT });
-    if (!(await page.locator("text=เพิ่มลงตะกร้า").count())) {
-      throw new Error("add to cart UI missing");
+    if (!(await page.locator("text=ยืนยันสั่งซื้อ").count())) {
+      throw new Error("confirm order UI missing");
     }
   });
 

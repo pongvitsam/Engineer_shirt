@@ -1370,7 +1370,7 @@ function detectOrderNotifications_(prev,next){
           out.push(makeOrderNotifyItem_("order_new",orderId,g,"ออเดอร์ใหม่",orderNotifySummary_(g)));
         }
       }else if(isCartStatus(p.status)&&!isCartStatus(g.status)){
-        out.push(makeOrderNotifyItem_("order_submit",orderId,g,"ยืนยันส่งออเดอร์",orderNotifySummary_(g)));
+        out.push(makeOrderNotifyItem_("order_submit",orderId,g,"สั่งซื้อใหม่",orderNotifySummary_(g)));
       }
     }
     if(notifyIsUserReceiver_(g)&&p&&!isNotifyMuted_(orderId,"user")){
@@ -2727,6 +2727,29 @@ function buildAbnormalDuplicateKey_(g){
   return amount+"|"+payDate+"|"+payTime+"|"+qty;
 }
 
+function buildAbnormalDismissId_(grp){
+  const amount=Number(grp&&grp.amount)||0;
+  const qty=Number(grp&&grp.qty)||0;
+  const payDate=normalizePayDateForInput_(grp&&grp.payDate)||"";
+  const payTime=normalizePayTimeForInput_(grp&&grp.payTime)||"";
+  const key=amount+"|"+payDate+"|"+payTime+"|"+qty;
+  const ids=(grp&&grp.orders||[]).map(function(g){return String(g&&g.orderId||"").trim();})
+    .filter(Boolean)
+    .sort()
+    .join(",");
+  return key+"#"+ids;
+}
+
+function getAbnormalDismissedIdSet_(){
+  const list=(appData&&appData.abnormalDismissedIds)||[];
+  const set={};
+  (Array.isArray(list)?list:[]).forEach(function(id){
+    const s=String(id||"").trim();
+    if(s)set[s]=true;
+  });
+  return set;
+}
+
 function computeAbnormalDuplicateOrders_(){
   const groups=groupOrdersByOrderId(appData?.orders||[]).filter(isAbnormalDuplicateEligible_);
   const byKey={};
@@ -2743,7 +2766,12 @@ function computeAbnormalDuplicateOrders_(){
     }
     byKey[key].orders.push(g);
   });
-  return Object.values(byKey).filter(function(b){return b.orders.length>=2;}).sort(function(a,b){
+  const dismissed=getAbnormalDismissedIdSet_();
+  return Object.values(byKey).filter(function(b){
+    if(b.orders.length<2)return false;
+    b.dismissId=buildAbnormalDismissId_(b);
+    return !dismissed[b.dismissId];
+  }).sort(function(a,b){
     const da=normalizePayDateForInput_(a.payDate)||"",db=normalizePayDateForInput_(b.payDate)||"";
     if(da!==db)return da.localeCompare(db);
     const ta=normalizePayTimeForInput_(a.payTime)||"",tb=normalizePayTimeForInput_(b.payTime)||"";
@@ -2764,17 +2792,31 @@ function renderAbnormalOrdersSectionHtml_(){
     const rows=grp.orders.map(function(g){
       const payCls=paymentStatusBadgeClass(g.paymentStatus);
       const payLabel=paymentStatusLabel(g.paymentStatus);
+      const oid=String(g.orderId||"");
+      const hasSlip=!!String(g.slipUrl||"").trim();
+      const slipCell=hasSlip
+        ?`<button type="button" class="glass-btn-secondary text-xs report-abnormal-slip-btn" onclick="app.viewOrderImage('${escAttr(oid)}',this)" title="ดูสลิป #${escAttr(shortOrderLabel_(oid))}"><i class="fas fa-eye mr-1"></i>ดูสลิป</button>`
+        :`<span class="text-glass-dim text-xs">ไม่มีสลิป</span>`;
+      const orderCell=hasSlip
+        ?`<button type="button" class="report-abnormal-order-link" onclick="app.viewOrderImage('${escAttr(oid)}',this)" title="ดูสลิป">#${escHtml(shortOrderLabel_(oid))}</button>`
+        :`#${escHtml(shortOrderLabel_(oid))}`;
       return `<tr>
-        <td data-label="ออเดอร์" class="py-2 px-2 font-semibold">#${escHtml(shortOrderLabel_(g.orderId))}</td>
+        <td data-label="ออเดอร์" class="py-2 px-2 font-semibold">${orderCell}</td>
         <td data-label="เขต" class="py-2 px-2">${escHtml(regionShort(g.region))}</td>
         <td data-label="การชำระ" class="py-2 px-2"><span class="status-badge ${payCls}">${escHtml(payLabel)}</span></td>
         <td data-label="วันที่/เวลาโอน" class="py-2 px-2">${formatThaiDateTimeCell(g.payDate,g.payTime)}</td>
         <td data-label="จำนวน" class="py-2 px-2 text-center font-bold">${g.totalQty}</td>
         <td data-label="ยอด" class="py-2 px-2 text-right">${fmtMoney(g.totalPrice)}</td>
+        <td data-label="สลิป" class="py-2 px-2 text-center report-abnormal-slip-cell">${slipCell}</td>
       </tr>`;
     }).join("");
     return `<div class="report-abnormal-group">
-      <div class="report-abnormal-group-head">กลุ่ม ${idx+1}: ${escHtml(summary)} · ${grp.orders.length} ออเดอร์</div>
+      <div class="report-abnormal-group-head">
+        <span class="report-abnormal-group-title">กลุ่ม ${idx+1}: ${escHtml(summary)} · ${grp.orders.length} ออเดอร์</span>
+        <button type="button" class="report-abnormal-dismiss-btn glass-btn-secondary text-xs" data-dismiss-id="${escAttr(grp.dismissId||"")}" onclick="app.dismissAbnormalWarning(this)" title="ตรวจสอบแล้ว · ลบการเตือนกลุ่มนี้">
+          <i class="fas fa-check mr-1"></i>ลบการเตือน
+        </button>
+      </div>
       <div class="overflow-x-auto glass-table-wrap">
         <table class="glass-table report-abnormal-table w-full text-xs">
           <thead><tr>
@@ -2784,6 +2826,7 @@ function renderAbnormalOrdersSectionHtml_(){
             <th class="py-2 px-2 text-left">วันที่/เวลาโอน</th>
             <th class="py-2 px-2 text-center">จำนวน</th>
             <th class="py-2 px-2 text-right">ยอด (฿)</th>
+            <th class="py-2 px-2 text-center">สลิป</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -2924,6 +2967,37 @@ function paginatePaidTransferFlatRows_(flatRows,rowsPerPage){
   return pages;
 }
 
+function paidTransferPdfRowsPerPage_(){
+  return paidTransferShowPickupCol_()?10:14;
+}
+
+function fitPaidTransferPdfImageSize_(canvasW,canvasH,maxW,maxH){
+  const w0=Math.max(1,Number(canvasW)||1);
+  const h0=Math.max(1,Number(canvasH)||1);
+  let imgW=Math.max(1,Number(maxW)||1);
+  let imgH=h0/w0*imgW;
+  const limitH=Math.max(1,Number(maxH)||1);
+  if(imgH>limitH){
+    const scale=limitH/imgH;
+    imgW*=scale;
+    imgH=limitH;
+  }
+  return {w:imgW,h:imgH};
+}
+
+function paidTransferPrintColgroupHtml_(showPickup){
+  if(showPickup){
+    return `<colgroup>
+      <col style="width:11%"><col style="width:7%"><col style="width:11%"><col style="width:8%">
+      <col style="width:10%"><col style="width:10%"><col style="width:22%"><col style="width:21%">
+    </colgroup>`;
+  }
+  return `<colgroup>
+    <col style="width:14%"><col style="width:9%"><col style="width:14%"><col style="width:10%">
+    <col style="width:13%"><col style="width:13%"><col style="width:27%">
+  </colgroup>`;
+}
+
 function renderPaidTransferRowCells_(item,opts){
   opts=opts||{};
   const row=item.row;
@@ -2938,7 +3012,7 @@ function renderPaidTransferRowCells_(item,opts){
   const pickupCell=function(){
     if(!showPickup)return "";
     if(opts.print){
-      return `<td ${pdfPrintCellStyle_({center:true,alt:alt})}>${item.empty?"-":formatPaidTransferPickupCellHtml_(row,{print:true})}</td>`;
+      return `<td ${pdfPrintCellStyle_({alt:alt,wrap:true})}>${item.empty?"-":formatPaidTransferPickupCellHtml_(row,{print:true})}</td>`;
     }
     return `<td class="report-transfer-pickup">${item.empty?"-":formatPaidTransferPickupCellHtml_(row)}</td>`;
   };
@@ -2963,9 +3037,9 @@ function renderPaidTransferRowCells_(item,opts){
     }
     html+=pickupCell();
     if(item.empty){
-      html+=`<td ${pdfPrintCellStyle_({alt:alt})}>-</td>`;
+      html+=`<td ${pdfPrintCellStyle_({alt:alt,wrap:true})}>-</td>`;
     }else{
-      html+=`<td ${pdfPrintCellStyle_({alt:alt})}>${row.remark?escHtml(row.remark):""}</td>`;
+      html+=`<td ${pdfPrintCellStyle_({alt:alt,wrap:true})}>${row.remark?escHtml(row.remark):""}</td>`;
     }
     return html;
   }
@@ -3030,17 +3104,19 @@ function pdfPrintCellStyle_(opts){
   opts=opts||{};
   const styles={
     border:"1px solid #444",
-    padding:"6px 8px",
+    padding:"5px 6px",
     color:"#000000",
     background:opts.alt?"#f3f4f6":"#ffffff",
     fontFamily:"Sarabun,sans-serif",
-    fontSize:"12px",
-    verticalAlign:"middle"
+    fontSize:"11px",
+    verticalAlign:"middle",
+    wordBreak:"break-word"
   };
-  if(opts.region){styles.fontWeight="700";styles.textAlign="center";styles.background="#eceff1";}
-  if(opts.header){styles.fontWeight="700";styles.textAlign="center";styles.background="#e2efda";}
-  if(opts.center)styles.textAlign="center";
-  if(opts.right)styles.textAlign="right";
+  if(opts.region){styles.fontWeight="700";styles.textAlign="center";styles.background="#eceff1";styles.whiteSpace="nowrap";}
+  if(opts.header){styles.fontWeight="700";styles.textAlign="center";styles.background="#e2efda";styles.fontSize="11px";}
+  if(opts.center){styles.textAlign="center";styles.whiteSpace="nowrap";}
+  if(opts.right){styles.textAlign="right";styles.whiteSpace="nowrap";styles.fontVariantNumeric="tabular-nums";}
+  if(opts.wrap){styles.whiteSpace="normal";styles.wordBreak="break-word";}
   if(opts.bold)styles.fontWeight="700";
   let attr='style="'+Object.keys(styles).map(function(k){
     const v=styles[k];
@@ -3067,7 +3143,7 @@ function renderPaidTransferReportFootHtml_(data,opts){
   const grandTotal=Number(data.grandTotal)||0;
   const showPickup=paidTransferShowPickupCol_();
   const pickupFoot=showPickup
-    ?(opts.print?`<td ${pdfPrintCellStyle_({center:true,header:true})}>-</td>`:`<td class="report-transfer-pickup">-</td>`)
+    ?(opts.print?`<td ${pdfPrintCellStyle_({header:true,wrap:true})}>-</td>`:`<td class="report-transfer-pickup">-</td>`)
     :"";
   if(opts.print){
     return `<tr>
@@ -3104,6 +3180,7 @@ function renderPaidTransferReportTableHtml_(data,opts){
       return `<th ${pdfPrintCellStyle_({header:true})}>${label}</th>`;
     };
     return `<table style="width:100%;border-collapse:collapse;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;table-layout:fixed;">
+      ${paidTransferPrintColgroupHtml_(showPickup)}
       <thead><tr>
         ${headCell(title)}
         ${headCell("จำนวนที่สั่ง(ตัว)")}
@@ -3146,6 +3223,7 @@ function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount
   const showPickup=paidTransferShowPickupCol_();
   const pickupHead=showPickup?headCell("วันที่รับ/จัดส่ง"):"";
   const table=`<table style="width:100%;border-collapse:collapse;border:1px solid #444;background:#ffffff;color:#000000;font-family:Sarabun,sans-serif;table-layout:fixed;">
+      ${paidTransferPrintColgroupHtml_(showPickup)}
       <thead><tr>
         ${headCell(data.title||paidTransferReportTitle_())}
         ${headCell("จำนวนที่สั่ง(ตัว)")}
@@ -3159,9 +3237,9 @@ function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount
       <tbody>${body}</tbody>
       ${pageIndex===pageCount?`<tfoot>${renderPaidTransferReportFootHtml_(data,{print:true})}</tfoot>`:""}
     </table>`;
-  return `<div style="background:#ffffff;${black}padding:8px;">
-    <div style="font-size:18px;font-weight:700;margin-bottom:4px;${black}">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}${escHtml(pageLabel)}</div>
-    <div style="font-size:12px;margin-bottom:10px;${black}">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}</div>
+  return `<div style="background:#ffffff;${black}padding:8px;box-sizing:border-box;">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px;${black}">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}${escHtml(pageLabel)}</div>
+    <div style="font-size:11px;margin-bottom:8px;${black}">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}</div>
     ${table}
   </div>`;
 }
@@ -3188,6 +3266,25 @@ async function ensurePdfExportLibs_(){
   await loadExternalScript_("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js","lib-jspdf");
 }
 
+async function packPaidTransferPdfPageChunks_(host,data,flat,maxCssH){
+  const softCap=paidTransferPdfRowsPerPage_();
+  const chunks=[];
+  let offset=0;
+  while(offset<flat.length){
+    let take=Math.min(softCap,flat.length-offset);
+    while(take>1){
+      host.innerHTML=buildPaidTransferReportPrintPageHtml_(data,flat.slice(offset,offset+take),1,1);
+      await new Promise(function(r){setTimeout(r,40);});
+      if((host.scrollHeight||0)<=maxCssH)break;
+      take--;
+    }
+    chunks.push(flat.slice(offset,offset+take));
+    offset+=take;
+  }
+  if(!chunks.length)chunks.push([]);
+  return chunks;
+}
+
 async function exportPaidTransferReportPdf_(btn){
   const includeUnpaid=!!document.getElementById("report-show-unpaid")?.checked;
   const data=computePaidTransferReport_(includeUnpaid);
@@ -3195,7 +3292,6 @@ async function exportPaidTransferReportPdf_(btn){
   if(!host)throw new Error("ไม่พบพื้นที่สร้าง PDF");
   await ensurePdfExportLibs_();
   const flat=buildPaidTransferFlatRows_(data);
-  const pages=paginatePaidTransferFlatRows_(flat,20);
   const jsPDF=window.jspdf&&window.jspdf.jsPDF;
   if(!jsPDF)throw new Error("ไม่พบ jsPDF");
   const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
@@ -3204,10 +3300,13 @@ async function exportPaidTransferReportPdf_(btn){
   const margin=8;
   const maxW=pageW-margin*2;
   const maxHmm=pageH-margin*2;
+  const hostWidthPx=1120;
   host.className="report-transfer-print-root";
-  host.style.cssText="position:fixed;left:-10000px;top:0;width:1120px;background:#ffffff;color:#000000;padding:16px;z-index:-1;";
+  host.style.cssText="position:fixed;left:-10000px;top:0;width:"+hostWidthPx+"px;box-sizing:border-box;background:#ffffff;color:#000000;padding:12px;z-index:-1;";
   host.setAttribute("aria-hidden","false");
   if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+  const maxCssH=Math.floor(maxHmm*hostWidthPx/maxW)-2;
+  const pages=await packPaidTransferPdfPageChunks_(host,data,flat,maxCssH);
   for(let pi=0;pi<pages.length;pi++){
     host.innerHTML=buildPaidTransferReportPrintPageHtml_(data,pages[pi],pi+1,pages.length);
     await new Promise(function(r){setTimeout(r,120);});
@@ -3227,11 +3326,10 @@ async function exportPaidTransferReportPdf_(btn){
         });
       }
     });
-    const imgW=maxW;
-    let imgH=canvas.height/canvas.width*imgW;
-    if(imgH>maxHmm)imgH=maxHmm;
+    const size=fitPaidTransferPdfImageSize_(canvas.width,canvas.height,maxW,maxHmm);
+    const x=margin+(maxW-size.w)/2;
     if(pi>0)pdf.addPage();
-    pdf.addImage(canvas.toDataURL("image/png"),"PNG",margin,margin,imgW,imgH);
+    pdf.addImage(canvas.toDataURL("image/png"),"PNG",x,margin,size.w,size.h);
   }
   host.innerHTML="";
   host.className="hidden";
@@ -3876,7 +3974,7 @@ const app = {
             <label class="glass-label">เบอร์ติดต่อ</label>
             <input id="order-contact" type="tel" class="glass-input text-sm" maxlength="30" inputmode="tel" placeholder="เช่น 081-234-5678">
           </div>
-          ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">เพิ่มลงตะกร้าก่อน แล้วไปแก้ไข/ยืนยันส่งออเดอร์ที่รายการสั่งซื้อ</p>`}
+          ${isAdm?"":`<p class="text-xs text-glass-dim -mt-1">กดยืนยันสั่งซื้อแล้วออเดอร์จะถูกส่งให้แอดมินทันที — แก้จำนวนได้ที่รายการสั่งซื้อจนกว่าแอดมินจะล็อกสถานะ</p>`}
           <div>
             <label class="glass-label">สลิปโอนเงิน (อัพโหลดตามหลังได้ในหน้ารายการสั่งซื้อ)</label>
             <input id="order-slip-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/heic,image/heif,image/bmp" class="glass-input p-2 text-xs">
@@ -3892,7 +3990,7 @@ const app = {
           </div>
           <div class="submit-bar">
             <button onclick="app.submitMultiSizeOrder(this)" class="w-full glass-btn-primary py-3">
-              <i class="fas fa-${isAdm?"save":"cart-plus"} mr-1"></i> ${isAdm?"ยืนยันสั่งซื้อ":"เพิ่มลงตะกร้า"}
+              <i class="fas fa-save mr-1"></i> ยืนยันสั่งซื้อ
             </button>
           </div>
         </div>
@@ -3980,9 +4078,7 @@ const app = {
         appDataStale=false;
         return r;
       });
-      let okMsg=isAdmin()
-        ?`บันทึกออเดอร์ #${shortOrderLabel_(result&&result.orderId||"")} ${total} ตัว (${items.length} ไซส์) เรียบร้อย`
-        :`เพิ่มลงตะกร้า #${shortOrderLabel_(result&&result.orderId||"")} ${total} ตัว (${items.length} ไซส์) แล้ว — ไปรายการสั่งซื้อเพื่อแก้ไขหรือยืนยันส่งออเดอร์`;
+      let okMsg=`บันทึกออเดอร์ #${shortOrderLabel_(result&&result.orderId||"")} ${total} ตัว (${items.length} ไซส์) เรียบร้อย`;
       if(slipFile)okMsg+=" · บันทึกสลิปแล้ว รอแอดมินตรวจสอบ";
       this.showMsg(okMsg,"success");
       if(result&&result.warning){
@@ -4158,7 +4254,7 @@ const app = {
     const contactBlock=renderOrderContactBlock_(g);
     const cartConfirmBtn=inCart&&canEditOrder&&canCreateNewOrders_()
       ?`<div class="mt-2 flex flex-wrap gap-1 justify-center">
-          <button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)"><i class="fas fa-paper-plane"></i> ยืนยันส่งออเดอร์</button>
+          <button class="glass-btn-primary text-xs" style="padding:.35rem .55rem" onclick="app.submitCartToAdmin('${escHtml(g.orderId)}',this)" title="ออเดอร์ค้างในตะกร้าจากระบบเดิม"><i class="fas fa-paper-plane"></i> ส่งออเดอร์ (ค้างตะกร้า)</button>
         </div>`
       :"";
     const canEditOrderRow=showEditBtn&&(isAdmin()||canCreateNewOrders_());
@@ -4847,7 +4943,7 @@ const app = {
         <div class="login-card" style="max-width:560px">
           <div class="login-title">${inCart?"แก้ไขตะกร้า":"แก้ไขออเดอร์"} #${escHtml(shortOrderLabel_(orderId))}</div>
           <p class="login-sub text-xs">${canEditOrder
-            ?(inCart?"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าจะยืนยันส่งออเดอร์":"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าแอดมินจะล็อกสถานะ")
+            ?(inCart?"ออเดอร์ค้างในตะกร้าจากระบบเดิม — แก้ไขได้ แล้วกดส่งออเดอร์ที่รายการ":"แก้ไขหมายเหตุ ไซส์ และจำนวนได้จนกว่าแอดมินจะล็อกสถานะ")
             :"เพิ่มหมายเหตุได้จนกว่าจะชำระเงินแล้ว (ไซส์/จำนวนล็อกแล้ว)"}<br><span class="opacity-80">${canEditOrder?"คอลัมน์ «คงเหลือ» = ตามหน้าสต็อก · ช่องจำนวนปรับได้สูงสุด = คงเหลือ + จำนวนเดิมในออเดอร์นี้":""}</span></p>
           <div class="space-y-2">
             ${contactField}
@@ -4943,7 +5039,7 @@ const app = {
   async submitCartToAdmin(orderId,btn){
     if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
     if(!canCreateNewOrders_())return this.showMsg("ปิดรับสั่งซื้อชั่วคราว","warning");
-    if(!confirm("ยืนยันส่งออเดอร์นี้ไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
+    if(!confirm("ส่งออเดอร์ที่ค้างในตะกร้าไปยังแอดมิน? หลังส่งแล้วยังแก้จำนวนได้จนกว่าแอดมินจะล็อกสถานะ"))return;
     muteNotifyForOrder_(orderId,120000,"user");
     const orderedStatus=(appData&&appData.pickupStatus&&appData.pickupStatus[0])||ORDER_STATUS_ORDERED;
     const ordersInGroup=(appData?.orders||[]).filter(o=>o.orderId===orderId);
@@ -5062,7 +5158,7 @@ const app = {
         <h2 class="text-lg font-bold glass-section-title border-b glass-divider pb-2"><i class="fas fa-file-alt mr-1"></i>รายงาน</h2>
         ${isAdmin()?`<div class="report-abnormal-wrap">
           <h3 class="text-sm font-bold glass-section-title mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> รายการที่ผิดปกติ</h3>
-          <p class="text-xs text-glass-dim mb-2">ออเดอร์ที่มียอด วันเวลาโอน และจำนวนเสื้อตรงกัน (ชำระแล้วหรือรอตรวจสลิป) — อาจเป็นสลิปซ้ำ</p>
+          <p class="text-xs text-glass-dim mb-2">ออเดอร์ที่มียอด วันเวลาโอน และจำนวนเสื้อตรงกัน (ชำระแล้วหรือรอตรวจสลิป) — อาจเป็นสลิปซ้ำ · กดดูสลิปเปรียบเทียบได้ · ตรวจแล้วกด «ลบการเตือน» ได้</p>
           <div id="report-abnormal-host"></div>
         </div>`:""}
         <div id="report-cards"></div>
@@ -5164,6 +5260,25 @@ const app = {
       this.showMsg("ดาวน์โหลด PDF แล้ว","success");
     }catch(e){
       this.showMsg(e.message||"สร้าง PDF ไม่สำเร็จ","error");
+    }
+  },
+
+  async dismissAbnormalWarning(btn){
+    if(!isAdmin()){this.showMsg("เฉพาะแอดมินเท่านั้น","error");return;}
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const dismissId=String(btn&&btn.getAttribute&&btn.getAttribute("data-dismiss-id")||"").trim();
+    if(!dismissId){this.showMsg("ไม่พบรหัสรายการเตือน","error");return;}
+    if(!confirm("ลบการเตือนกลุ่มนี้หลังตรวจสอบแล้ว?\n\nหากมีออเดอร์ใหม่ที่ตรงกันอีกภายหลัง ระบบจะแจ้งเตือนใหม่"))return;
+    try{
+      const r=await runSaving({btn:btn,busyText:"กำลังลบเตือน…",toast:false},()=>callAuthed("dismissAbnormalDuplicateWarning",dismissId));
+      if(appData&&r&&Array.isArray(r.abnormalDismissedIds))appData.abnormalDismissedIds=r.abnormalDismissedIds;
+      const abHost=document.getElementById("report-abnormal-host");
+      if(abHost)abHost.innerHTML=renderAbnormalOrdersSectionHtml_();
+      this.showMsg("ลบการเตือนแล้ว","success");
+      invalidateClientCache();
+      scheduleBackgroundBootstrapSync_();
+    }catch(e){
+      this.showMsg(e.message||"ลบการเตือนไม่สำเร็จ","error");
     }
   },
 
