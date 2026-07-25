@@ -2868,11 +2868,17 @@ function formatPaidTransferPickupCellHtml_(row,opts){
   return display||"<span class=\"text-glass-dim\">-</span>";
 }
 
+function paidTransferRowRank_(r){
+  if(r&&r.unpaid)return 2;
+  if(r&&r.freeGiveaway)return 1;
+  return 0;
+}
+
 function comparePaidTransferRows_(a,b){
-  if(!!a.unpaid!==!!b.unpaid)return a.unpaid?1:-1;
-  if(a.unpaid&&b.unpaid){
-    const ta=String(a.sortKey||""),tb=String(b.sortKey||"");
-    return ta.localeCompare(tb);
+  const ra=paidTransferRowRank_(a),rb=paidTransferRowRank_(b);
+  if(ra!==rb)return ra-rb;
+  if(ra!==0){
+    return String(a.sortKey||"").localeCompare(String(b.sortKey||""));
   }
   const da=normalizePayDateForInput_(a.payDate)||"",db=normalizePayDateForInput_(b.payDate)||"";
   if(da!==db)return da.localeCompare(db);
@@ -2881,17 +2887,43 @@ function comparePaidTransferRows_(a,b){
   return String(a.sortKey||"").localeCompare(String(b.sortKey||""));
 }
 
+function formatPaidTransferFreeRemark_(g){
+  const note=formatPaidTransferReportRemark_(g);
+  return note?("เสื้อแจกฟรี · "+note):"เสื้อแจกฟรี";
+}
+
 function computePaidTransferReport_(includeUnpaid){
   const regions=appData?.regions||[];
+  const showFree=canViewAdminData();
   const groups=groupOrdersByOrderId(appData?.orders||[]).filter(function(g){
-    return shouldCountInDashboard_(g)&&!isFreeGiveawayPayment(g.paymentStatus);
+    if(!shouldCountInDashboard_(g))return false;
+    if(isFreeGiveawayPayment(g.paymentStatus))return showFree;
+    return true;
   });
   let grandTotal=0;
+  let grandFreeQty=0;
   const byRegion=regions.map(function(region){
     const inRegion=groups.filter(function(g){return g.region===region;});
     const rows=[];
+    let freeQty=0;
     inRegion.forEach(function(g){
-      if(isPaymentVerified(g.paymentStatus)){
+      if(isFreeGiveawayPayment(g.paymentStatus)){
+        const qty=g.totalQty||0;
+        freeQty+=qty;
+        rows.push({
+          qty:qty,
+          payDate:"",
+          payTime:"",
+          amount:0,
+          remark:formatPaidTransferFreeRemark_(g),
+          pickupDate:g.pickupDate||"",
+          pickupTime:g.pickupTime||"",
+          pickupNote:g.pickupNote||"",
+          unpaid:false,
+          freeGiveaway:true,
+          sortKey:String(g.timestamp||g.orderId||"")
+        });
+      }else if(isPaymentVerified(g.paymentStatus)){
         rows.push({
           qty:g.totalQty||0,
           payDate:g.payDate||"",
@@ -2902,6 +2934,7 @@ function computePaidTransferReport_(includeUnpaid){
           pickupTime:g.pickupTime||"",
           pickupNote:g.pickupNote||"",
           unpaid:false,
+          freeGiveaway:false,
           sortKey:String(g.timestamp||g.orderId||"")
         });
       }else if(includeUnpaid&&isUnpaidTransferOrderGroup_(g)){
@@ -2915,16 +2948,18 @@ function computePaidTransferReport_(includeUnpaid){
           pickupTime:g.pickupTime||"",
           pickupNote:g.pickupNote||"",
           unpaid:true,
+          freeGiveaway:false,
           sortKey:String(g.timestamp||g.orderId||"")
         });
       }
     });
     rows.sort(comparePaidTransferRows_);
-    const totalAmount=rows.filter(function(r){return !r.unpaid;}).reduce(function(s,r){return s+(Number(r.amount)||0);},0);
+    const totalAmount=rows.filter(function(r){return !r.unpaid&&!r.freeGiveaway;}).reduce(function(s,r){return s+(Number(r.amount)||0);},0);
     grandTotal+=totalAmount;
-    return {region:region,shortName:regionShort(region),rows:rows,totalAmount:totalAmount};
+    grandFreeQty+=freeQty;
+    return {region:region,shortName:regionShort(region),rows:rows,totalAmount:totalAmount,freeQty:freeQty};
   });
-  return {title:paidTransferReportTitle_(),byRegion:byRegion,grandTotal:grandTotal,includeUnpaid:!!includeUnpaid};
+  return {title:paidTransferReportTitle_(),byRegion:byRegion,grandTotal:grandTotal,grandFreeQty:grandFreeQty,includeUnpaid:!!includeUnpaid};
 }
 
 function buildPaidTransferFlatRows_(data){
@@ -3013,6 +3048,7 @@ function renderPaidTransferRowCells_(item,opts){
   const showPickup=paidTransferShowPickupCol_();
   const alt=!!item.alt;
   const unpaid=row&&row.unpaid;
+  const freeGiveaway=row&&row.freeGiveaway;
   const pickupCell=function(){
     if(!showPickup)return "";
     if(opts.print){
@@ -3020,6 +3056,7 @@ function renderPaidTransferRowCells_(item,opts){
     }
     return `<td class="report-transfer-pickup">${item.empty?"-":formatPaidTransferPickupCellHtml_(row)}</td>`;
   };
+  const noTransfer=unpaid||freeGiveaway;
   if(opts.print){
     let html="";
     if(showRegion){
@@ -3031,10 +3068,10 @@ function renderPaidTransferRowCells_(item,opts){
         <td ${pdfPrintCellStyle_({center:true,alt:alt})}>-</td>
         <td ${pdfPrintCellStyle_({right:true,alt:alt})}>-</td>`;
     }else{
-      html+=`<td ${pdfPrintCellStyle_({center:true,bold:unpaid,alt:alt})}>${row.qty||0}</td>
-        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
-        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
-        <td ${pdfPrintCellStyle_({right:true,alt:alt})}>${unpaid?"-":fmtMoney(row.amount||0)}</td>`;
+      html+=`<td ${pdfPrintCellStyle_({center:true,bold:noTransfer,alt:alt})}>${row.qty||0}</td>
+        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${noTransfer?"-":escHtml(formatThaiDate(row.payDate))}</td>
+        <td ${pdfPrintCellStyle_({center:true,alt:alt})}>${noTransfer?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
+        <td ${pdfPrintCellStyle_({right:true,alt:alt})}>${noTransfer?"-":fmtMoney(row.amount||0)}</td>`;
     }
     if(showTotal){
       html+=`<td ${pdfPrintCellStyle_({right:true,bold:true,alt:alt,rowspan:rowspan})}>${fmtMoney(totalAmount)}</td>`;
@@ -3057,11 +3094,11 @@ function renderPaidTransferRowCells_(item,opts){
       <td class="report-transfer-time">-</td>
       <td class="report-transfer-money report-transfer-num">-</td>`;
   }else{
-    const qtyCls=unpaid?" report-transfer-qty-unpaid":"";
+    const qtyCls=unpaid?" report-transfer-qty-unpaid":(freeGiveaway?" report-transfer-qty-free":"");
     html+=`<td class="report-transfer-num${qtyCls}">${row.qty||0}</td>
-      <td class="report-transfer-date">${unpaid?"-":escHtml(formatThaiDate(row.payDate))}</td>
-      <td class="report-transfer-time">${unpaid?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
-      <td class="report-transfer-money report-transfer-num">${unpaid?"-":fmtMoney(row.amount||0)}</td>`;
+      <td class="report-transfer-date">${noTransfer?"-":escHtml(formatThaiDate(row.payDate))}</td>
+      <td class="report-transfer-time">${noTransfer?"-":escHtml(formatThaiTime(row.payTime)||"-")}</td>
+      <td class="report-transfer-money report-transfer-num">${noTransfer?"-":fmtMoney(row.amount||0)}</td>`;
   }
   if(showTotal){
     html+=`<td class="report-transfer-total report-transfer-num" rowspan="${rowspan}">${fmtMoney(totalAmount)}</td>`;
@@ -3135,16 +3172,23 @@ function paidTransferReportGrandQty_(data){
   let grandQty=0;
   (data.byRegion||[]).forEach(function(block){
     (block.rows||[]).forEach(function(row){
-      if(!row.unpaid)grandQty+=Number(row.qty)||0;
+      if(!row.unpaid&&!row.freeGiveaway)grandQty+=Number(row.qty)||0;
     });
   });
   return grandQty;
+}
+
+function paidTransferReportFreeFootRemark_(data){
+  const freeQty=Number(data&&data.grandFreeQty)||0;
+  if(freeQty<=0)return "-";
+  return "เสื้อแจกฟรี "+freeQty+" ตัว (ไม่นับในยอดโอน)";
 }
 
 function renderPaidTransferReportFootHtml_(data,opts){
   opts=opts||{};
   const grandQty=paidTransferReportGrandQty_(data);
   const grandTotal=Number(data.grandTotal)||0;
+  const freeRemark=paidTransferReportFreeFootRemark_(data);
   const showPickup=paidTransferShowPickupCol_();
   const pickupFoot=showPickup
     ?(opts.print?`<td ${pdfPrintCellStyle_({header:true,wrap:true})}>-</td>`:`<td class="report-transfer-pickup">-</td>`)
@@ -3158,7 +3202,7 @@ function renderPaidTransferReportFootHtml_(data,opts){
       <td ${pdfPrintCellStyle_({right:true,header:true})}>-</td>
       <td ${pdfPrintCellStyle_({right:true,bold:true,header:true})}>${fmtMoney(grandTotal)}</td>
       ${pickupFoot}
-      <td ${pdfPrintCellStyle_({header:true})}>-</td>
+      <td ${pdfPrintCellStyle_({header:true,wrap:true})}>${escHtml(freeRemark)}</td>
     </tr>`;
   }
   return `<tr class="report-transfer-foot">
@@ -3169,7 +3213,7 @@ function renderPaidTransferReportFootHtml_(data,opts){
     <td class="report-transfer-money">-</td>
     <td class="report-transfer-total report-transfer-num">${fmtMoney(grandTotal)}</td>
     ${pickupFoot}
-    <td class="report-transfer-remark">-</td>
+    <td class="report-transfer-remark">${freeRemark==="-"?"-":`<span class="report-transfer-free-foot">${escHtml(freeRemark)}</span>`}</td>
   </tr>`;
 }
 
@@ -3243,7 +3287,7 @@ function buildPaidTransferReportPrintPageHtml_(data,pageRows,pageIndex,pageCount
     </table>`;
   return `<div style="background:#ffffff;${black}padding:8px;box-sizing:border-box;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;${black}">สรุปยอดโอนแล้ว · ${escHtml(data.title||paidTransferReportTitle_())}${escHtml(pageLabel)}</div>
-    <div style="font-size:11px;margin-bottom:8px;${black}">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}</div>
+    <div style="font-size:11px;margin-bottom:8px;${black}">พิมพ์เมื่อ ${escHtml(generated)}${data.includeUnpaid?" · รวมรายการที่ยังไม่โอน":""}${(Number(data.grandFreeQty)||0)>0?" · รวมเสื้อแจกฟรี":""}</div>
     ${table}
   </div>`;
 }
@@ -5195,7 +5239,7 @@ const app = {
               <button type="button" onclick="app.exportPaidTransferPdf(this)" class="glass-btn-primary text-xs report-transfer-pdf-btn"><i class="fas fa-file-pdf mr-1"></i> ดาวน์โหลด PDF</button>
             </div>
           </div>
-          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว · หมายเหตุ จากที่ user กรอกตอนสั่งเสื้อ · รวมยอดนับเฉพาะที่โอนแล้ว</p>
+          <p class="text-xs text-glass-dim mb-2">แสดงออเดอร์ที่ชำระเงินแล้ว${canViewAdminData()?" และเสื้อแจกฟรี (ตัวเลขสีม่วง · ไม่นับในยอดโอน)":""} · หมายเหตุ จากที่ user กรอกตอนสั่งเสื้อ · รวมยอดนับเฉพาะที่โอนแล้ว</p>
           <div class="overflow-x-auto report-transfer-table-wrap glass-table-wrap">
             <div id="report-paid-transfer-table-host"></div>
           </div>

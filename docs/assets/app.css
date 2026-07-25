@@ -114,6 +114,8 @@
 .report-transfer-date,.report-transfer-time{text-align:center;white-space:nowrap}
 .report-transfer-remark{text-align:left;min-width:6rem;word-break:break-word}
 .report-transfer-qty-unpaid{color:#fca5a5!important;font-weight:700}
+.report-transfer-qty-free{color:#C4B5FD!important;font-weight:700}
+.report-transfer-free-foot{color:#E9D5FF;font-weight:700}
 .report-transfer-table tfoot td{background:rgba(16,124,65,.55)!important;color:#fff!important;font-weight:700}
 .report-transfer-foot-label{text-align:center;white-space:nowrap}
 .report-transfer-foot-qty{text-align:center}
@@ -128,6 +130,7 @@
 .report-transfer-table-print tbody tr:nth-child(even) td{background:#f9fafb}
 .report-transfer-table-print .report-transfer-region{background:#f3f4f6!important;color:#000!important}
 .report-transfer-table-print .report-transfer-qty-unpaid{color:#000!important;font-weight:700}
+.report-transfer-table-print .report-transfer-qty-free{color:#000!important;font-weight:700}
 @media (max-width:640px){.report-transfer-toolbar{align-items:stretch}.report-transfer-actions{width:100%;justify-content:space-between}}
 .report-abnormal-wrap{padding:.75rem;border:1px solid rgba(251,191,36,.35);border-radius:.75rem;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(127,29,29,.08))}
 .report-abnormal-empty{margin:0;padding:.35rem 0}
