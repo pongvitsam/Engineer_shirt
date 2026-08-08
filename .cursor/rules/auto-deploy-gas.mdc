@@ -1,0 +1,14 @@
+---
+description: Deploy GAS backend after app source changes and user asks to ship
+alwaysApply: true
+---
+
+# Auto-deploy GAS after changes
+
+When you change backend or shared app sources (`Code.js`, `JavaScript.html`, `CSS.html`, `Index.html`, `LoginShell.html`, `appsscript.json`) and the user wants the fix live (or says deploy / push / ship):
+
+1. Run `npm run build:pages` if front-end sources changed.
+2. Run `npm run deploy:gas` to `clasp push` and redeploy the production web app.
+3. Commit and push to `master` when the user asked to publish (GitHub Pages deploys via Actions).
+
+Do not skip GAS deploy after pushing app changes — GitHub Pages alone is not enough; the API must be redeployed too.

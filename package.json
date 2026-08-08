@@ -6,6 +6,8 @@
   },
   "scripts": {
     "build:pages": "node scripts/build-github-pages.cjs",
+    "deploy:gas": "node scripts/deploy-gas.cjs",
+    "deploy": "npm run build:pages && npm run deploy:gas",
     "test:stock": "node __test_stock_consistency.cjs",
     "test:audit": "node __test_system_audit.cjs",
     "test:pages": "node __test_github_pages.cjs",
