@@ -36,7 +36,7 @@ assert("server lazy-invalidates bootstrap cache on writes", () => {
 });
 
 assert("bootstrap cache key v12", () => {
-  if (!codeJs.includes("bootstrap_v12")) throw new Error("expected bootstrap_v12");
+  if (!codeJs.includes("bootstrap_v13")) throw new Error("expected bootstrap_v13");
 });
 
 assert("getBootstrapData uses POST on GitHub Pages", () => {
@@ -101,7 +101,7 @@ assert("runBackgroundBootstrapSync refreshes current view", () => {
 
 assert("realtime polling enabled", () => {
   if (!html.includes("function startRealtimePoll_")) throw new Error("missing startRealtimePoll_");
-  if (!html.includes("REALTIME_POLL_MS = 20000")) throw new Error("missing poll interval");
+  if (!html.includes("REALTIME_POLL_MS = 30000")) throw new Error("missing poll interval");
   if (!html.includes("startRealtimePoll_();")) throw new Error("poll not started on boot");
 });
 

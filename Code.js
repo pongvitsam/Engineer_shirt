@@ -182,7 +182,8 @@ function invokeRpc_(method, args, options) {
     saveStockDelivered: saveStockDelivered,
     resetAllData: resetAllData,
     exportAllDataCsv: exportAllDataCsv,
-    exportOrdersCsv: exportOrdersCsv
+    exportOrdersCsv: exportOrdersCsv,
+    getAdminPanelExtras: getAdminPanelExtras
   }[method];
   if (!fn) throw new Error("ไม่รองรับ method: " + method);
   const result = fn.apply(null, args);
@@ -237,9 +238,9 @@ const DEFAULT_IMAGE = "https://placehold.co/600x400/7F1D1D/FFFFFF?text=PEACE+Eng
 const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ราคาต่อตัว", "รูปภาพ", "Active", "รูปย่อ(base64)"];
 const MAX_THUMB_BYTES = 20000;
 
-const CACHE_TTL_SEC = 90;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v12";
-const APP_BUILD = "229";
+const CACHE_TTL_SEC = 180;
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v13";
+const APP_BUILD = "230";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -694,7 +695,6 @@ function getGuestLoginPreview() {
 }
 
 function getGuestStockData() {
-  ensureSheetsInitialized_();
   const data = getGuestBootstrapFromCache_();
   const round = slimRoundPayloadForExternal_(data.round || {});
   return {
@@ -1016,7 +1016,7 @@ function getBootstrapData(token) {
       role: session.role,
       region: session.region,
       displayName: session.displayName || session.username,
-      orderingEnabled: sessionCanCreateOrders_(session, getSpreadsheet_())
+      orderingEnabled: sessionCanCreateOrdersFromData_(session, data)
     }
   };
   if (!canViewAllRegions_(session)) {
@@ -1034,10 +1034,6 @@ function getBootstrapData(token) {
   out.orders = (out.orders || []).map(function (o) {
     return sanitizeOrderForViewer_(o, session);
   });
-  if (session.role === "admin") {
-    out.emailNotifySettings = getEmailNotifySettings_(getSpreadsheet_());
-    out.abnormalDismissedIds = getAbnormalDismissedIds_(getSpreadsheet_());
-  }
   return out;
 }
 
@@ -1061,6 +1057,7 @@ function buildBootstrapData_() {
     transferAccount: getTransferAccount_(ss),
     supportContact: getSupportContact_(ss),
     orderingGlobalEnabled: getGlobalOrderingEnabled_(ss),
+    userOrderingByName: buildUserOrderingMap_(ss),
     generatedAt: new Date().toISOString()
   };
 }
@@ -1524,6 +1521,23 @@ function getGlobalOrderingEnabled_(ss) {
   return v !== "false";
 }
 
+function buildUserOrderingMap_(ss) {
+  ensureUsersSheetMigrated_(ss);
+  const sheet = ss.getSheetByName(USERS_SHEET);
+  const map = {};
+  if (!sheet) return map;
+  const last = sheet.getLastRow();
+  if (last < 2) return map;
+  const width = Math.max(sheet.getLastColumn(), 8);
+  const rows = sheet.getRange(2, 1, last - 1, width).getValues();
+  for (let i = 0; i < rows.length; i++) {
+    const uname = String(rows[i][0] || "").trim();
+    if (!uname) continue;
+    map[uname.toLowerCase()] = parseUserOrderingEnabled_(rows[i][7]);
+  }
+  return map;
+}
+
 function getUserOrderingEnabled_(username, ss) {
   ensureUsersSheetMigrated_(ss);
   const sheet = ss.getSheetByName(USERS_SHEET);
@@ -1541,6 +1555,17 @@ function getUserOrderingEnabled_(username, ss) {
   return true;
 }
 
+function sessionCanCreateOrdersFromData_(session, data) {
+  if (!session) return false;
+  if (session.role === "admin") return true;
+  if (!isRegionalOrderRole_(session.role)) return false;
+  if (data && data.orderingGlobalEnabled === false) return false;
+  const uLower = String(session.username || "").trim().toLowerCase();
+  const map = (data && data.userOrderingByName) || {};
+  if (Object.prototype.hasOwnProperty.call(map, uLower)) return map[uLower] !== false;
+  return true;
+}
+
 function isRegionalOrderRole_(role) {
   const r = String(role || "").trim();
   return r === "user" || r === ROLE_ENGINEER;
@@ -1552,6 +1577,15 @@ function sessionCanCreateOrders_(session, ss) {
   if (!isRegionalOrderRole_(session.role)) return false;
   if (!getGlobalOrderingEnabled_(ss)) return false;
   return getUserOrderingEnabled_(session.username, ss);
+}
+
+function getAdminPanelExtras(token) {
+  requireAdmin_(token);
+  const ss = getSpreadsheet_();
+  return {
+    emailNotifySettings: getEmailNotifySettings_(ss),
+    abnormalDismissedIds: getAbnormalDismissedIds_(ss)
+  };
 }
 
 function assertRegionalOrderingOpen_(session, ss) {

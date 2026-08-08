@@ -57,8 +57,11 @@ const dropdownRegistry = {};
 
 const FILTER_DEBOUNCE_MS = 200;
 const BOOTSTRAP_SYNC_DEBOUNCE_MS = 50;
-const REALTIME_POLL_MS = 20000;
-const REALTIME_POLL_PAUSED_MODULES_ = { list: true, dashboard: true, report: true };
+const REALTIME_POLL_MS = 30000;
+const REALTIME_POLL_PAUSED_MODULES_ = { list: true, dashboard: true, report: true, admin: true };
+const CLIENT_BOOTSTRAP_CACHE_KEY = "peace_bootstrap_v1";
+const CLIENT_BOOTSTRAP_MAX_AGE_MS = 120000;
+const LIST_RENDER_CHUNK = 25;
 const NOTIFY_STORE_KEY = "peace_notif_v1";
 const NOTIFY_READ_KEY = "peace_notif_read_v1";
 const NOTIFY_MAX = 80;
@@ -69,6 +72,7 @@ let notifyPanelOpen_ = false;
 const notifyMuteUntil_ = {};
 let loadUserListGen_ = 0;
 const TOKEN_KEY = "peace_token_v1";
+let listRenderGen_ = 0;
 function persistAuthToken_(token){
   try{
     if(token){
@@ -89,6 +93,36 @@ function readAuthToken_(){
 }
 function clearAuthToken_(){
   persistAuthToken_(null);
+}
+function clientBootstrapCacheKey_(){
+  if(guestMode)return "guest";
+  const u=me&&me.username?String(me.username):"";
+  const role=me&&me.role?String(me.role):"";
+  return u+"|"+role;
+}
+function readClientBootstrapCache_(){
+  try{
+    const raw=sessionStorage.getItem(CLIENT_BOOTSTRAP_CACHE_KEY);
+    if(!raw)return null;
+    const parsed=JSON.parse(raw);
+    if(!parsed||!parsed.data||!parsed.at)return null;
+    if(parsed.key!==clientBootstrapCacheKey_())return null;
+    if(Date.now()-parsed.at>CLIENT_BOOTSTRAP_MAX_AGE_MS)return null;
+    return parsed.data;
+  }catch(_){return null;}
+}
+function writeClientBootstrapCache_(data){
+  try{
+    if(!data)return;
+    sessionStorage.setItem(CLIENT_BOOTSTRAP_CACHE_KEY,JSON.stringify({
+      key:clientBootstrapCacheKey_(),
+      at:Date.now(),
+      data:data
+    }));
+  }catch(_){}
+}
+function clearClientBootstrapCache_(){
+  try{sessionStorage.removeItem(CLIENT_BOOTSTRAP_CACHE_KEY);}catch(_){}
 }
 const APP_BRAND_FULL = "สั่งซื้อเสื้อชมรมวิศวกร การไฟฟ้าส่วนภูมิภาค";
 const APP_BRAND_LINE1 = "สั่งซื้อเสื้อชมรมวิศวกร";
@@ -551,7 +585,10 @@ async function prepareImageBase64ForUpload_(file, onProgress) {
   return out;
 }
 
-function invalidateClientCache() { appDataStale = true; }
+function invalidateClientCache() {
+  appDataStale = true;
+  clearClientBootstrapCache_();
+}
 
 function applyLocalOrderSlipUpdate_(orderId, result) {
   if (!appData || !result || !orderId) return;
@@ -1069,13 +1106,18 @@ async function verifySessionAlive_() {
 }
 
 async function fetchBootstrapAuthed_(attempts) {
-  const tries = Math.max(1, attempts || 3);
-  let last = null;
+  const tries = Math.max(1, attempts || 2);
+  let lastErr = null;
   for (let i = 0; i < tries; i++) {
-    if (i > 0) await sleepMs(450 * i);
-    last = await callAuthed("getBootstrapData");
-    if (last) return last;
+    if (i > 0) await sleepMs(250 * i);
+    try {
+      const last = await callAuthedWithTimeout(90000, "getBootstrapData");
+      if (last) return last;
+    } catch (e) {
+      lastErr = e;
+    }
   }
+  if (lastErr) throw lastErr;
   return null;
 }
 
@@ -1225,12 +1267,52 @@ function scheduleRoundImageUpgrade_(force) {
   return roundImageUpgradeInFlight;
 }
 
+function applyBootstrapData_(data, opts) {
+  opts = opts || {};
+  let needsDriveUpgrade = false;
+  try {
+    if (data && data.round) {
+      applyRoundDisplayFast_(data.round, data, opts);
+      const imageRef = String(data.round.imageRef || data.round.imageUrl || "").trim();
+      needsDriveUpgrade = !opts.skipImageResolve && !!extractDriveFileId(imageRef);
+    }
+  } catch (imgErr) {
+    if (data && data.round) {
+      data.round.imageDisplayUrl = SHIRT_PLACEHOLDER_URL;
+      data.round.imageSourceMode = "placeholder";
+      data.round.imageDisplaySrc = SHIRT_PLACEHOLDER_URL;
+      data.round.imageWarning = "โหลดรูปไม่สำเร็จ";
+    }
+  }
+  appData = data;
+  appDataStale = false;
+  if (data && data.me) {
+    if (data.me.role) { me = normalizeMeClient_(data.me); }
+    else if (me && me.role) { me = normalizeMeClient_(Object.assign({}, data.me, { role: me.role })); }
+    else { me = normalizeMeClient_(data.me); }
+  }
+  syncWindowSession_();
+  try { updateSupportFooter_(); } catch (_) {}
+  const notifyLater = function () {
+    try { processOrderNotifications_(data.orders); } catch (_) {}
+  };
+  if (typeof requestIdleCallback === "function") requestIdleCallback(notifyLater, { timeout: 1200 });
+  else setTimeout(notifyLater, 0);
+  if (needsDriveUpgrade) scheduleRoundImageUpgrade_(!!opts.forceRefresh);
+  return appData;
+}
+
 function ensureAppDataCore_(force, opts) {
   opts = opts || {};
-  const loader = guestMode ? callServer("getGuestStockData") : fetchBootstrapAuthed_(force ? 2 : 3);
+  const cached = !force ? readClientBootstrapCache_() : null;
+  if (cached && (!appData || appDataStale)) {
+    try { applyBootstrapData_(cached, Object.assign({}, opts, { skipImageResolve: true })); } catch (_) {}
+  }
+  const loader = guestMode ? callServer("getGuestStockData") : fetchBootstrapAuthed_(force ? 2 : 2);
   return Promise.resolve(loader).then(async data => {
     if (!data) {
       appDataStale = true;
+      if (cached && appData) return appData;
       if (!guestMode && authToken && await verifySessionAlive_()) {
         if (appData) {
           appDataStale = true;
@@ -1240,36 +1322,8 @@ function ensureAppDataCore_(force, opts) {
       }
       throw new Error("กรุณาเข้าสู่ระบบใหม่");
     }
-    // Round-image resolution must NEVER be able to reject the whole bootstrap:
-    // a single bad image ref would otherwise blank every module (list/admin/…).
-    let needsDriveUpgrade = false;
-    try {
-      if (data && data.round) {
-        applyRoundDisplayFast_(data.round, data, opts);
-        const imageRef = String(data.round.imageRef || data.round.imageUrl || "").trim();
-        needsDriveUpgrade = !opts.skipImageResolve && !!extractDriveFileId(imageRef);
-      }
-    } catch (imgErr) {
-      if (data && data.round) {
-        data.round.imageDisplayUrl = SHIRT_PLACEHOLDER_URL;
-        data.round.imageSourceMode = "placeholder";
-        data.round.imageDisplaySrc = SHIRT_PLACEHOLDER_URL;
-        data.round.imageWarning = "โหลดรูปไม่สำเร็จ";
-      }
-    }
-    appData = data;
-    appDataStale = false;
-    // Update the signed-in identity, but NEVER downgrade/clear a known role:
-    // a malformed me (missing role) must not hide the admin tab or scope away data.
-    if (data && data.me) {
-      if (data.me.role) { me = normalizeMeClient_(data.me); }
-      else if (me && me.role) { me = normalizeMeClient_(Object.assign({}, data.me, { role: me.role })); }
-      else { me = normalizeMeClient_(data.me); }
-    }
-    syncWindowSession_();
-    try { updateSupportFooter_(); } catch (_) {}
-    try { processOrderNotifications_(data.orders); } catch (_) {}
-    if (needsDriveUpgrade) scheduleRoundImageUpgrade_(!!force);
+    writeClientBootstrapCache_(data);
+    applyBootstrapData_(data, Object.assign({}, opts, { forceRefresh: !!force }));
     return appData;
   });
 }
@@ -1504,6 +1558,23 @@ function initNotifyPanelDismiss_(){
     const btn=document.getElementById("notify-bell-btn");
     if(btn)btn.setAttribute("aria-expanded","false");
   });
+}
+
+async function ensureAdminExtrasLoaded_(){
+  if(!isAdmin()||!appData||appData.emailNotifySettings)return;
+  try{
+    const extras=await callAuthedWithTimeout(30000,"getAdminPanelExtras");
+    if(!extras||!appData)return;
+    if(extras.emailNotifySettings)appData.emailNotifySettings=extras.emailNotifySettings;
+    if(Array.isArray(extras.abnormalDismissedIds))appData.abnormalDismissedIds=extras.abnormalDismissedIds;
+  }catch(_){}
+}
+
+function prefetchGuestBootstrap_(){
+  if(prefetchPromise||guestMode||authToken)return;
+  callServer("getGuestStockData").then(function(data){
+    if(data&&!authToken&&!guestMode)writeClientBootstrapCache_(data);
+  }).catch(function(){});
 }
 
 function prefetchAppData() {
@@ -2248,6 +2319,15 @@ function ddSafeId(s){return String(s||"").replace(/[^a-zA-Z0-9_-]/g,"_")}
 // Custom glass dropdown: in-DOM host holds a hidden input + toggle button.
 // The options panel is created on open and appended to <body> as position:fixed,
 // so it is never clipped by glass-card overflow and never clashes with the submit bar.
+function buildOrderStatusSelectHtml_(orderId, currentStatus, statusCls){
+  const safeId=ddSafeId(orderId);
+  const cur=normalizeOrderStatus_(currentStatus)||ORDER_STATUS_ORDERED;
+  const opts=(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS).map(function(s){
+    return `<option value="${escAttr(s)}"${s===cur?" selected":""}>${escHtml(s)}</option>`;
+  }).join("");
+  return `<select id="order-status-val-${safeId}" class="glass-select text-xs w-full max-w-full ${statusCls||""}" aria-label="สถานะออเดอร์" onchange="app.changeGroupStatus('${escHtml(orderId)}',this.value)">${opts}</select>`;
+}
+
 function buildGlassDropdown(config){
   const ddId=config.ddId;
   dropdownRegistry[ddId]={options:config.options||[],compact:!!config.compact,onSelect:config.onSelect||null};
@@ -3470,7 +3550,10 @@ function hydrateLoginScreen_(errMsg){
   bindLoginFormEvents_();
   if(!window.__peaceLoginProbed_){
     window.__peaceLoginProbed_=true;
-    requestAnimationFrame(()=>{try{probeApiOnLogin_();}catch(_){}});
+    requestAnimationFrame(()=>{
+      try{probeApiOnLogin_();}catch(_){}
+      try{prefetchGuestBootstrap_();}catch(_){}
+    });
   }
 }
 window.hydrateLoginScreen_=hydrateLoginScreen_;
@@ -3533,7 +3616,10 @@ function renderLogin(errMsg){
   bindLoginFormEvents_();
   if(!window.__peaceLoginProbed_){
     window.__peaceLoginProbed_=true;
-    requestAnimationFrame(()=>{try{probeApiOnLogin_();}catch(_){}});
+    requestAnimationFrame(()=>{
+      try{probeApiOnLogin_();}catch(_){}
+      try{prefetchGuestBootstrap_();}catch(_){}
+    });
   }
 }
 
@@ -3654,6 +3740,7 @@ async function doLogout(){
   authToken=null;me=null;appData=null;appDataStale=true;prefetchPromise=null;
   resetNotifyState_();
   clearAuthToken_();
+  clearClientBootstrapCache_();
   try{await callServer("logout",t)}catch(_){}
   renderLogin();
 }
@@ -3681,8 +3768,19 @@ function bootApp(){
   initNotifyPanelDismiss_();
   renderUserChip();
   app.renderNav();
-  app.container.innerHTML=skeletonHtml("stock");
-  appDataStale=true;prefetchPromise=null;
+  const cached=readClientBootstrapCache_();
+  if(cached){
+    try{
+      applyBootstrapData_(cached,{skipImageResolve:true});
+      app.navigate("stock");
+    }catch(_){
+      app.container.innerHTML=skeletonHtml("stock");
+    }
+  }else{
+    app.container.innerHTML=skeletonHtml("stock");
+  }
+  appDataStale=!cached;
+  prefetchPromise=null;
   startRealtimePoll_();
   prefetchAppData().then(()=>app.navigate("stock"))
     .catch(async e=>{
@@ -3777,7 +3875,7 @@ const app = {
       if(module==="orders")this.initOrderForm();
       else if(module==="list")this.fillOrderListBody();
       else if(module==="dashboard")await this.initDashboard();
-      else if(module==="report")this.initReport();
+      else if(module==="report")await this.initReport();
       else if(module==="admin")await this.initAdmin();
     }catch(e){
       this.showMsg&&this.showMsg(e.message||"เกิดข้อผิดพลาดในการแสดงผล","error");
@@ -4246,6 +4344,8 @@ const app = {
   fillOrderListBody(){
     const tbody=document.getElementById("order-tbody");
     if(!tbody)return;
+    const self=this;
+    const gen=++listRenderGen_;
     const orders=(appData&&Array.isArray(appData.orders))?appData.orders:[];
     const grouped=sortOrderGroupsForList_(groupOrdersByOrderId(orders));
     if(grouped.length===0){
@@ -4253,16 +4353,33 @@ const app = {
       updateOrderListSummary_();
       return;
     }
-    // Render each order group independently so one malformed order can never
-    // blank the entire list (a single thrown row would otherwise empty it).
-    tbody.innerHTML=grouped.map(g=>{
-      try{return this.orderGroupRowHtml(g);}
-      catch(e){
-        const oid=escHtml((g&&g.orderId)||"?");
-        return `<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="${orderListColSpan_()}" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
+    tbody.innerHTML="";
+    let idx=0;
+    function renderChunk(){
+      if(gen!==listRenderGen_)return;
+      const frag=document.createDocumentFragment();
+      const end=Math.min(idx+LIST_RENDER_CHUNK,grouped.length);
+      for(;idx<end;idx++){
+        const g=grouped[idx];
+        let rowHtml;
+        try{rowHtml=self.orderGroupRowHtml(g);}
+        catch(e){
+          const oid=escHtml((g&&g.orderId)||"?");
+          rowHtml=`<tr data-region="${escHtml((g&&g.region)||"")}" data-order-search="${escAttr(buildOrderSearchHaystack_(g))}"><td colspan="${orderListColSpan_()}" class="py-2 px-2 text-xs text-red-glass">#${oid} แสดงผลไม่สำเร็จ</td></tr>`;
+        }
+        const temp=document.createElement("tbody");
+        temp.innerHTML=rowHtml;
+        if(temp.firstElementChild)frag.appendChild(temp.firstElementChild);
       }
-    }).join("");
-    this.applyListFilter();
+      tbody.appendChild(frag);
+      if(idx<grouped.length){
+        requestAnimationFrame(renderChunk);
+      }else{
+        self.applyListFilter();
+        updateOrderListSummary_();
+      }
+    }
+    requestAnimationFrame(renderChunk);
   },
 
   orderGroupRowHtml(g){
@@ -4332,7 +4449,7 @@ const app = {
         <td data-label="วันที่สั่ง" class="py-2 px-2 text-center text-xs">${formatOrderTimestampCell(g.timestamp)}</td>
         <td data-label="สถานะ" class="py-2 px-2 text-center">
           ${canEditStatus
-            ? buildGlassDropdown({ddId:"order-status-dd-"+ddSafeId(g.orderId),valueInputId:"order-status-val-"+ddSafeId(g.orderId),value:normalizeOrderStatus_(g.status)||ORDER_STATUS_ORDERED,options:(appData?.pickupStatus||ADMIN_ORDER_STATUS_OPTS),compact:true,statusCls:statusCls,onSelect:(val)=>app.changeGroupStatus(g.orderId,val)})
+            ? buildOrderStatusSelectHtml_(g.orderId, g.status, statusCls)
             : `<span class="inline-block px-2 py-1 rounded-lg text-xs ${statusCls}" style="border:1px solid rgba(255,255,255,.25)">${escHtml(g.status||orderCartStatus())}</span>`}
           ${contactBlock}
           ${noteBlock}
@@ -5253,7 +5370,8 @@ const app = {
       </div>`;
   },
 
-  initReport(){
+  async initReport(){
+    if(isAdmin())await ensureAdminExtrasLoaded_();
     const r=computeSalesReport();
     const t=r.totals, p=r.pendingPayment;
     if(isAdmin()){
@@ -5424,11 +5542,11 @@ const app = {
 
   async initAdmin(){
     pendingImageBase64="";
-    if(isAdmin()){
-      this.syncAdminOrderingPanel_();
-      this.syncAdminEmailNotifyPanel_();
-      await this.loadUserList();
-    }
+    if(!isAdmin())return;
+    this.syncAdminOrderingPanel_();
+    await ensureAdminExtrasLoaded_();
+    this.syncAdminEmailNotifyPanel_();
+    this.loadUserList();
   },
 
   syncAdminEmailNotifyPanel_(){

@@ -232,7 +232,7 @@ assert("slim bootstrap RPC and cache", () => {
   if (!code.includes("function slimRoundPayloadForExternal_")) throw new Error("missing slimRoundPayloadForExternal_");
   if (!code.includes("function buildBootstrapDataForCache_")) throw new Error("missing buildBootstrapDataForCache_");
   if (!code.includes("getRpcPing")) throw new Error("missing getRpcPing");
-  if (!code.includes("bootstrap_v12")) throw new Error("expected bootstrap_v12 cache key");
+  if (!code.includes("bootstrap_v13")) throw new Error("expected bootstrap_v13 cache key");
   if (!code.includes("transferAccount")) throw new Error("bootstrap missing transferAccount");
   if (!code.includes("supportContact")) throw new Error("bootstrap missing supportContact");
 });
@@ -469,8 +469,8 @@ assert("abnormal duplicate orders section is admin-only on report", () => {
   }
   if (!code.includes("dismissAbnormalDuplicateWarning")) throw new Error("missing dismissAbnormalDuplicateWarning RPC");
   if (!code.includes("SETTINGS_KEY_ABNORMAL_DISMISSED")) throw new Error("missing abnormal dismissed settings key");
-  if (!code.includes("out.abnormalDismissedIds = getAbnormalDismissedIds_")) {
-    throw new Error("bootstrap must expose abnormalDismissedIds for admin");
+  if (!code.includes("function getAdminPanelExtras")) {
+    throw new Error("getAdminPanelExtras must expose abnormalDismissedIds for admin");
   }
 });
 
@@ -643,8 +643,8 @@ assert("admin email notify settings and hooks", () => {
   if (!/function uploadOrderImage[\s\S]*maybeSendOrderEmailNotify_/.test(code)) {
     throw new Error("uploadOrderImage must trigger email notify");
   }
-  if (!code.includes('out.emailNotifySettings = getEmailNotifySettings_')) {
-    throw new Error("bootstrap must expose email notify settings to admin");
+  if (!code.includes('function getAdminPanelExtras')) {
+    throw new Error("getAdminPanelExtras must expose email notify settings to admin");
   }
   if (!html.includes("admin-email-notify-wrap")) throw new Error("missing admin email notify UI");
   if (!html.includes("saveEmailNotifySettings")) throw new Error("missing saveEmailNotifySettings client handler");
