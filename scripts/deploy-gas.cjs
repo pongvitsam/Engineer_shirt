@@ -19,10 +19,11 @@ function readBuild_() {
 }
 
 function run_(args) {
-  const r = spawnSync(process.platform === "win32" ? "npx.cmd" : "npx", ["clasp", ...args], {
+  const r = spawnSync("npx", ["clasp", ...args], {
     cwd: ROOT,
     stdio: "inherit",
     env: process.env,
+    shell: true,
   });
   if (r.error) {
     console.error("clasp failed:", r.error.message);

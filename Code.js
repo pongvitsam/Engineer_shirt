@@ -183,7 +183,10 @@ function invokeRpc_(method, args, options) {
     resetAllData: resetAllData,
     exportAllDataCsv: exportAllDataCsv,
     exportOrdersCsv: exportOrdersCsv,
-    getAdminPanelExtras: getAdminPanelExtras
+    getAdminPanelExtras: getAdminPanelExtras,
+    listPricePromotions: listPricePromotions,
+    savePricePromotion: savePricePromotion,
+    deletePricePromotion: deletePricePromotion
   }[method];
   if (!fn) throw new Error("ไม่รองรับ method: " + method);
   const result = fn.apply(null, args);
@@ -228,6 +231,11 @@ const SIZE_CHART_SHEET = "SizeChart";
 const ORDER_SHEET = "Orders";
 const SETTINGS_SHEET = "Settings";
 const USERS_SHEET = "Users";
+const PRICE_PROMOTIONS_SHEET = "PricePromotions";
+const ORDER_AUDIT_SHEET = "OrderAudit";
+
+const PROMO_HEADERS = ["Id", "ชื่อโปร", "ราคาโปร", "เริ่ม", "สิ้นสุด", "เปิดใช้", "ลำดับ", "หมายเหตุ", "สร้างโดย"];
+const ORDER_AUDIT_HEADERS = ["Timestamp", "OrderId", "User", "Field", "Before", "After", "Reason"];
 
 const DRIVE_FOLDER_ID = "1WeczG1IR0uhIuLHXUMRpnHGBBIWO_OLq";
 const SLIP_FOLDER_ID = "1DEVjMCddEwMINp3suq1PkoOB6ZprNdJL";
@@ -239,8 +247,8 @@ const ROUND_HEADERS = ["รอบปี", "ชื่อสินค้า", "ร
 const MAX_THUMB_BYTES = 20000;
 
 const CACHE_TTL_SEC = 180;
-const CACHE_KEY_BOOTSTRAP = "bootstrap_v13";
-const APP_BUILD = "230";
+const CACHE_KEY_BOOTSTRAP = "bootstrap_v14";
+const APP_BUILD = "231";
 const SETTINGS_KEY_TRANSFER_ACCOUNT = "transfer_account";
 const DEFAULT_TRANSFER_ACCOUNT = "0730080382\nธนาคารกรุงไทย\nชมรมวิศวกร กฟภ.";
 const SETTINGS_KEY_SUPPORT_CONTACT = "support_contact";
@@ -697,7 +705,7 @@ function getGuestLoginPreview() {
 function getGuestStockData() {
   const data = getGuestBootstrapFromCache_();
   const round = slimRoundPayloadForExternal_(data.round || {});
-  return {
+  const out = {
     regions: [],
     round: round,
     stockSizes: data.stockSizes,
@@ -707,7 +715,7 @@ function getGuestStockData() {
     })),
     sizeChart: data.sizeChart || [],
     orders: [],
-    unitPrice: 0,
+    unitPrice: data.unitPrice,
     pickupStatus: [],
     supportContact: data.supportContact || DEFAULT_SUPPORT_CONTACT,
     generatedAt: data.generatedAt,
@@ -718,6 +726,8 @@ function getGuestStockData() {
       displayName: "Guest"
     }
   };
+  applyResolvedPriceToBootstrap_(out, getSpreadsheet_());
+  return out;
 }
 
 // === Admin user management ============================================
@@ -1034,6 +1044,7 @@ function getBootstrapData(token) {
   out.orders = (out.orders || []).map(function (o) {
     return sanitizeOrderForViewer_(o, session);
   });
+  applyResolvedPriceToBootstrap_(out, getSpreadsheet_());
   return out;
 }
 
@@ -1584,8 +1595,280 @@ function getAdminPanelExtras(token) {
   const ss = getSpreadsheet_();
   return {
     emailNotifySettings: getEmailNotifySettings_(ss),
-    abnormalDismissedIds: getAbnormalDismissedIds_(ss)
+    abnormalDismissedIds: getAbnormalDismissedIds_(ss),
+    pricePromotions: listPricePromotionsInternal_(ss)
   };
+}
+
+// === Price promotions + per-order unit price ===========================
+function orderColUnitPrice_() { return 22; }
+function orderColPriceSource_() { return 23; }
+
+function orderRowUnitPrice_(row, fallback) {
+  const stored = Number(row[orderColUnitPrice_()]);
+  if (stored > 0) return stored;
+  const qty = Number(row[4]) || 0;
+  const price = Number(row[5]) || 0;
+  if (qty > 0 && price > 0) return Math.round((price / qty) * 100) / 100;
+  return Number(fallback) || DEFAULT_UNIT_PRICE;
+}
+
+function orderRowPriceSource_(row) {
+  return String(row[orderColPriceSource_()] || "").trim();
+}
+
+function buildOrderRowArray_(fields) {
+  const f = fields || {};
+  const qty = Number(f.qty) || 0;
+  const unitPrice = Number(f.unitPrice) || 0;
+  const linePrice = f.price != null ? Number(f.price) : qty * unitPrice;
+  return [
+    f.no || 0,
+    String(f.orderId || ""),
+    String(f.region || ""),
+    String(f.size || ""),
+    qty,
+    linePrice,
+    f.payDate != null ? f.payDate : "",
+    f.payTime != null ? f.payTime : "",
+    String(f.status || ORDER_STATUS_ORDERED),
+    String(f.note || "").substring(0, 120),
+    f.timestamp || new Date(),
+    String(f.slipName || ""),
+    String(f.slipUrl || ""),
+    String(f.createdBy || ""),
+    String(f.requestedChange || ""),
+    String(f.changeRequestStatus || CHANGE_REQUEST_STATUS.NONE),
+    String(f.changeRequestNote || ""),
+    f.paymentStatus != null ? String(f.paymentStatus) : PAYMENT_STATUS.NONE,
+    f.pickupDate != null ? f.pickupDate : "",
+    f.pickupTime != null ? f.pickupTime : "",
+    String(f.pickupNote || ""),
+    normalizeContactPhone_(f.contactPhone),
+    unitPrice,
+    String(f.priceSource || "base")
+  ];
+}
+
+function parseSheetDateTime_(value) {
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return null;
+    return value;
+  }
+  const s = String(value || "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s + "T00:00:00+07:00");
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatPromoDateTimeForSheet_(d) {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return "";
+  return Utilities.formatDate(d, SHEET_TZ_, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function ensurePricePromotionsSheet_(ss) {
+  createSheetIfMissing_(ss, PRICE_PROMOTIONS_SHEET, PROMO_HEADERS);
+}
+
+function ensureOrderAuditSheet_(ss) {
+  createSheetIfMissing_(ss, ORDER_AUDIT_SHEET, ORDER_AUDIT_HEADERS);
+}
+
+function migrateOrdersUnitPriceColumns_(ss) {
+  const sheet = ss.getSheetByName(ORDER_SHEET);
+  if (!sheet) return;
+  const header = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  const hasUnit = header.some(function (h) { return String(h || "").trim() === "ราคาต่อตัว"; });
+  if (hasUnit && sheet.getLastColumn() >= ORDERS_HEADERS.length) return;
+  if (!hasUnit) {
+    sheet.getRange(1, orderColUnitPrice_() + 1).setValue("ราคาต่อตัว").setFontWeight("bold");
+    sheet.getRange(1, orderColPriceSource_() + 1).setValue("ที่มาราคา").setFontWeight("bold");
+  }
+  const last = sheet.getLastRow();
+  if (last < 2) return;
+  const roundPrice = getRoundInfo_(ss).unitPrice;
+  const rows = sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), orderColPriceSource_() + 1)).getValues();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const qty = Number(r[4]) || 0;
+    const price = Number(r[5]) || 0;
+    const unit = orderRowUnitPrice_(r, roundPrice);
+    if (!Number(r[orderColUnitPrice_()]) || Number(r[orderColUnitPrice_()]) <= 0) {
+      sheet.getRange(i + 2, orderColUnitPrice_() + 1).setValue(unit);
+    }
+    if (!String(r[orderColPriceSource_()] || "").trim()) {
+      sheet.getRange(i + 2, orderColPriceSource_() + 1).setValue(qty > 0 && price > 0 ? "legacy" : "base");
+    }
+  }
+}
+
+function rowToPricePromotion_(row) {
+  return {
+    id: String(row[0] || "").trim(),
+    name: String(row[1] || "").trim(),
+    promoPrice: Number(row[2]) || 0,
+    startAt: String(row[3] || "").trim(),
+    endAt: String(row[4] || "").trim(),
+    active: row[5] === false || String(row[5]).toLowerCase() === "false" ? false : true,
+    priority: Number(row[6]) || 1,
+    note: String(row[7] || "").trim(),
+    createdBy: String(row[8] || "").trim()
+  };
+}
+
+function listPricePromotionsInternal_(ss) {
+  ensurePricePromotionsSheet_(ss);
+  const sheet = ss.getSheetByName(PRICE_PROMOTIONS_SHEET);
+  const last = sheet.getLastRow();
+  if (last < 2) return [];
+  const width = Math.max(sheet.getLastColumn(), PROMO_HEADERS.length);
+  const rows = sheet.getRange(2, 1, last - 1, width).getValues();
+  return rows.map(rowToPricePromotion_).filter(function (p) { return !!p.id; });
+}
+
+function promoIsActiveAt_(promo, at) {
+  if (!promo || !promo.active || promo.promoPrice <= 0) return false;
+  const start = parseSheetDateTime_(promo.startAt);
+  const end = parseSheetDateTime_(promo.endAt);
+  if (!start || !end) return false;
+  const t = at instanceof Date ? at.getTime() : new Date(at).getTime();
+  return t >= start.getTime() && t <= end.getTime();
+}
+
+function resolveUnitPrice_(ss, at) {
+  const round = getRoundInfo_(ss);
+  const basePrice = Number(round.unitPrice) || DEFAULT_UNIT_PRICE;
+  const when = at instanceof Date ? at : new Date(at || Date.now());
+  ensurePricePromotionsSheet_(ss);
+  const promos = listPricePromotionsInternal_(ss).filter(function (p) {
+    return promoIsActiveAt_(p, when);
+  });
+  if (!promos.length) {
+    return { price: basePrice, basePrice: basePrice, priceSource: "base", promotion: null };
+  }
+  promos.sort(function (a, b) {
+    if (a.promoPrice !== b.promoPrice) return a.promoPrice - b.promoPrice;
+    return (Number(a.priority) || 99) - (Number(b.priority) || 99);
+  });
+  const pick = promos[0];
+  return {
+    price: pick.promoPrice,
+    basePrice: basePrice,
+    priceSource: "promo:" + pick.id,
+    promotion: {
+      id: pick.id,
+      name: pick.name,
+      price: pick.promoPrice,
+      endsAt: pick.endAt
+    }
+  };
+}
+
+function applyResolvedPriceToBootstrap_(out, ss) {
+  const resolved = resolveUnitPrice_(ss, new Date());
+  out.unitPrice = resolved.price;
+  out.baseUnitPrice = resolved.basePrice;
+  out.activePromotion = resolved.promotion;
+  if (out.round) {
+    out.round.baseUnitPrice = resolved.basePrice;
+    out.round.unitPrice = resolved.price;
+  }
+  return out;
+}
+
+function appendOrderAudit_(ss, entry) {
+  try {
+    ensureOrderAuditSheet_(ss);
+    const sheet = ss.getSheetByName(ORDER_AUDIT_SHEET);
+    sheet.appendRow([
+      new Date(),
+      String(entry.orderId || ""),
+      String(entry.username || ""),
+      String(entry.field || ""),
+      String(entry.before != null ? entry.before : ""),
+      String(entry.after != null ? entry.after : ""),
+      String(entry.reason || "").substring(0, 200)
+    ]);
+  } catch (e) {}
+}
+
+function generatePromoId_(sheet) {
+  const last = sheet.getLastRow();
+  let n = last;
+  return "PROMO-" + Utilities.formatDate(new Date(), SHEET_TZ_, "yyMMdd") + "-" + String(Math.max(1, n)).padStart(3, "0");
+}
+
+function listPricePromotions(token) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  return listPricePromotionsInternal_(getSpreadsheet_());
+}
+
+function savePricePromotion(token, payload) {
+  const session = requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  ensurePricePromotionsSheet_(ss);
+  const sheet = ss.getSheetByName(PRICE_PROMOTIONS_SHEET);
+  const p = payload || {};
+  const id = String(p.id || "").trim() || generatePromoId_(sheet);
+  const name = String(p.name || "").trim();
+  const promoPrice = Number(p.promoPrice);
+  const startAt = String(p.startAt || "").trim();
+  const endAt = String(p.endAt || "").trim();
+  const active = p.active !== false && String(p.active).toLowerCase() !== "false";
+  const priority = Math.max(1, Number(p.priority) || 1);
+  const note = String(p.note || "").trim().substring(0, 200);
+  if (!name) throw new Error("กรุณาระบุชื่อโปรโมชั่น");
+  if (!promoPrice || promoPrice <= 0) throw new Error("ราคาโปรต้องมากกว่า 0");
+  if (!startAt || !endAt) throw new Error("กรุณาระบุวันเริ่มและวันสิ้นสุด");
+  const startDt = parseSheetDateTime_(startAt);
+  const endDt = parseSheetDateTime_(endAt);
+  if (!startDt || !endDt) throw new Error("รูปแบบวันที่ไม่ถูกต้อง");
+  if (endDt.getTime() < startDt.getTime()) throw new Error("วันสิ้นสุดต้องไม่ก่อนวันเริ่ม");
+  const rowValues = [id, name, promoPrice, startAt, endAt, active, priority, note, session.username];
+  const last = sheet.getLastRow();
+  let rowIndex = -1;
+  if (last >= 2) {
+    const ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0] || "").trim() === id) { rowIndex = i + 2; break; }
+    }
+  }
+  if (rowIndex > 0) {
+    sheet.getRange(rowIndex, 1, 1, PROMO_HEADERS.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  invalidateDataCache_();
+  return { ok: true, promotion: rowToPricePromotion_(rowValues) };
+}
+
+function deletePricePromotion(token, promoId) {
+  requireAdmin_(token);
+  ensureSheetsInitialized_();
+  const ss = getSpreadsheet_();
+  ensurePricePromotionsSheet_(ss);
+  const sheet = ss.getSheetByName(PRICE_PROMOTIONS_SHEET);
+  const id = String(promoId || "").trim();
+  if (!id) throw new Error("ไม่พบรหัสโปรโมชั่น");
+  const last = sheet.getLastRow();
+  for (let r = 2; r <= last; r++) {
+    if (String(sheet.getRange(r, 1).getValue() || "").trim() === id) {
+      sheet.deleteRow(r);
+      invalidateDataCache_();
+      return { ok: true, deleted: id };
+    }
+  }
+  throw new Error("ไม่พบโปรโมชั่น " + id);
 }
 
 function assertRegionalOrderingOpen_(session, ss) {
@@ -1695,7 +1978,13 @@ function addMultiSizeOrder(token, payload) {
     const contactPhone = normalizeContactPhone_(payload.contactPhone);
     const requestedStatus = String(payload.status || "").trim();
     const status = resolveNewOrderStatus_(session, requestedStatus);
-    const unitPrice = Number(payload.unitPrice) || getRoundInfo_(ss).unitPrice;
+    const resolved = resolveUnitPrice_(ss, now);
+    const unitPrice = session.role === "admin" && Number(payload.unitPrice) > 0
+      ? Number(payload.unitPrice)
+      : resolved.price;
+    const priceSource = session.role === "admin" && Number(payload.unitPrice) > 0
+      ? String(payload.priceSource || "admin_override")
+      : resolved.priceSource;
 
     const orderId = generateUniqueOrderId_(orderSheet);
     const slipName = "";
@@ -1707,32 +1996,27 @@ function addMultiSizeOrder(token, payload) {
     Object.keys(agg).forEach(size => {
       counter++;
       const qty = agg[size];
-      rowsToAppend.push([
-        startNo + counter,
-        orderId,
-        region,
-        size,
-        qty,
-        qty * unitPrice,
-        payDate,
-        payTime,
-        status,
-        note,
-        now,
-        slipName,
-        slipUrl,
-        session.username,
-        "",
-        CHANGE_REQUEST_STATUS.NONE,
-        "",
-        PAYMENT_STATUS.NONE,
-        "",
-        "",
-        "",
-        contactPhone
-      ]);
+      rowsToAppend.push(buildOrderRowArray_({
+        no: startNo + counter,
+        orderId: orderId,
+        region: region,
+        size: size,
+        qty: qty,
+        unitPrice: unitPrice,
+        priceSource: priceSource,
+        payDate: payDate,
+        payTime: payTime,
+        status: status,
+        note: note,
+        timestamp: now,
+        slipName: slipName,
+        slipUrl: slipUrl,
+        createdBy: session.username,
+        paymentStatus: PAYMENT_STATUS.NONE,
+        contactPhone: contactPhone
+      }));
     });
-    orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+    orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, ORDERS_HEADERS.length).setValues(rowsToAppend);
 
     invalidateDataCache_();
     if (!isCartOrderStatus_(status)) {
@@ -1789,7 +2073,24 @@ function updateCartOrderByOrderId(token, orderId, payload) {
     const pickupDate = String(templateRow[18] || "");
     const pickupTime = String(templateRow[19] || "");
     const pickupNote = String(templateRow[20] || "");
-    const unitPrice = Number(payload && payload.unitPrice) || getRoundInfo_(ss).unitPrice;
+    const prevUnitPrice = orderRowUnitPrice_(templateRow, getRoundInfo_(ss).unitPrice);
+    let unitPrice = prevUnitPrice;
+    let priceSource = orderRowPriceSource_(templateRow) || "base";
+    if (session.role === "admin" && payload && payload.unitPrice != null && payload.unitPrice !== "") {
+      unitPrice = Number(payload.unitPrice);
+      if (!unitPrice || unitPrice <= 0) throw new Error("ราคาต่อตัวต้องมากกว่า 0");
+      priceSource = String(payload.priceSource || "admin_override");
+      if (unitPrice !== prevUnitPrice) {
+        appendOrderAudit_(ss, {
+          orderId: meta.orderId,
+          username: session.username,
+          field: "unitPrice",
+          before: prevUnitPrice,
+          after: unitPrice,
+          reason: String(payload.auditReason || payload.priceSource || "admin_edit")
+        });
+      }
+    }
     const rowsToDelete = meta.rows.map(r => r.row).sort((a, b) => b - a);
     rowsToDelete.forEach(r => orderSheet.deleteRow(r));
     const startNo = orderSheet.getLastRow();
@@ -1798,35 +2099,41 @@ function updateCartOrderByOrderId(token, orderId, payload) {
     Object.keys(agg).forEach(size => {
       counter++;
       const qty = agg[size];
-      rowsToAppend.push([
-        startNo + counter,
-        meta.orderId,
-        meta.region,
-        size,
-        qty,
-        qty * unitPrice,
-        payDate,
-        payTime,
-        preserveStatus,
-        note,
-        new Date(),
-        slipName,
-        slipUrl,
-        createdBy,
-        "",
-        CHANGE_REQUEST_STATUS.NONE,
-        "",
-        paymentStatus,
-        pickupDate,
-        pickupTime,
-        pickupNote,
-        contactPhone
-      ]);
+      rowsToAppend.push(buildOrderRowArray_({
+        no: startNo + counter,
+        orderId: meta.orderId,
+        region: meta.region,
+        size: size,
+        qty: qty,
+        unitPrice: unitPrice,
+        priceSource: priceSource,
+        payDate: payDate,
+        payTime: payTime,
+        status: preserveStatus,
+        note: note,
+        timestamp: new Date(),
+        slipName: slipName,
+        slipUrl: slipUrl,
+        createdBy: createdBy,
+        paymentStatus: paymentStatus,
+        pickupDate: pickupDate,
+        pickupTime: pickupTime,
+        pickupNote: pickupNote,
+        contactPhone: contactPhone
+      }));
     });
-    orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+    orderSheet.getRange(orderSheet.getLastRow() + 1, 1, rowsToAppend.length, ORDERS_HEADERS.length).setValues(rowsToAppend);
     renumberOrders_(orderSheet);
     invalidateDataCache_();
-    return { ok: true, orderId: meta.orderId, totalQty: Object.keys(agg).reduce((s, k) => s + agg[k], 0), status: preserveStatus, contactPhone: contactPhone };
+    return {
+      ok: true,
+      orderId: meta.orderId,
+      totalQty: Object.keys(agg).reduce((s, k) => s + agg[k], 0),
+      status: preserveStatus,
+      contactPhone: contactPhone,
+      unitPrice: unitPrice,
+      priceSource: priceSource
+    };
   } finally {
     lock.releaseLock();
   }
@@ -2747,7 +3054,8 @@ function reviewOrderChangeRequest(token, orderId, action, note) {
     let rowsToDelete = [];
     if (act === CHANGE_REQUEST_STATUS.APPROVED) {
       validateApprovedChangeAgainstStock_(ss, currentMap, requestMap);
-      const unitPrice = getRoundInfo_(ss).unitPrice;
+      const unitPrice = orderRowUnitPrice_(row0, getRoundInfo_(ss).unitPrice);
+      const priceSource = orderRowPriceSource_(row0) || "base";
       rowsToDelete = [];
       rowsMeta.forEach(meta => {
         const nextQty = requestMap[meta.size] !== undefined ? requestMap[meta.size] : 0;
@@ -2766,30 +3074,28 @@ function reviewOrderChangeRequest(token, orderId, action, note) {
       const extraRows = [];
       requestItems.forEach(it => {
         if (existingSizes[it.size] || it.qty <= 0) return;
-        extraRows.push([
-          0,
-          targetOrderId,
-          row0[2],
-          it.size,
-          it.qty,
-          it.qty * unitPrice,
-          row0[6],
-          row0[7],
-          row0[8] || ORDER_STATUS_ORDERED,
-          row0[9] || "",
-          now,
-          row0[11] || "",
-          row0[12] || "",
-          row0[13] || "",
-          "",
-          CHANGE_REQUEST_STATUS.NONE,
-          "",
-          String(row0[17] || PAYMENT_STATUS.NONE),
-          String(row0[18] || ""),
-          String(row0[19] || ""),
-          String(row0[20] || ""),
-          String(row0[21] || "")
-        ]);
+        extraRows.push(buildOrderRowArray_({
+          no: 0,
+          orderId: targetOrderId,
+          region: row0[2],
+          size: it.size,
+          qty: it.qty,
+          unitPrice: unitPrice,
+          priceSource: priceSource,
+          payDate: row0[6],
+          payTime: row0[7],
+          status: row0[8] || ORDER_STATUS_ORDERED,
+          note: row0[9] || "",
+          timestamp: now,
+          slipName: row0[11] || "",
+          slipUrl: row0[12] || "",
+          createdBy: row0[13] || "",
+          paymentStatus: String(row0[17] || PAYMENT_STATUS.NONE),
+          pickupDate: row0[18] || "",
+          pickupTime: row0[19] || "",
+          pickupNote: row0[20] || "",
+          contactPhone: row0[21] || ""
+        }));
       });
       if (extraRows.length > 0) {
         orderSheet.getRange(orderSheet.getLastRow() + 1, 1, extraRows.length, ORDERS_HEADERS.length).setValues(extraRows);
@@ -3137,7 +3443,8 @@ const ORDERS_HEADERS = [
   "ลำดับ", "OrderId", "เขตที่สั่ง", "ไซส์", "จำนวน(ตัว)", "ราคา",
   "วันที่โอน", "เวลาโอน", "สถานะรับสินค้า", "หมายเหตุเพิ่มเติม", "Timestamp", "สลิป (ชื่อ)", "สลิป (URL)", "ผู้บันทึก",
   "requestedChange", "changeRequestStatus", "changeRequestNote", "สถานะชำระเงิน",
-  "วันที่รับ/จัดส่ง", "เวลารับ/จัดส่ง", "หมายเหตุรับ/จัดส่ง", "เบอร์ติดต่อ"
+  "วันที่รับ/จัดส่ง", "เวลารับ/จัดส่ง", "หมายเหตุรับ/จัดส่ง", "เบอร์ติดต่อ",
+  "ราคาต่อตัว", "ที่มาราคา"
 ];
 
 function ensureSheetsInitialized_() {
@@ -3165,6 +3472,9 @@ function initializeSheets_() {
   migrateOrdersSheet_(ss);
   migrateOrderStatusesV2_(ss);
   migrateRoundSheet_(ss);
+  migrateOrdersUnitPriceColumns_(ss);
+  ensurePricePromotionsSheet_(ss);
+  ensureOrderAuditSheet_(ss);
 
   if (!String(getSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT) || "").trim()) {
     setSetting_(ss, SETTINGS_KEY_TRANSFER_ACCOUNT, DEFAULT_TRANSFER_ACCOUNT);
@@ -3246,6 +3556,7 @@ function migrateOrdersSheet_(ss) {
   const hasPaymentStatus = headerRow.some(h => String(h || "").trim() === "สถานะชำระเงิน");
   const hasPickupCols = headerRow.some(h => String(h || "").trim() === "วันที่รับ/จัดส่ง");
   const hasContactPhone = headerRow.some(h => String(h || "").trim() === "เบอร์ติดต่อ");
+  const hasUnitPriceCol = headerRow.some(h => String(h || "").trim() === "ราคาต่อตัว");
   const isLatestSchema = hasOrderId &&
     hasNoteColumn &&
     hasRequestedChange &&
@@ -3254,8 +3565,14 @@ function migrateOrdersSheet_(ss) {
     hasPaymentStatus &&
     hasPickupCols &&
     hasContactPhone &&
+    hasUnitPriceCol &&
     sheet.getLastColumn() >= ORDERS_HEADERS.length;
   if (isLatestSchema) return;
+
+  if (hasContactPhone && !hasUnitPriceCol) {
+    migrateOrdersUnitPriceColumns_(ss);
+    return;
+  }
 
   if (hasPickupCols && !hasContactPhone) {
     const contactCol = sheet.getLastColumn() + 1;
@@ -3774,7 +4091,9 @@ function sanitizeOrderForClient_(order) {
     pickupDate: formatPayDateFromSheet_(order.pickupDate),
     pickupTime: formatPayTimeFromSheet_(order.pickupTime),
     pickupNote: String(order.pickupNote || ""),
-    contactPhone: String(order.contactPhone || "")
+    contactPhone: String(order.contactPhone || ""),
+    unitPrice: Number(order.unitPrice) || 0,
+    priceSource: String(order.priceSource || "")
   };
 }
 
@@ -3798,13 +4117,19 @@ function getOrders_(ss) {
   const maxCols = sheet.getMaxColumns();
   const width = Math.min(ORDERS_HEADERS.length, maxCols);
   const values = sheet.getRange(2, 1, last - 1, width).getValues();
-  return values.map(r => sanitizeOrderForClient_({
+  return values.map(r => {
+    const qty = Number(r[4]) || 0;
+    const price = Number(r[5]) || 0;
+    const unitPrice = orderRowUnitPrice_(r, 0);
+    return sanitizeOrderForClient_({
     no: Number(r[0]) || 0,
     orderId: String(r[1] || ("ORD-" + r[0])),
     region: String(r[2] || ""),
     size: String(r[3] || ""),
-    qty: Number(r[4]) || 0,
-    price: Number(r[5]) || 0,
+    qty: qty,
+    price: price,
+    unitPrice: unitPrice,
+    priceSource: orderRowPriceSource_(r),
     payDate: r[6],
     payTime: r[7],
     orderStatus: normalizeOrderStatus_(r[8] || ORDER_STATUS_ORDERED),
@@ -3822,7 +4147,8 @@ function getOrders_(ss) {
     pickupTime: r[19],
     pickupNote: String(r[20] || ""),
     contactPhone: String(r[21] || "")
-  }));
+  });
+  });
 }
 
 // === Utilities =========================================================

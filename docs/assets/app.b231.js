@@ -1561,12 +1561,16 @@ function initNotifyPanelDismiss_(){
 }
 
 async function ensureAdminExtrasLoaded_(){
-  if(!isAdmin()||!appData||appData.emailNotifySettings)return;
+  if(!isAdmin()||!appData)return;
+  const needsEmail=!appData.emailNotifySettings;
+  const needsPromos=!Array.isArray(appData.pricePromotions);
+  if(!needsEmail&&!needsPromos)return;
   try{
     const extras=await callAuthedWithTimeout(30000,"getAdminPanelExtras");
     if(!extras||!appData)return;
     if(extras.emailNotifySettings)appData.emailNotifySettings=extras.emailNotifySettings;
     if(Array.isArray(extras.abnormalDismissedIds))appData.abnormalDismissedIds=extras.abnormalDismissedIds;
+    if(Array.isArray(extras.pricePromotions))appData.pricePromotions=extras.pricePromotions;
   }catch(_){}
 }
 
@@ -1575,6 +1579,72 @@ function prefetchGuestBootstrap_(){
   callServer("getGuestStockData").then(function(data){
     if(data&&!authToken&&!guestMode)writeClientBootstrapCache_(data);
   }).catch(function(){});
+}
+
+function orderGroupUnitPrice_(g){
+  if(!g)return Number(appData?.unitPrice||0);
+  if(g.unitPrice>0)return Number(g.unitPrice);
+  if(g.totalQty>0&&g.totalPrice>0)return Math.round((g.totalPrice/g.totalQty)*100)/100;
+  return Number(appData?.unitPrice||0);
+}
+
+function renderStockPriceHtml_(round){
+  const base=Number(appData?.baseUnitPrice||round?.baseUnitPrice||round?.unitPrice||0);
+  const cur=Number(appData?.unitPrice||round?.unitPrice||base);
+  const promo=appData?.activePromotion;
+  if(promo&&cur<base){
+    const endHint=promo.endsAt?(" · ถึง "+formatThaiDateTimeCell(promo.endsAt,"23:59")):"";
+    return `<div class="stock-card-price"><div class="text-xs opacity-80">ราคา</div><div class="text-xs opacity-70" style="text-decoration:line-through">${fmtMoney(base)} ฿</div><div class="text-xl font-bold" style="color:#FDE68A">${fmtMoney(cur)} ฿</div><div class="text-xs mt-1" style="color:#FDE68A"><i class="fas fa-tag mr-1"></i>${escHtml(promo.name||"โปรโมชั่น")}${escHtml(endHint)}</div></div>`;
+  }
+  return `<div class="stock-card-price"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(cur)} ฿</div></div>`;
+}
+
+function promoStatusLabel_(p){
+  if(!p||!p.active)return "ปิด";
+  const now=Date.now();
+  const start=Date.parse(String(p.startAt||"").replace(/\+07:00$/,"+07:00"));
+  const end=Date.parse(String(p.endAt||"").replace(/\+07:00$/,"+07:00"));
+  if(!isNaN(start)&&now<start)return "รอเริ่ม";
+  if(!isNaN(end)&&now>end)return "หมดอายุ";
+  return "ใช้งาน";
+}
+
+function renderAdminPromotionsPanel_(){
+  const promos=Array.isArray(appData?.pricePromotions)?appData.pricePromotions:[];
+  const cur=Number(appData?.unitPrice||0);
+  const base=Number(appData?.baseUnitPrice||cur);
+  const active=appData?.activePromotion;
+  let listHtml;
+  if(!promos.length){
+    listHtml='<div class="text-xs text-glass-dim text-center py-2">ยังไม่มีโปรโมชั่น</div>';
+  }else{
+    listHtml=promos.map(function(p){
+      const st=promoStatusLabel_(p);
+      const stCls=st==="ใช้งาน"?"text-green-glass":(st==="หมดอายุ"?"text-glass-dim":"text-amber-300");
+      return `<div class="glass-card-inner p-2 flex justify-between items-start gap-2 flex-wrap">
+        <div style="min-width:0;flex:1 1 60%">
+          <div class="text-sm font-bold">${escHtml(p.name||p.id)} <span class="text-xs ${stCls}">(${escHtml(st)})</span></div>
+          <div class="text-xs text-glass-muted">${fmtMoney(p.promoPrice)} ฿ · ${escHtml(formatThaiDateTimeCell(p.startAt,""))} – ${escHtml(formatThaiDateTimeCell(p.endAt,"23:59"))}</div>
+          ${p.note?`<div class="text-xs opacity-70 mt-1">${escHtml(p.note)}</div>`:""}
+        </div>
+        <div class="flex gap-1 flex-shrink-0">
+          <button type="button" class="glass-btn-secondary text-xs px-2 py-1" onclick="app.editPricePromotion(${JSON.stringify(p.id)})"><i class="fas fa-pencil-alt"></i></button>
+          <button type="button" class="glass-btn-danger text-xs px-2 py-1" onclick="app.deletePricePromotionPrompt(${JSON.stringify(p.id)})"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  return `<div class="glass-card-inner p-4">
+    <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-tags mr-1"></i> โปรโมชั่น / ราคาช่วงเวลา</h3>
+    <div class="text-xs text-glass-dim mb-2">ราคาปกติ ${fmtMoney(base)} ฿${active?` · ราคาตอนนี้ <b style="color:#FDE68A">${fmtMoney(cur)} ฿</b> (${escHtml(active.name||"โปร")})`:""}</div>
+    <div class="space-y-2 mb-3">${listHtml}</div>
+    <button type="button" onclick="app.openPricePromotionModal()" class="w-full glass-btn-blue py-2 text-sm"><i class="fas fa-plus mr-1"></i> เพิ่มโปรโมชั่น</button>
+  </div>`;
+}
+
+function isAdminEditingCompletedOrder_(g){
+  if(!isAdmin()||!g)return false;
+  return isUserLockedOrderStatus(g.status)||isPaymentLocked(g.paymentStatus);
 }
 
 function prefetchAppData() {
@@ -2393,6 +2463,7 @@ function applyLocalOrderCreate_(result,payload,items){
   if(!appData||!result||!result.orderId||!Array.isArray(items)||items.length===0)return;
   if(!Array.isArray(appData.orders))appData.orders=[];
   const unitPrice=Number(result.unitPrice||appData.unitPrice||0);
+  const priceSource=String(result.priceSource||(appData.activePromotion?"promo:"+String(appData.activePromotion.id||""):"base"));
   const status=String(result.status||payload.status||(isAdmin()?ORDER_STATUS_ORDERED:orderCartStatus()));
   const note=String(result.note||payload.note||"");
   const contactPhone=normalizeContactPhoneInput_(result.contactPhone||payload.contactPhone||"");
@@ -2407,6 +2478,8 @@ function applyLocalOrderCreate_(result,payload,items){
       size:it.size,
       qty:it.qty,
       price:it.qty*unitPrice,
+      unitPrice:unitPrice,
+      priceSource:priceSource,
       payDate:result.payDate||payload.payDate||"",
       payTime:result.payTime||payload.payTime||"",
       orderStatus:status,
@@ -2429,7 +2502,8 @@ function applyLocalOrderCreate_(result,payload,items){
 function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote,savedContactPhone){
   if(!appData||!orderId||!Array.isArray(items)||items.length===0||!orderGroup)return;
   if(!Array.isArray(appData.orders))appData.orders=[];
-  const unitPrice=Number(appData.unitPrice||0)||(orderGroup.totalQty?orderGroup.totalPrice/orderGroup.totalQty:0);
+  const unitPrice=Number(result&&result.unitPrice)||orderGroupUnitPrice_(orderGroup);
+  const priceSource=String(result&&result.priceSource||orderGroup.priceSource||"");
   const status=String(result&&result.status||orderGroup.status||"");
   const note=savedNote!=null?String(savedNote).trim():String(orderGroup.note||"");
   const contactPhone=savedContactPhone!=null?normalizeContactPhoneInput_(savedContactPhone):normalizeContactPhoneInput_(orderGroup.contactPhone||"");
@@ -2444,6 +2518,8 @@ function applyLocalOrderCartUpdate_(orderId,result,items,orderGroup,savedNote,sa
       size:it.size,
       qty:it.qty,
       price:it.qty*unitPrice,
+      unitPrice:unitPrice,
+      priceSource:priceSource,
       payDate:orderGroup.payDate||"",
       payTime:orderGroup.payTime||"",
       orderStatus:status,
@@ -2488,6 +2564,8 @@ function groupOrdersByOrderId(orders){
         pickupDate:o.pickupDate||"",
         pickupTime:o.pickupTime||"",
         pickupNote:o.pickupNote||"",
+        unitPrice:Number(o.unitPrice)||0,
+        priceSource:String(o.priceSource||""),
         items:[],
         totalQty:0,
         totalPrice:0,
@@ -2498,6 +2576,8 @@ function groupOrdersByOrderId(orders){
     map[oid].items.push({size:o.size,qty:o.qty,no:o.no,price:o.price});
     map[oid].totalQty+=o.qty;
     map[oid].totalPrice+=o.price;
+    if(!map[oid].unitPrice&&Number(o.unitPrice)>0)map[oid].unitPrice=Number(o.unitPrice);
+    if(!map[oid].priceSource&&o.priceSource)map[oid].priceSource=String(o.priceSource);
     if(o.no<map[oid].firstNo)map[oid].firstNo=o.no;
   });
   return order.map(id=>map[id]);
@@ -4027,7 +4107,7 @@ const app = {
         <div class="glass-card-header stock-card-header">
           <div class="stock-card-title"><div class="text-xs opacity-80">รอบปี ${round.year}</div><h1 class="text-lg font-bold">${escHtml(round.name)}</h1></div>
           <div class="stock-card-meta">
-            <div class="stock-card-price"><div class="text-xs opacity-80">ราคา</div><div class="text-xl font-bold">${fmtMoney(round.unitPrice)} ฿</div></div>
+            ${renderStockPriceHtml_(round)}
             ${adminUpload}
           </div>
         </div>
@@ -5103,6 +5183,16 @@ const app = {
           <textarea id="cart-edit-note-${safeId}" class="glass-input text-sm cart-edit-note-input" maxlength="120" rows="2"
             placeholder="เพิ่มหมายเหตุ เช่น ชื่อผู้รับ, รายละเอียดเพิ่มเติม" ${canEditNoteInModal?"":"readonly"}>${noteValue}</textarea>
         </div>`;
+    const curUnit=orderGroupUnitPrice_(orderGroup);
+    const adminPriceField=isAdmin()?`<div class="cart-edit-note-block">
+          <label class="glass-label text-sm font-bold" for="cart-edit-unitprice-${safeId}"><i class="fas fa-tag mr-1"></i>ราคาต่อตัว (แอดมิน)</label>
+          <div class="flex gap-2 flex-wrap items-center">
+            <input id="cart-edit-unitprice-${safeId}" type="number" min="1" step="1" class="glass-input text-sm flex-1 min-w-[8rem]" value="${curUnit}">
+            <button type="button" class="glass-btn-secondary text-xs px-2 py-1 whitespace-nowrap" onclick="app.applyCurrentPromoPriceToCartEdit('${escHtml(orderId)}')">ใช้ราคาโปรปัจจุบัน</button>
+          </div>
+          <p class="text-xs text-glass-dim mt-1">ราคาฐาน ${fmtMoney(appData.baseUnitPrice||curUnit)} ฿ · ราคาในระบบตอนนี้ ${fmtMoney(appData.unitPrice||curUnit)} ฿${orderGroup.priceSource?(" · ที่มา: "+escHtml(orderGroup.priceSource)):""}</p>
+          ${isAdminEditingCompletedOrder_(orderGroup)?'<p class="text-xs text-amber-300 mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>ออเดอร์ล็อกแล้ว — เปลี่ยนราคาต้องระบุเหตุผล</p>':""}
+        </div>`:"";
     const html=`
       <div class="login-overlay" id="cart-edit-modal">
         <div class="login-card" style="max-width:560px">
@@ -5113,6 +5203,7 @@ const app = {
           <div class="space-y-2">
             ${contactField}
             ${noteField}
+            ${adminPriceField}
             <div class="glass-table-wrap">
               <table class="order-size-table text-xs">
                 <thead><tr><th>ไซส์</th><th>คงเหลือ</th><th>จำนวน</th></tr></thead>
@@ -5178,15 +5269,33 @@ const app = {
       return {size:size,qty:Math.max(0,Math.floor(val))};
     }).filter(it=>it.qty>0);
     if(items.length===0){this.showMsg("กรุณาเลือกอย่างน้อย 1 ไซส์","warning");return;}
+    const editPayload={items:items,note:note,contactPhone:contactPhone};
+    if(isAdmin()){
+      const priceEl=document.getElementById("cart-edit-unitprice-"+safeId);
+      if(priceEl){
+        const newPrice=Number(priceEl.value);
+        const prevPrice=orderGroupUnitPrice_(orderGroup);
+        if(newPrice>0&&Math.abs(newPrice-prevPrice)>0.009){
+          if(isAdminEditingCompletedOrder_(orderGroup)){
+            if(!confirm("ออเดอร์นี้ล็อกแล้ว (จัดส่ง/ได้รับแล้วหรือชำระแล้ว) — ยืนยันแก้ไขราคา/จำนวน?"))return;
+            const reason=prompt("ระบุเหตุผลการแก้ไข (บังคับ):");
+            if(!reason||!String(reason).trim()){this.showMsg("ต้องระบุเหตุผล","warning");return;}
+            editPayload.auditReason=String(reason).trim();
+          }
+          editPayload.unitPrice=newPrice;
+          editPayload.priceSource="admin_override";
+        }
+      }
+    }
     const snap=snapshotOrderGroup_(orderId);
     applyLocalOrderNoteUpdate_(orderId,note);
     applyLocalOrderContactUpdate_(orderId,contactPhone);
-    applyLocalOrderCartUpdate_(orderId,{status:orderGroup.status},items,orderGroup,note,contactPhone);
+    applyLocalOrderCartUpdate_(orderId,{status:orderGroup.status,unitPrice:editPayload.unitPrice,priceSource:editPayload.priceSource},items,orderGroup,note,contactPhone);
     this.closeCartEditModal();
     refreshAfterMutation_({ keepLocal: true });
     try{
       await runSaving({btn:btn,busyText:inCart?"กำลังบันทึกตะกร้า…":"กำลังบันทึก…"},async()=>{
-        const r=await callAuthed("updateCartOrderByOrderId",orderId,{items:items,note:note,contactPhone:contactPhone});
+        const r=await callAuthed("updateCartOrderByOrderId",orderId,editPayload);
         applyLocalOrderNoteUpdate_(orderId,note);
         applyLocalOrderContactUpdate_(orderId,contactPhone);
         applyLocalOrderCartUpdate_(orderId,r,items,orderGroup,note,contactPhone);
@@ -5473,10 +5582,11 @@ const app = {
           <div class="space-y-2">
             <input id="admin-year" class="glass-input p-2 text-sm" placeholder="รอบปี" value="${escHtml(appData.round.year)}">
             <input id="admin-name" class="glass-input p-2 text-sm" placeholder="ชื่อสินค้า" value="${escHtml(appData.round.name)}">
-            <input id="admin-price" type="number" class="glass-input p-2 text-sm" placeholder="ราคาต่อตัว" value="${appData.round.unitPrice}">
+            <input id="admin-price" type="number" class="glass-input p-2 text-sm" placeholder="ราคาปกติ (ฐาน)" value="${appData.baseUnitPrice||appData.round.baseUnitPrice||appData.round.unitPrice}">
             <button onclick="app.saveRound(this)" class="w-full glass-btn-pea py-2 text-sm">บันทึกรอบ/ราคา</button>
           </div>
         </div>
+        ${renderAdminPromotionsPanel_()}
         <div class="glass-card-inner p-4">
           <h3 class="font-bold text-sm mb-3 text-glass"><i class="fas fa-university mr-1"></i> บัญชีสำหรับการโอนเงิน</h3>
           <p class="text-xs text-glass-dim mb-2">แสดงในหน้าสั่งซื้อเสื้อและรายการสั่งซื้อ (1 บรรทัดต่อข้อมูล)</p>
@@ -5547,6 +5657,120 @@ const app = {
     await ensureAdminExtrasLoaded_();
     this.syncAdminEmailNotifyPanel_();
     this.loadUserList();
+  },
+
+  applyCurrentPromoPriceToCartEdit(orderId){
+    const safeId=ddSafeId(orderId);
+    const el=document.getElementById("cart-edit-unitprice-"+safeId);
+    if(!el)return;
+    const promoPrice=Number(appData?.unitPrice||0);
+    if(!promoPrice||promoPrice<=0){this.showMsg("ไม่มีโปรโมชั่นที่ใช้งาน","warning");return;}
+    el.value=promoPrice;
+    this.showMsg("ตั้งราคาเป็นโปรปัจจุบัน "+fmtMoney(promoPrice)+" ฿","success");
+  },
+
+  promoDateParts_(iso){
+    const s=String(iso||"").trim();
+    if(!s)return {date:"",time:"00:00"};
+    const m=s.match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::\d{2})?)?/);
+    if(m)return {date:m[1],time:(m[2]||"00:00").slice(0,5)};
+    return {date:"",time:"00:00"};
+  },
+
+  openPricePromotionModal(promoId){
+    const promos=Array.isArray(appData?.pricePromotions)?appData.pricePromotions:[];
+    const p=promoId?promos.find(x=>String(x.id)===String(promoId)):null;
+    const start=this.promoDateParts_(p&&p.startAt);
+    const end=this.promoDateParts_(p&&p.endAt);
+    const base=Number(appData?.baseUnitPrice||appData?.unitPrice||0);
+    const html=`
+      <div class="login-overlay" id="promo-modal">
+        <div class="login-card" style="max-width:520px">
+          <div class="login-title">${p?"แก้ไขโปรโมชั่น":"เพิ่มโปรโมชั่น"}</div>
+          <p class="login-sub text-xs">ราคาฐาน ${fmtMoney(base)} ฿ · โปรที่ใช้งานจะแสดงราคาต่ำสุดในช่วงเวลา</p>
+          <div class="space-y-2">
+            <input id="promo-name" class="glass-input text-sm" placeholder="ชื่อโปรโมชั่น *" value="${escAttr(p&&p.name||"")}">
+            <input id="promo-price" type="number" min="1" class="glass-input text-sm" placeholder="ราคาโปร (฿) *" value="${p&&p.promoPrice?p.promoPrice:""}">
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="glass-label text-xs">เริ่ม (วันที่)</label><input id="promo-start-date" type="date" class="glass-input text-sm" value="${escAttr(start.date)}"></div>
+              <div><label class="glass-label text-xs">เริ่ม (เวลา)</label><input id="promo-start-time" type="time" class="glass-input text-sm" value="${escAttr(start.time)}"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="glass-label text-xs">สิ้นสุด (วันที่)</label><input id="promo-end-date" type="date" class="glass-input text-sm" value="${escAttr(end.date)}"></div>
+              <div><label class="glass-label text-xs">สิ้นสุด (เวลา)</label><input id="promo-end-time" type="time" class="glass-input text-sm" value="${escAttr(end.time||"23:59")}"></div>
+            </div>
+            <input id="promo-priority" type="number" min="1" class="glass-input text-sm" placeholder="ลำดับความสำคัญ (ต่ำ = สำคัญ)" value="${p&&p.priority?p.priority:1}">
+            <input id="promo-note" class="glass-input text-sm" placeholder="หมายเหตุ (ไม่บังคับ)" value="${escAttr(p&&p.note||"")}">
+            <label class="text-sm flex items-center gap-2"><input id="promo-active" type="checkbox" ${!p||p.active!==false?"checked":""}> เปิดใช้งาน</label>
+            <input id="promo-id" type="hidden" value="${escAttr(p&&p.id||"")}">
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <button type="button" onclick="app.closePricePromotionModal()" class="glass-btn-secondary py-2">ยกเลิก</button>
+              <button type="button" onclick="app.savePricePromotion(this)" class="glass-btn-primary py-2">บันทึก</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const wrap=document.createElement("div");
+    wrap.innerHTML=html;
+    document.body.appendChild(wrap.firstElementChild);
+  },
+
+  editPricePromotion(promoId){
+    this.openPricePromotionModal(promoId);
+  },
+
+  closePricePromotionModal(){
+    const m=document.getElementById("promo-modal");
+    if(m)m.remove();
+  },
+
+  buildPromoDateTime_(dateId,timeId){
+    const d=document.getElementById(dateId)?.value;
+    let t=document.getElementById(timeId)?.value||"00:00";
+    if(!d)return "";
+    if(t.length===5)t+=":00";
+    return d+"T"+t;
+  },
+
+  async savePricePromotion(btn){
+    if(btn&&btn.dataset&&btn.dataset.busy==="1")return;
+    const name=String(document.getElementById("promo-name")?.value||"").trim();
+    const promoPrice=Number(document.getElementById("promo-price")?.value);
+    const startAt=this.buildPromoDateTime_("promo-start-date","promo-start-time");
+    const endAt=this.buildPromoDateTime_("promo-end-date","promo-end-time");
+    const priority=Math.max(1,Number(document.getElementById("promo-priority")?.value)||1);
+    const note=String(document.getElementById("promo-note")?.value||"").trim();
+    const active=!!document.getElementById("promo-active")?.checked;
+    const id=String(document.getElementById("promo-id")?.value||"").trim();
+    if(!name)return this.showMsg("กรุณาระบุชื่อโปร","error");
+    if(!promoPrice||promoPrice<=0)return this.showMsg("ราคาโปรต้องมากกว่า 0","error");
+    if(!startAt||!endAt)return this.showMsg("กรุณาระบุวันเริ่มและสิ้นสุด","error");
+    try{
+      const payload={id:id||undefined,name:name,promoPrice:promoPrice,startAt:startAt,endAt:endAt,priority:priority,note:note,active:active};
+      await runSaving({btn:btn,busyText:"กำลังบันทึกโปร…"},async()=>{
+        await callAuthed("savePricePromotion",payload);
+        invalidateClientCache();
+        await ensureAdminExtrasLoaded_();
+        await ensureAppData(true);
+      });
+      this.closePricePromotionModal();
+      this.showMsg("บันทึกโปรโมชั่นแล้ว","success");
+      app.navigate("admin");
+    }catch(e){this.showMsg(e.message||"บันทึกไม่สำเร็จ","error")}
+  },
+
+  async deletePricePromotionPrompt(promoId){
+    if(!promoId||!confirm("ลบโปรโมชั่นนี้?"))return;
+    try{
+      await runSaving({busyText:"กำลังลบ…"},async()=>{
+        await callAuthed("deletePricePromotion",promoId);
+        invalidateClientCache();
+        await ensureAdminExtrasLoaded_();
+        await ensureAppData(true);
+      });
+      this.showMsg("ลบโปรโมชั่นแล้ว","success");
+      app.navigate("admin");
+    }catch(e){this.showMsg(e.message||"ลบไม่สำเร็จ","error")}
   },
 
   syncAdminEmailNotifyPanel_(){

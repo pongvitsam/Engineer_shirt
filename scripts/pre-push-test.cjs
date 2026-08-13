@@ -13,6 +13,7 @@ const PARALLEL_SUITES = [
   { id: "stock", label: "Stock consistency", file: "__test_stock_consistency.cjs" },
   { id: "audit", label: "System audit", file: "__test_system_audit.cjs" },
   { id: "realtime", label: "Realtime / optimistic UI", file: "__test_realtime_client.cjs" },
+  { id: "promo", label: "Price promotions", file: "__test_price_promotions.cjs" },
 ];
 
 const SEQUENTIAL_SUITES = [

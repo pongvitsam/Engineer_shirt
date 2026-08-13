@@ -232,7 +232,7 @@ assert("slim bootstrap RPC and cache", () => {
   if (!code.includes("function slimRoundPayloadForExternal_")) throw new Error("missing slimRoundPayloadForExternal_");
   if (!code.includes("function buildBootstrapDataForCache_")) throw new Error("missing buildBootstrapDataForCache_");
   if (!code.includes("getRpcPing")) throw new Error("missing getRpcPing");
-  if (!code.includes("bootstrap_v13")) throw new Error("expected bootstrap_v13 cache key");
+  if (!code.includes("bootstrap_v14")) throw new Error("expected bootstrap_v14 cache key");
   if (!code.includes("transferAccount")) throw new Error("bootstrap missing transferAccount");
   if (!code.includes("supportContact")) throw new Error("bootstrap missing supportContact");
 });
@@ -655,6 +655,27 @@ assert("admin email notify settings and hooks", () => {
   if (!/function sendTestEmailNotify[\s\S]*?if \(!token\) return runSendTestEmailFromEditor/.test(code)) {
     throw new Error("sendTestEmailNotify must support Script Editor runs without token");
   }
+});
+
+assert("price promotions and per-order unit price", () => {
+  const code = fs.readFileSync(path.join(__dirname, "Code.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "JavaScript.html"), "utf8");
+  if (!code.includes("PRICE_PROMOTIONS_SHEET")) throw new Error("missing PRICE_PROMOTIONS_SHEET");
+  if (!code.includes("function resolveUnitPrice_")) throw new Error("missing resolveUnitPrice_");
+  if (!code.includes("function savePricePromotion")) throw new Error("missing savePricePromotion RPC");
+  if (!code.includes("function deletePricePromotion")) throw new Error("missing deletePricePromotion RPC");
+  if (!code.includes("function buildOrderRowArray_")) throw new Error("missing buildOrderRowArray_");
+  if (!code.includes("ORDER_AUDIT_SHEET")) throw new Error("missing ORDER_AUDIT_SHEET");
+  if (!code.includes("ราคาต่อตัว")) throw new Error("orders sheet missing unit price column");
+  if (!code.includes("applyResolvedPriceToBootstrap_")) throw new Error("missing applyResolvedPriceToBootstrap_");
+  if (!/function updateCartOrderByOrderId[\s\S]*payload\.unitPrice/.test(code)) {
+    throw new Error("updateCartOrderByOrderId must accept admin unitPrice override");
+  }
+  if (!html.includes("renderAdminPromotionsPanel_")) throw new Error("missing admin promotions panel");
+  if (!html.includes("openPricePromotionModal")) throw new Error("missing promo modal handler");
+  if (!html.includes("renderStockPriceHtml_")) throw new Error("missing stock promo price display");
+  if (!html.includes("cart-edit-unitprice")) throw new Error("missing admin cart unit price field");
+  if (!html.includes("orderGroupUnitPrice_")) throw new Error("missing orderGroupUnitPrice_ helper");
 });
 
 console.log("\n" + passed + "/" + (passed + failed) + " passed\n");
