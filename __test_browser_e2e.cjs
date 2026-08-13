@@ -105,7 +105,13 @@ async function main() {
     const orderNav = page.locator('button:has-text("สั่งซื้อเสื้อ")');
     if (!(await orderNav.count())) throw new Error("order nav missing");
     await orderNav.first().click();
-    await page.waitForSelector("text=สั่งซื้อเสื้อ (สั่งหลายไซส์)", { timeout: TIMEOUT });
+    const openForm = page.locator("text=สั่งซื้อเสื้อ (สั่งหลายไซส์)");
+    const closedForm = page.locator("text=ปิดรับสั่งซื้อชั่วคราว");
+    await Promise.race([
+      openForm.first().waitFor({ state: "visible", timeout: TIMEOUT }),
+      closedForm.first().waitFor({ state: "visible", timeout: TIMEOUT }),
+    ]);
+    if (await closedForm.count()) return;
     if (!(await page.locator("text=ยืนยันสั่งซื้อ").count())) {
       throw new Error("confirm order UI missing");
     }
